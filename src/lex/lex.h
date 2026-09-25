@@ -95,9 +95,10 @@ typedef struct TokenList {
 typedef struct LangOpts {
     CStd std;
     bool gnu_mode;
-    bool pedantic; /* -pedantic: pedwarns become visible; parsers also use
-                      this bit for dialect-sensitive syntax */
-    bool fwrapv;   /* signed arithmetic wraps: suppress IR no-wrap provenance */
+    bool gnu89_inline; /* dialect default or -fgnu89-inline override */
+    bool pedantic;     /* -pedantic: pedwarns become visible; parsers also use
+                          this bit for dialect-sensitive syntax */
+    bool fwrapv; /* signed arithmetic wraps: suppress IR no-wrap provenance */
     bool safe_mode; /* -fsafe policy diagnostics at syntax-only boundaries */
     /* -ffreestanding: no hosted library may be assumed. gcc stops treating
      * the standard names as builtins here, so `snprintf` is just a function

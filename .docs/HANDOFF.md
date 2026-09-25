@@ -295,12 +295,14 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #146 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements `__builtin___stpcpy_chk`, closes the final
-ten imported `pr59362.c` cells, and raises the ratchet to 31,840 PASS keys.
-The current `s56.52-builtin-stack-save-restore` tranche targets
-`__builtin_stack_save` / `__builtin_stack_restore` and the ten remaining
-target-complete `20071117-1.c` cells.
+PR #148 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements `__builtin_clear_padding`, closes the final
+ten pre-triaged `gcc-builtin` cells, and raises the ratchet to 31,860 PASS
+keys. The active `s56.54-fgnu89-inline` tranche makes the imported
+`-fgnu89-inline` corpus runnable and implements its translation-unit-wide
+GNU89 inline model. Its two-target focused matrix currently promotes 190 of
+210 formerly skipped cells; the remaining 20 are explicitly isolated as the
+checked variadic forwarding and broader `__builtin_constant_p` candidates.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7905,14 +7907,55 @@ and green post-publication CI.
   PR #147 merged green-only as
   `9ee16c429972ef45dbd88b32657b7707837612c2`; its parents and tree are
   identical to the final tested merge.
-- The active `s56.53-builtin-clear-padding` tranche starts from merged #147.
-  It targets the final ten pre-triaged `gcc-builtin` cells, all from imported
-  `torture-compile/pr98087.c`: two targets by five optimization levels. The
-  implementation must provide GCC's real object-representation semantics --
-  including nested records and arrays, bit-field masks, union padding common
-  to every member, x87 `long double` tail padding, and zero-sized/VLA safety --
-  rather than a parse-only no-op. When target-complete publication succeeds,
-  the `gcc-builtin` bucket should fall from ten to zero.
+- PR #148's `s56.53-builtin-clear-padding` tranche implements GCC's real
+  object-representation semantics for `__builtin_clear_padding`, including
+  nested records and arrays, bit-field masks, union padding common to every
+  member, x87 `long double` tail padding, and zero-sized/VLA safety. Its atomic
+  target-complete publication adds the final ten pre-triaged `gcc-builtin`
+  cells from `pr98087.c`, raising the ratchet to 31,860 PASS keys (31,863
+  lines), leaving 2,180 classified failures, and reducing `gcc-builtin` from
+  ten to zero. PASS and triage SHA-256 values are respectively
+  `d660a4213d6ff658895cf7e291b95b01a1ba8f9d0ea711020f58532082e3a2b6`
+  and `244661c0009f1971b890a88fe4183e9672a8861f2363622f939234c52594ae5a`.
+
+  GitHub's final tested synthetic merge is
+  `43c6fcf65a29aef84d5ac337716f67f3ebe1cd25`, with parents `9ee16c42`
+  and `e556ae87`; final standard
+  [run 36096595480](https://github.com/tenseleyFlow/Cgfried/actions/runs/36096595480)
+  passes all 24 executed jobs, native ARM nightly
+  [run 36098695033](https://github.com/tenseleyFlow/Cgfried/actions/runs/36098695033)
+  passes all fifteen, and full-lattice bootstrap
+  [run 36098696607](https://github.com/tenseleyFlow/Cgfried/actions/runs/36098696607)
+  passes all seven. Final x86 and ARM streams have SHA-256 values
+  `20eb813f5dee010c500c310f03a288a59e554b4b8038170ab91e63e9a8811635`
+  and `915b7e737f8a804eaec564442434c90f997dca6f6f979916f4038758c8aca02d`.
+  PR #148 merged green-only as
+  `e69985c8aefd24bdf8105bfb7d594ad9ef8a0db8`; its parents are `9ee16c42`
+  and `e556ae87`, and tree
+  `85a8ed03d103b6250366c9620ef61cf3df3bae4f` is byte-identical to the
+  tested final synthetic merge.
+- The active `s56.54-fgnu89-inline` tranche starts from merged #148. It
+  recognizes ordered `-fgnu89-inline` / `-fno-gnu89-inline`, exposes the
+  matching preprocessor model marker without falsely claiming a GCC identity
+  in strict ISO mode, applies the GNU89 inline model across the translation
+  unit, and permits a GNU `extern inline` body to be superseded by the real
+  ordinary, static, or alias definition. Lowering emits only that selected
+  body. The importer now preserves the option and the one associated warning
+  control, making all 21 imported sources runnable across two targets and five
+  optimization levels (210 cells).
+
+  Focused normal and ASan+UBSan unit slices are green; the complete Apple
+  Silicon unit suite reaches 967 tests with only the same eight documented
+  host-assumption failures. The expanded emission differential agrees 14/14
+  with both the Darwin reference frontend and real GCC 13 on Linux x86_64.
+  Native Linux x86_64 and ARM64 focused matrices agree exactly: 95 of 105
+  cells pass on each target. The 190 promoted cells have no target divergence.
+  The remaining 20 are not hidden: ten `pr37669.c` cells are fingerprinted as
+  checked `snprintf`/`strdup` variadic-pack forwarding work for
+  `s56.55-gnu-va-pack-checked-snprintf`, and ten `bcp-1.c` cells are
+  fingerprinted as broader constant-expression folding work for
+  `s56.56-constant-p-expression-folding`. Both decisions are committed to the
+  triage policy before target-complete baseline publication.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

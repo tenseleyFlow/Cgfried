@@ -122,8 +122,10 @@ validate_manifest_schema()
             for (i=1; i<=count; i++) {
                 valid = flag[i] == "-fcommon" || flag[i] == "-fno-common" ||
                     flag[i] == "-fwrapv" || flag[i] == "-fno-strict-aliasing" ||
+                    flag[i] == "-fgnu89-inline" ||
                     flag[i] == "-fomit-frame-pointer" ||
                     flag[i] == "-fno-omit-frame-pointer" ||
+                    flag[i] == "-Wno-pointer-to-int-cast" ||
                     flag[i] ~ /^-std=(c89|c90|c99|c11|c17|c18|gnu89|gnu90|gnu99|gnu11|gnu17|gnu18)$/
                 if (!valid) exit 1
             }
@@ -275,8 +277,10 @@ metadata_for()
                     for (i=1; i<=count; i++) {
                         valid = option[i] == "-fcommon" || option[i] == "-fno-common" ||
                             option[i] == "-fwrapv" || option[i] == "-fno-strict-aliasing" ||
+                            option[i] == "-fgnu89-inline" ||
                             option[i] == "-fomit-frame-pointer" ||
                             option[i] == "-fno-omit-frame-pointer" ||
+                            option[i] == "-Wno-pointer-to-int-cast" ||
                             option[i] ~ /^-std=(c89|c90|c99|c11|c17|c18|gnu89|gnu90|gnu99|gnu11|gnu17|gnu18)$/
                         if (!valid) {
                             if (disposition != "skip") {

@@ -695,6 +695,27 @@ void test_args_std_aliases(TestCtx *t)
         T_ASSERT(t, a.bad_value != NULL);
         args_free(&a);
     }
+    {
+        DriverArgs a;
+
+        PARSE(a, &ar, (char *)"-fgnu89-inline", (char *)"-fno-gnu89-inline",
+              (char *)"-fgnu89-inline", (char *)"t.c");
+        T_ASSERT(t, a.fgnu89_inline_set && a.fgnu89_inline);
+        T_ASSERT(t, !a.fno_gnu89_inline_c89);
+        T_ASSERT_EQ_INT(t, (int)a.warn_unrecognized.len, 0);
+        args_free(&a);
+
+        PARSE(a, &ar, (char *)"-fno-gnu89-inline", (char *)"-std=gnu89",
+              (char *)"t.c");
+        T_ASSERT(t, a.fgnu89_inline_set && !a.fgnu89_inline);
+        T_ASSERT(t, a.fno_gnu89_inline_c89);
+        args_free(&a);
+
+        PARSE(a, &ar, (char *)"-std=gnu89", (char *)"-fno-gnu89-inline",
+              (char *)"-std=gnu17", (char *)"t.c");
+        T_ASSERT(t, !a.fno_gnu89_inline_c89);
+        args_free(&a);
+    }
     arena_free_all(&ar);
 }
 

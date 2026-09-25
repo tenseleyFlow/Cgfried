@@ -1175,7 +1175,8 @@ static Linkage linkage_for(Sema *s, const Symbol *prev, u32 storage,
 
 /* --- redeclaration ------------------------------------------------------- */
 
-static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
+static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage,
+                                bool replace_gnu_extern_inline)
 {
     Type *composite;
 
@@ -1261,13 +1262,21 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
      * extern int x;`) because there the extern picks up internal linkage
      * from the prior declaration. Match both halves. */
     if (prev->linkage != cur->linkage && cur->linkage == LINK_INTERNAL) {
-        s->nerrors++;
-        diag_emit(s->dc, DIAG_ERROR, cur->span,
-                  "static declaration of '%s' follows non-static "
-                  "declaration",
-                  cur->name);
-        diag_emit(s->dc, DIAG_NOTE, prev->span, "previous declaration is here");
-        return;
+        if (!replace_gnu_extern_inline) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, cur->span,
+                      "static declaration of '%s' follows non-static "
+                      "declaration",
+                      cur->name);
+            diag_emit(s->dc, DIAG_NOTE, prev->span,
+                      "previous declaration is here");
+            return;
+        }
+        /* A GNU89 `extern inline` body is not an external definition.
+         * GCC consequently permits the real definition that follows it to
+         * select internal linkage. The inline body remains usable only as
+         * an optimization candidate until this replacement is seen. */
+        prev->linkage = cur->linkage;
     }
 
     /* GCC diagnoses a prototype-first K&R mismatch at the parameter after
@@ -1288,7 +1297,7 @@ static void merge_redeclaration(Sema *s, Symbol *prev, Symbol *cur, u32 storage)
         return;
     }
 
-    if (prev->defined && cur->defined) {
+    if (prev->defined && cur->defined && !replace_gnu_extern_inline) {
         s->nerrors++;
         diag_emit(s->dc, DIAG_ERROR, cur->span, "redefinition of '%s'",
                   cur->name);
@@ -3278,7 +3287,8 @@ static void declare_one(Sema *s, AstNode *d)
     /* GNU89 makes its inverted inline model the dialect default. In newer
      * GNU modes it is selected declaration-by-declaration by gnu_inline,
      * which is how glibc keeps GNU emission while compiling as gnu17. */
-    if (is_func && (d->func_specs & AST_FS_INLINE) && s->lang->std == STD_GNU89)
+    if (is_func && (d->func_specs & AST_FS_INLINE) &&
+        (s->lang->gnu89_inline || s->lang->std == STD_GNU89))
         d->gnu.gnu_inline = true;
 
     /* `gnu_inline` only has meaning on an inline FUNCTION declaration.
@@ -3567,6 +3577,12 @@ static void declare_one(Sema *s, AstNode *d)
 
     prev = scope_lookup_local(s->scope, d->name, NS_ORDINARY);
     if (prev) {
+        bool replace_gnu_extern_inline =
+            is_func && prev->defined && sym->defined && prev->gnu.gnu_inline &&
+            prev->func_def_inline && prev->func_def_extern &&
+            !(sym->gnu.gnu_inline && sym->func_def_inline &&
+              sym->func_def_extern);
+
         /* Once an inline declaration selects GNU89 semantics, every later
          * inline declaration must say the same thing. A prior NON-inline
          * prototype is intentionally exempt: that is the shape glibc uses. */
@@ -3586,15 +3602,24 @@ static void declare_one(Sema *s, AstNode *d)
             prev->all_decls_inline && (d->func_specs & AST_FS_INLINE) != 0;
         prev->any_decl_extern =
             prev->any_decl_extern || (d->storage & AST_SC_EXTERN) != 0;
-        prev->func_def_inline |= sym->func_def_inline;
-        prev->func_def_extern |= sym->func_def_extern;
-        if (sym->func_def)
-            prev->func_def = sym->func_def;
         if (d->storage & AST_SC_THREAD_LOCAL)
             prev->tls = true;
         carry_symbol_attrs(prev, sym);
         append_valid_attrs(s, prev, d, type);
-        merge_redeclaration(s, prev, sym, d->storage);
+        merge_redeclaration(s, prev, sym, d->storage,
+                            replace_gnu_extern_inline);
+        /* These describe the ONE body selected for lowering, not a union of
+         * every body ever parsed. A GNU extern-inline body may be replaced
+         * by a later ordinary/static definition or alias definition. */
+        if (replace_gnu_extern_inline) {
+            prev->func_def_inline = sym->func_def_inline;
+            prev->func_def_extern = sym->func_def_extern;
+            prev->func_def = sym->func_def;
+        } else if (sym->func_def && !prev->func_def) {
+            prev->func_def_inline = sym->func_def_inline;
+            prev->func_def_extern = sym->func_def_extern;
+            prev->func_def = sym->func_def;
+        }
         d->sym = prev; /* lowering resolves the DECL to its symbol */
         /* The initializer still has to be TYPED even when the declaration
          * merged into an earlier one, or its expressions never get

@@ -1425,6 +1425,11 @@ static void lower_function(Lower *lo, AstNode *def)
 
     if (!sym || !sym->type || sym->type->kind != TY_FUNC)
         return;
+    /* A GNU89 extern-inline body may be followed by the translation unit's
+     * real definition (or by an alias definition). Whole-TU sema records the
+     * single selected body; never lower the superseded AST definition. */
+    if (def != sym->func_def)
+        return;
     /* GNU argument packs are source-level inliner operands. The definition
      * is specialized into every direct caller and is never emitted as a
      * standalone body where the pack would have no supplying call site. */
@@ -1873,6 +1878,8 @@ static IrModule *lower_translation_unit_impl(Arena *arena, DiagCtx *dc,
             sym = scope_lookup(sema->file_scope, d->name, NS_ORDINARY);
             if (!sym || !sym->type || sym->type->kind != TY_FUNC)
                 continue;
+            if (d != sym->func_def)
+                continue; /* superseded GNU extern-inline body */
             if (sym->uses_va_arg_pack)
                 continue;
             if (sym->inline_kind == INL_INLINE_DEF && !include_inline_defs &&

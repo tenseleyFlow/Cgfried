@@ -36,9 +36,13 @@ mkdir -p "$ref/gcc/testsuite/gcc.c-torture/compile" \
     "$ref/gcc/testsuite/gcc.c-torture/execute/builtins" "$work/bin"
 cp "$repo/tests/torture/compile/20000105-1.c" \
     "$ref/gcc/testsuite/gcc.c-torture/compile/"
+cp "$repo/tests/torture/compile/20000120-2.c" \
+    "$ref/gcc/testsuite/gcc.c-torture/compile/"
 cp "$repo/tests/torture/execute/20000112-1.c" \
     "$ref/gcc/testsuite/gcc.c-torture/execute/"
 cp "$repo/tests/torture/execute/float-floor.c" \
+    "$ref/gcc/testsuite/gcc.c-torture/execute/"
+cp "$repo/tests/torture/execute/loop-2c.c" \
     "$ref/gcc/testsuite/gcc.c-torture/execute/"
 cp "$repo/tests/torture/execute-ieee/20041213-1.c" \
     "$ref/gcc/testsuite/gcc.c-torture/execute/ieee/"
@@ -76,6 +80,15 @@ run_import()
 }
 
 run_import >/dev/null
+awk -F "$(printf '\\t')" '$1 == "compile/20000120-2.c" &&
+    $5 == "-fgnu89-inline" && $6 == "run" && $7 == "-" { found=1 }
+    END { exit !found }' "$out/MANIFEST" ||
+    fail "-fgnu89-inline did not enter the runnable manifest"
+awk -F "$(printf '\\t')" '$1 == "execute/loop-2c.c" &&
+    $5 == "-fgnu89-inline -Wno-pointer-to-int-cast" &&
+    $6 == "run" && $7 == "-" { found=1 }
+    END { exit !found }' "$out/MANIFEST" ||
+    fail "combined GNU89-inline warning flags did not enter the runnable manifest"
 awk -F "$(printf '\\t')" '$1 == "execute/float-floor.c" && $6 == "run" && $7 == "-" { found=1 }
     END { exit !found }' "$out/MANIFEST" ||
     fail "float-floor did not return to the runnable manifest"

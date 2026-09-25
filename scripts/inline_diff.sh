@@ -30,22 +30,45 @@ agree=0
 disagree=0
 n=0
 
-# check <expected-emit yes|no> <source...>
-check() {
-    want=$1
-    shift
+# check_mode <iso|gnu89-option> <expected-emit yes|no> <source...>
+check_mode() {
+    mode=$1
+    want=$2
+    shift 2
     n=$((n + 1))
     id=$(printf 'i%02d' "$n")
     printf '%s\n' "$@" > "$WORK/$id.c"
 
-    "$GCC" -std=c17 -O0 -S -o "$WORK/$id.s" "$WORK/$id.c" 2>/dev/null
-    if grep -qE '^f:' "$WORK/$id.s"; then gcc_emit=yes; else gcc_emit=no; fi
+    case $mode in
+    iso)
+        "$GCC" -std=c17 -O0 -S -o "$WORK/$id.s" "$WORK/$id.c" 2>/dev/null
+        ;;
+    gnu89-option)
+        "$GCC" -std=gnu17 -fgnu89-inline -O0 -S -o "$WORK/$id.s" \
+            "$WORK/$id.c" 2>/dev/null
+        ;;
+    *) echo "inline_diff: unknown mode $mode" >&2; exit 2 ;;
+    esac
+    # ELF spells the C symbol `f`; Mach-O gives it the leading underscore `_f`.
+    if grep -qE '^_?f:' "$WORK/$id.s"; then gcc_emit=yes; else gcc_emit=no; fi
 
-    ours=$("$CGF" -fdump-sema "$WORK/$id.c" 2>/dev/null |
-        awk '/^func f:/ {
-            if (/emit-external=no/) print "no";
-            else print "yes";
-            exit }')
+    case $mode in
+    iso)
+        ours=$("$CGF" -std=c17 -fdump-sema "$WORK/$id.c" 2>/dev/null |
+            awk '/^func f:/ {
+                if (/emit-external=no/) print "no";
+                else print "yes";
+                exit }')
+        ;;
+    gnu89-option)
+        ours=$("$CGF" -std=gnu17 -fgnu89-inline -fdump-sema \
+            "$WORK/$id.c" 2>/dev/null |
+            awk '/^func f:/ {
+                if (/emit-external=no/) print "no";
+                else print "yes";
+                exit }')
+        ;;
+    esac
     [ -n "$ours" ] || ours=missing
 
     if [ "$gcc_emit" != "$want" ]; then
@@ -60,6 +83,9 @@ check() {
     fi
 }
 
+check() { check_mode iso "$@"; }
+check_gnu89_option() { check_mode gnu89-option "$@"; }
+
 # The four matrix rows.
 check no  'inline int f(void) { return 1; }'
 check yes 'extern inline int f(void) { return 1; }'
@@ -72,6 +98,16 @@ check yes 'inline int f(void) { return 1; }' 'extern int f(void);'
 check yes 'extern inline int f(void);' 'inline int f(void) { return 1; }'
 check no  'inline int f(void);' 'inline int f(void) { return 1; }'
 check no  'inline int f(void) { return 1; }' 'inline int f(void);'
+
+# The command-line override selects GNU89's inverted model without changing
+# the rest of the gnu17 dialect. A later real definition replaces the
+# inline-only body; it is not a duplicate definition, and may be static.
+check_gnu89_option no  'extern inline int f(void) { return 1; }'
+check_gnu89_option yes 'inline int f(void) { return 1; }'
+check_gnu89_option yes 'extern inline int f(void) { return 1; }' \
+    'int f(void) { return 2; }'
+check_gnu89_option yes 'extern inline int f(void) { return 1; }' \
+    'static int f(void) { return 2; }'
 
 total=$((agree + disagree))
 echo "inline_diff: $agree/$total emission decisions match gcc -S"

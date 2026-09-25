@@ -33,7 +33,9 @@ measure against. `-std=c*` does not define it at all.
 The identity includes the semantics that headers inspect alongside the
 version: GNU89 defines `__GNUC_GNU_INLINE__`, newer GNU modes define
 `__GNUC_STDC_INLINE__`, and `__USER_LABEL_PREFIX__` is empty on ELF but `_`
-on arm64-macos. Strict ISO modes define none of these GNU identity macros.
+on arm64-macos. Strict ISO modes define none of these GNU identity macros
+unless `-fgnu89-inline` explicitly selects the GNU inline model; that option
+defines `__GNUC_GNU_INLINE__` without falsely enabling the GCC version tuple.
 
 That split is load-bearing rather than cosmetic. Defining `__GNUC__` is a
 PROMISE: glibc's `sys/cdefs.h` gates dozens of declarations on it, and taking
@@ -93,6 +95,7 @@ predefine.
 | integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c` |
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
 | `gnu_inline` | `tests/programs/gnu/attr_gnu_inline.c` | glibc's `__extern_always_inline`; selects GNU89 symbol-emission rules under C99-or-newer modes |
+| `-fgnu89-inline` / `-fno-gnu89-inline` | `tests/torture/compile/20000120-2.c` | translation-unit-wide selection of GNU89 versus ISO inline emission, including replacement of an `extern inline` body by the real ordinary or static definition |
 | `always_inline` | `tests/programs/gnu/attr_always_inline.c` | glibc's `__extern_always_inline`, musl and performance-critical header helpers; forces every available direct call even at `-O0` |
 | `returns_twice` | `tests/programs/gnu/attr_returns_twice.c` | setjmp-like runtime entry points whose callers must keep locals in memory and preserve the resumed control-flow boundary |
 | `__builtin_va_arg_pack()` / `__builtin_va_arg_pack_len()` | `tests/corpus/x86_64/int/gnu_va_arg_pack.c` | glibc's `<error.h>` and forwarding wrappers that preserve the caller's anonymous arguments |
