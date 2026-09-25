@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `4e22bbc30febe49fbc0accae32a56fa680f96fcb`
-- compiler-source-sha256: `c2763fc01e25dfdde4b3659168dfeae35cc0d4ed5eb0e17d10e18e3f684d0a21`
+- source-revision: `dbb9d749679ef71391f5ff860dad93dd72f9c558`
+- compiler-source-sha256: `ecc06a14fd9559c08cf72f3701eaa35573ac51ae5b3a237ee47bd65ed8a2cda9`
 - harness-sha256: `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`
-- torture-manifest-sha256: `2757eaa59a81868c7565a9ff745ffced6e6a01c01efa0d000bdf27949e360da0`
+- torture-manifest-sha256: `53a8a70ea4b8841f5fa29ad3938c0eeccad33077560dd8db69b5fcc510fd5307`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `76fc0ea0f60cf30a91fabc542c98f9e7ae1383e9f265a2edaeeaf1242f74ea91` | `76fc0ea0f60cf30a91fabc542c98f9e7ae1383e9f265a2edaeeaf1242f74ea91` |
-| x86_64-linux-gnu | `6f8a09073ca6d572630f9ab8035c3d3983c3881511ecd803f17cf354a5c9ac87` | `6f8a09073ca6d572630f9ab8035c3d3983c3881511ecd803f17cf354a5c9ac87` |
+| arm64-linux | `dc9a2b5d6d2b0a9cc43de19337dccdc7581ad525a13344c6631b80c10e644073` | `dc9a2b5d6d2b0a9cc43de19337dccdc7581ad525a13344c6631b80c10e644073` |
+| x86_64-linux-gnu | `c103db875da6899d1308bd8869769da0e34e5c7faf7bdb597a885d0603b53f65` | `c103db875da6899d1308bd8869769da0e34e5c7faf7bdb597a885d0603b53f65` |
 
 ## Baseline
 
@@ -29,26 +29,26 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | ctestsuite | O3 | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | arm64-linux | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
-| torture-compile | O0 | arm64-linux | 2016 | 1501 | 376 | 0 | 139 | 91.52% |
-| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1501 | 376 | 0 | 139 | 91.52% |
-| torture-compile | O1 | arm64-linux | 2016 | 1501 | 376 | 0 | 139 | 91.52% |
-| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1501 | 376 | 0 | 139 | 91.52% |
-| torture-compile | O2 | arm64-linux | 2016 | 1501 | 376 | 0 | 139 | 91.52% |
-| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1501 | 376 | 0 | 139 | 91.52% |
-| torture-compile | O3 | arm64-linux | 2016 | 1501 | 376 | 0 | 139 | 91.52% |
-| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1501 | 376 | 0 | 139 | 91.52% |
-| torture-compile | Os | arm64-linux | 2016 | 1501 | 376 | 0 | 139 | 91.52% |
-| torture-compile | Os | x86_64-linux-gnu | 2016 | 1501 | 376 | 0 | 139 | 91.52% |
-| torture-execute | O0 | arm64-linux | 1752 | 1421 | 256 | 0 | 75 | 94.99% |
-| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1421 | 256 | 0 | 75 | 94.99% |
-| torture-execute | O1 | arm64-linux | 1752 | 1421 | 256 | 0 | 75 | 94.99% |
-| torture-execute | O1 | x86_64-linux-gnu | 1752 | 1421 | 256 | 0 | 75 | 94.99% |
-| torture-execute | O2 | arm64-linux | 1752 | 1421 | 256 | 0 | 75 | 94.99% |
-| torture-execute | O2 | x86_64-linux-gnu | 1752 | 1421 | 256 | 0 | 75 | 94.99% |
-| torture-execute | O3 | arm64-linux | 1752 | 1421 | 256 | 0 | 75 | 94.99% |
-| torture-execute | O3 | x86_64-linux-gnu | 1752 | 1421 | 256 | 0 | 75 | 94.99% |
-| torture-execute | Os | arm64-linux | 1752 | 1421 | 256 | 0 | 75 | 94.99% |
-| torture-execute | Os | x86_64-linux-gnu | 1752 | 1421 | 256 | 0 | 75 | 94.99% |
+| torture-compile | O0 | arm64-linux | 2016 | 1509 | 367 | 0 | 140 | 91.51% |
+| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1509 | 367 | 0 | 140 | 91.51% |
+| torture-compile | O1 | arm64-linux | 2016 | 1509 | 367 | 0 | 140 | 91.51% |
+| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1509 | 367 | 0 | 140 | 91.51% |
+| torture-compile | O2 | arm64-linux | 2016 | 1509 | 367 | 0 | 140 | 91.51% |
+| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1509 | 367 | 0 | 140 | 91.51% |
+| torture-compile | O3 | arm64-linux | 2016 | 1509 | 367 | 0 | 140 | 91.51% |
+| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1509 | 367 | 0 | 140 | 91.51% |
+| torture-compile | Os | arm64-linux | 2016 | 1509 | 367 | 0 | 140 | 91.51% |
+| torture-compile | Os | x86_64-linux-gnu | 2016 | 1509 | 367 | 0 | 140 | 91.51% |
+| torture-execute | O0 | arm64-linux | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
+| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
+| torture-execute | O1 | arm64-linux | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
+| torture-execute | O1 | x86_64-linux-gnu | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
+| torture-execute | O2 | arm64-linux | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
+| torture-execute | O2 | x86_64-linux-gnu | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
+| torture-execute | O3 | arm64-linux | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
+| torture-execute | O3 | x86_64-linux-gnu | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
+| torture-execute | Os | arm64-linux | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
+| torture-execute | Os | x86_64-linux-gnu | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
 | torture-execute-ieee | O0 | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
 | torture-execute-ieee | O0 | x86_64-linux-gnu | 78 | 46 | 29 | 0 | 3 | 93.88% |
 | torture-execute-ieee | O1 | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
@@ -64,7 +64,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 | Class | Failed cells | Disposition |
 |---|---:|---|
-| gcc-builtin | 0 | `wontfix-0.1.0` |
+| gcc-builtin | 10 | `wontfix-0.1.0` |
 | nested-functions | 260 | `wontfix-0.1.0` |
 | complex | 270 | `out-of-scope` |
 | computed-goto | 0 | `wontfix-0.1.0` |
@@ -125,7 +125,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | - | unsupported flag -fexceptions | 30 |
 | - | unsupported flag -ffast-math | 40 |
 | - | unsupported flag -fgimple | 20 |
-| - | unsupported flag -fgnu89-inline | 210 |
 | - | unsupported flag -findirect-inlining | 10 |
 | - | unsupported flag -finput-charset=utf-8 | 10 |
 | - | unsupported flag -finstrument-functions | 10 |
@@ -431,6 +430,20 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
+- Fingerprint: `70f8ab7d8e3ce9b973cfeb05b4e407e6efc4b75594aa1ae13705eadb9e57c152`
+- Exemplars: torture-compile/pr37669.c@O0@arm64-linux, torture-compile/pr37669.c@O0@x86_64-linux-gnu, torture-compile/pr37669.c@O1@arm64-linux
+- Diagnostic: <source>:<loc>: error: <id> is not a builtin this compiler implements
+- Labels: pretriaged=10/10
+- Tags: -
+- Optdiv members: 0 of 10
+- Optdiv exemplars: -
+- Hypothesis: The newly exposed pr37669.c case needs __builtin___snprintf_chk, __builtin_strdup, and variadic argument-pack forwarding through the checked call.
+- Disposition: `fix-sprint:s56.55-gnu-va-pack-checked-snprintf`
+
+### Bucket 20
+
+- Count: 10
+- Cluster: signal=`-`; phase=`parse`
 - Fingerprint: `7deb38bc3f36e319952f404c30047bbdda54f6c62ed33a68713a0adab0c6e0df`
 - Exemplars: torture-execute/complex-4.c@O0@arm64-linux, torture-execute/complex-4.c@O0@x86_64-linux-gnu, torture-execute/complex-4.c@O1@arm64-linux
 - Diagnostic: <source>:<loc>: error: expected ')' after parenthesized expression
@@ -441,7 +454,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The case casts to GNU complex types, while complex arithmetic is explicitly outside the v0.1.0 language scope.
 - Disposition: `out-of-scope`
 
-### Bucket 20
+### Bucket 21
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -455,7 +468,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The case defines an old-style nested function, which Sprint 55 deliberately excludes from v0.1.0.
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 21
+### Bucket 22
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -469,7 +482,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope
 - Disposition: `out-of-scope`
 
-### Bucket 22
+### Bucket 23
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -483,7 +496,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: GNU block-scoped __label__ is a documented deliberate v0.1.0 refusal because cgfried labels have function scope
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 23
+### Bucket 24
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -497,7 +510,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope
 - Disposition: `out-of-scope`
 
-### Bucket 24
+### Bucket 25
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -511,7 +524,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope
 - Disposition: `out-of-scope`
 
-### Bucket 25
+### Bucket 26
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -525,7 +538,22 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope
 - Disposition: `out-of-scope`
 
-### Bucket 26
+### Bucket 27
+
+- Count: 10
+- Cluster: signal=`6`; phase=`run`
+- Runtime split: `non-optdiv`
+- Fingerprint: `7185bb28ba16ee3587e8cde30e5763061a385d6bede1e7fc08cc4c2a48f66831`
+- Exemplars: torture-execute/bcp-1.c@O0@arm64-linux, torture-execute/bcp-1.c@O0@x86_64-linux-gnu, torture-execute/bcp-1.c@O1@arm64-linux
+- Diagnostic: program killed by signal 6
+- Labels: -
+- Tags: -
+- Optdiv members: 0 of 10
+- Optdiv exemplars: -
+- Hypothesis: The newly exposed bcp-1.c case needs broader __builtin_constant_p folding, including string literals and optimized inline-call expressions.
+- Disposition: `fix-sprint:s56.56-constant-p-expression-folding`
+
+### Bucket 28
 
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
@@ -539,7 +567,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: arm64 multi-register-output extended asm is a documented deliberate v0.1.0 refusal
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 27
+### Bucket 29
 
 - Count: 5
 - Cluster: signal=`-`; phase=`as`
@@ -553,7 +581,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The test embeds raw target-specific asm mnemonics that are invalid on both supported x86_64 and arm64 assemblers.
 - Disposition: `out-of-scope`
 
-### Bucket 28
+### Bucket 30
 
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
@@ -567,7 +595,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: allocator-chosen extra x86 register outputs are a documented deliberate v0.1.0 refusal
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 29
+### Bucket 31
 
 - Count: 5
 - Cluster: signal=`-`; phase=`as`
@@ -583,7 +611,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Policy Overlay
 
-- Applied decisions: 24
+- Applied decisions: 26
 - Stale decisions: 2
 
 | Signal | Fingerprint | Phase | Variant | Hypothesis | Disposition |
@@ -593,8 +621,8 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Coverage
 
-- Failed cells: 2180
-- Bucketed cells: 2180
+- Failed cells: 2200
+- Bucketed cells: 2200
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%

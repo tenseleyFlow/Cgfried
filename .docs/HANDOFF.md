@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-24): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-25): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,10 +11,10 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 16/30 through September 24 after required daily x86 evidence was
+at a strict 17/30 through September 25 after required daily x86 evidence was
 absent on September 5 and matching-head evidence was absent on September 7–8.
 It remains
-operationally OPEN. Matching-head September 12--24 hosted daily runs are
+operationally OPEN. Matching-head September 12--25 hosted daily runs are
 green, and the separate September 13 and September 20 weekly runs are
 full-lattice green. The
 matching-head September 11 recovery
@@ -7955,7 +7955,29 @@ and green post-publication CI.
   `s56.55-gnu-va-pack-checked-snprintf`, and ten `bcp-1.c` cells are
   fingerprinted as broader constant-expression folding work for
   `s56.56-constant-p-expression-folding`. Both decisions are committed to the
-  triage policy before target-complete baseline publication.
+  triage policy. Pre-publication standard
+  [run 36186243780](https://github.com/tenseleyFlow/Cgfried/actions/runs/36186243780)
+  has 23 successful jobs, one expected platform-policy skip, and only the
+  intended x86 torture-ratchet refusal; exact-merge nightly
+  [run 36186336987](https://github.com/tenseleyFlow/Cgfried/actions/runs/36186336987)
+  has fourteen ordinary jobs green and only the intended ARM torture-ratchet
+  refusal, and exact-merge bootstrap
+  [run 36186336758](https://github.com/tenseleyFlow/Cgfried/actions/runs/36186336758)
+  passes all seven jobs. These runs tested synthetic merge `dbb9d749` (parents
+  `e69985c8` and behavior commit `9331fa5f`, tree `8f062fe0`).
+
+  The retained x86 and ARM streams each contain 20,325 unique result cells:
+  16,025 PASS, 3,200 SKIP, 1,095 COMPILE_FAIL, and five SIGNAL. Their SHA-256
+  values are respectively
+  `059d2166fc6c853eff3ca2d2b472907a2f8dc3ba7560813182990e775574d94e`
+  and `40ebfe4f902a49ff8a00ca2c0d7513c5707ec1f8ae3df1b22a425435ee97fe05`.
+  They agree on all 190 newly passing cells, report zero old-PASS regression,
+  zero duplicate key, and zero ICE, and differ only in target-specific
+  compiler-binary hashes. Atomic publication raises the ratchet to 32,050
+  PASS keys (32,053 lines), leaving 2,200 failed cells fully covered by 32
+  deterministic buckets. PASS and triage SHA-256 values are respectively
+  `8aa3df1c0b8b1deb2f1ae0550490cdbf3c38d67b2bfc8bdd1d997e5d11c8be7e`
+  and `e7d912120332d4a8bb6457a5e00af8e25ed6bc7f434475f20e4d13247387c380`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

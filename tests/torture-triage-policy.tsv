@@ -27,4 +27,4 @@
 -	f6e3227c914735cdb08ca070859e01469beb8bd02551aa2274362048b0685cf0	parse	all	GNU imaginary integer suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
 -	f765937aa5544b30bfa7277c9210cf239099e5f3c63a6598adb06d05a6dbab46	parse	all	The declaration uses GNU complex long double type, outside the v0.1.0 language scope.	out-of-scope
 -	fa6021f7913ae8533903065c2ea43cf97c022e38d708bbeee2ccca8638647ce7	parse	all	GNU imaginary floating suffixes require complex arithmetic which is outside the v0.1.0 language scope	out-of-scope
-6	7185bb28ba16ee3587e8cde30e5763061a385d6bede1e7fc08cc4c2a48f66831	run	all	The newly exposed bcp-1.c case needs broader __builtin_constant_p folding, including string literals and optimized inline-call expressions.	fix-sprint:s56.56-constant-p-expression-folding
+6	7185bb28ba16ee3587e8cde30e5763061a385d6bede1e7fc08cc4c2a48f66831	run	non-optdiv	The newly exposed bcp-1.c case needs broader __builtin_constant_p folding, including string literals and optimized inline-call expressions.	fix-sprint:s56.56-constant-p-expression-folding
