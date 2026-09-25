@@ -295,12 +295,12 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #145 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements the reusable `__builtin_object_size`
-foundation plus `__builtin___memcpy_chk`, closes exactly twenty cells across
-imported `pr51077.c` and `pr65873.c`, and raises the ratchet to 31,830 PASS
-keys. The current `s56.51-builtin-stpcpy-chk` tranche targets
-`__builtin___stpcpy_chk` and the final ten imported `pr59362.c` cells.
+PR #146 are now integrated; the detailed ledger below is authoritative. The
+latest merged tranche implements `__builtin___stpcpy_chk`, closes the final
+ten imported `pr59362.c` cells, and raises the ratchet to 31,840 PASS keys.
+The current `s56.52-builtin-stack-save-restore` tranche targets
+`__builtin_stack_save` / `__builtin_stack_restore` and the ten remaining
+target-complete `20071117-1.c` cells.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -7819,8 +7819,30 @@ and green post-publication CI.
   triage SHA-256 values are respectively
   `a4257bd85fca29c6048da7a7a78c8512e910199de30ca88afcd4ea28086292a0`
   and `821468c913d785258b3af129085f2274aab6ad5d2ecbe98091ca52dd9c8bbd85`.
-  Fresh postpublication standard CI and exact-merge ARM evidence remain to be
-  run before green-only merge.
+  Postpublication standard
+  [run 36077166176](https://github.com/tenseleyFlow/Cgfried/actions/runs/36077166176)
+  passes all 24 executed jobs with only the tag-only job skipped. GitHub's
+  exact final synthetic merge is `eabda6311cc00ed112ee7830835a2dd9cb9601d0`,
+  with parents `829eaa70` and `623e901c` and tree
+  `d850fdcf2b330eb3a6a3cd94996eb93e8f919569`, byte-identical to the
+  publication head. Exact nightly
+  [run 36077448003](https://github.com/tenseleyFlow/Cgfried/actions/runs/36077448003)
+  passes all fifteen jobs after a single non-reproducing libc-test
+  `raise-race-static` timeout was rerun green, and full-lattice bootstrap
+  [run 36077450178](https://github.com/tenseleyFlow/Cgfried/actions/runs/36077450178)
+  passes all seven jobs. Final x86 and ARM streams name that exact merge, pass
+  the committed ratchet, retain all 20,325 unique cells each, and have SHA-256
+  values `cd74fac50feb3e3be8ebd74ab0e1787556e11c95b4a4af906d8b1cdb7e5b2bd4`
+  and `11fb39c43aca3a0850144d782481e151fff7d14058229bf911714a9fd23412ff`.
+  PR #146 merged green-only as `240c10ae8160cc3b2e00f50dcc27222eb568f602`;
+  its parents and tree are identical to the final tested merge.
+- The current isolated `s56.52-builtin-stack-save-restore` tranche is based on
+  merged #146. It targets GCC's `void *__builtin_stack_save(void)` and
+  `void __builtin_stack_restore(void *)` contracts plus the ten
+  target-complete `20071117-1.c` cells. The IR and both machine backends
+  already implement stack-save and stack-restore operations for VLA scope
+  cleanup; the remaining work is the source-level builtin contract and safe
+  transport of a saved stack pointer through an ordinary C local.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
