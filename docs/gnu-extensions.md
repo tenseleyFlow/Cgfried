@@ -73,6 +73,7 @@ predefine.
 | `__builtin_types_compatible_p`, `__builtin_choose_expr` | `tests/corpus/x86_64/int/builtin_type_query.c` | glibc's type-dispatch macros, Linux's `__same_type` |
 | `__builtin_classify_type(expr-or-type)` | `tests/programs/builtins/classify_type_runtime.c` | GCC torture's generic bit-field arithmetic tests; compile-time type dispatch |
 | `__builtin_extract_return_addr(ptr)` | `tests/corpus/x86_64/int/gnu_extract_return_addr.c` | target-neutral decoding of addresses obtained from return-address machinery; an evaluated identity on supported x86-64 and AArch64 ABIs |
+| `__builtin_clear_padding(pointer)` | `tests/corpus/x86_64/int/gnu_clear_padding.c` | value-preserving representation canonicalization for structures, unions, bit-fields, fixed arrays, VLAs, and target-specific `long double` padding |
 | `__builtin_mempcpy(dest, src, count)` | `tests/corpus/x86_64/int/gnu_mempcpy.c` | copied-range end pointer without a host `mempcpy` dependency; uses the compiler's existing `memcpy` call semantics |
 | `__builtin_bcopy(src, dest, count)` | `tests/corpus/x86_64/int/gnu_bcopy.c` | overlap-safe copy with source before destination; maps to `memmove` without a host `bcopy` dependency |
 | `__builtin_strspn(string, accept)` | `tests/corpus/x86_64/int/gnu_strspn.c` | length of the initial byte span drawn from the accepted set; prototyped `size_t` result and ordinary libc linkage |
@@ -141,6 +142,15 @@ tag-clearing or instruction-address adjustment required by some other GCC
 targets, so lowering is an identity and emits no helper call. Cgfried does not
 yet claim `__builtin_return_address` itself; tests requiring that separate
 stack-introspection feature remain skipped by policy.
+
+`__builtin_clear_padding` evaluates its pointer once and zeros every padding
+bit in the pointed-to type without changing its value. For a union it clears
+only bits that are padding in every member. Outer fixed and variable-length
+array layers use one compact runtime loop, while reverse scalar storage order
+and x87's six trailing `long double` bytes use their target representations.
+Pointers to incomplete, const-qualified, and atomic types are rejected. GNU
+records whose member layout itself varies at runtime are diagnosed explicitly;
+ordinary C VLAs, including multidimensional VLAs, are supported.
 
 `__builtin_mempcpy` has the `void *(void *, const void *, size_t)` call
 contract. It converts all three arguments as a prototyped call, evaluates
