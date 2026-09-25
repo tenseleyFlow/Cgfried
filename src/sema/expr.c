@@ -1745,6 +1745,64 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                         quiet(e->args[0], NULL))
                         return poison(s, e);
                 }
+                if (b == SEMA_BUILTIN_CLEAR_PADDING) {
+                    Type *pointer = e->args[0]->sem_type;
+                    Type *object;
+                    Type *leaf;
+                    unsigned object_quals = 0;
+
+                    if (quiet(e->args[0], NULL))
+                        return poison(s, e);
+                    if (!pointer || pointer->kind != TY_PTR) {
+                        err(s, e->args[0]->span,
+                            "argument 1 to '__builtin_clear_padding' must "
+                            "have pointer type");
+                        return poison(s, e);
+                    }
+                    object = pointer->base;
+                    /* GCC accepts a function pointer as a harmless no-op.
+                     * It is the one non-object pointee admitted here; void
+                     * and incomplete object types carry no padding map. */
+                    if (!object || (object->kind != TY_FUNC &&
+                                    !layout_is_complete_for_size(object) &&
+                                    !type_is_runtime_sized(object))) {
+                        err(s, e->args[0]->span,
+                            "argument 1 to '__builtin_clear_padding' points "
+                            "to incomplete type");
+                        return poison(s, e);
+                    }
+                    for (leaf = object; leaf; leaf = leaf->base) {
+                        object_quals |= leaf->quals;
+                        if (leaf->kind != TY_ARRAY)
+                            break;
+                    }
+                    if (object_quals & CGF_QUAL_CONST) {
+                        err(s, e->args[0]->span,
+                            "argument 1 to '__builtin_clear_padding' points "
+                            "to const-qualified type");
+                        return poison(s, e);
+                    }
+                    if (object_quals & CGF_QUAL_ATOMIC) {
+                        err(s, e->args[0]->span,
+                            "argument 1 to '__builtin_clear_padding' points "
+                            "to atomic-qualified type");
+                        return poison(s, e);
+                    }
+                    /* C VLAs are supported: peel every array layer and the
+                     * lowering loop walks their cached total extent. A GNU
+                     * record whose member layout itself changes at runtime
+                     * needs a dynamic union/padding map, which this builtin
+                     * does not yet claim to implement. Diagnose that narrow
+                     * extension here rather than reaching lowering or
+                     * silently leaving bytes untouched. */
+                    if (leaf && leaf->kind != TY_FUNC &&
+                        type_is_runtime_sized(leaf)) {
+                        err(s, e->args[0]->span,
+                            "'__builtin_clear_padding' does not yet support "
+                            "a runtime-sized record type");
+                        return poison(s, e);
+                    }
+                }
                 if (b == SEMA_BUILTIN_CLEAR_CACHE) {
                     Type *voidp = type_ptr(s->arena, type_basic(TY_VOID));
 

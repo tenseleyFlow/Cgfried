@@ -67,6 +67,10 @@ B(alloca, ALLOCA, 1, BK_VOIDP)
  * before it is supplied back to stack_restore. */
 B(stack_save, STACK_SAVE, 0, BK_VOIDP)
 B(stack_restore, STACK_RESTORE, 1, BK_VOID)
+/* Canonicalize an object's representation without changing its value: every
+ * padding bit in the pointed-to type becomes zero. This is type-generic --
+ * erasing the argument to void * would also erase the layout being cleared. */
+B(clear_padding, CLEAR_PADDING, 1, BK_VOID)
 B(memcpy, MEMCPY, 3, BK_VOIDP)
 B(mempcpy, MEMPCPY, 3, BK_VOIDP)
 B(memmove, MEMMOVE, 3, BK_VOIDP)

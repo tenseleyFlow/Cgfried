@@ -904,6 +904,46 @@ void test_sema_builtin_stack_save_restore_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_clear_padding_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "struct S { char c; int x; }; void target(void); "
+             "void good(int n, struct S *p, volatile struct S *vp, "
+             "struct S (*vla)[n]) { __builtin_clear_padding(p); "
+             "__builtin_clear_padding(vp); __builtin_clear_padding(vla); "
+             "__builtin_clear_padding(target); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; struct I; "
+             "void bad(void *v, const struct S *c, _Atomic(struct S) *a, "
+             "struct I *i, int value) { __builtin_clear_padding(v); "
+             "__builtin_clear_padding(c); __builtin_clear_padding(a); "
+             "__builtin_clear_padding(i); "
+             "__builtin_clear_padding(value); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 5);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(int *p) { __builtin_clear_padding(); "
+             "__builtin_clear_padding(p, p); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 2);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(int n) { struct R { char c; int values[n]; } r; "
+             "__builtin_clear_padding(&r); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_mempcpy_contract(TestCtx *t)
 {
     SemaFix f;

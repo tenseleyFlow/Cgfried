@@ -3162,6 +3162,235 @@ static IrOperand lower_checked_overflow_predicate(Lower *lo, AstNode *e)
     return ir_op_value(lo->fn, bool_result);
 }
 
+/* --- __builtin_clear_padding ---------------------------------------------
+ *
+ * A byte mask describes the VALUE representation of one fixed-size leaf
+ * object: one bits survive, zero bits are padding and become zero. Arrays are
+ * deliberately kept out of the mask's outermost level. One compact IR loop
+ * walks their total (possibly VLA) byte extent by the fixed leaf stride, so a
+ * huge array does not manufacture huge compiler memory or huge generated IR.
+ * Nested fixed arrays inside a record still participate in that record's
+ * layout map, as they must for union padding intersection. */
+
+static void clear_padding_mark_bitfield(u8 *mask, u64 mask_size, u64 base,
+                                        const Member *member, bool reverse)
+{
+    u64 byte_base = base + member->offset;
+    u64 start_bit = member->bit_shift;
+    u32 i;
+
+    if (reverse && !member->packed) {
+        u64 unit_byte =
+            (member->offset / member->container_size) * member->container_size;
+
+        byte_base = base + unit_byte;
+        start_bit = (member->offset - unit_byte) * 8 + member->bit_shift;
+    }
+    for (i = 0; i < member->bit_width; i++) {
+        u64 logical = start_bit + i;
+        u64 byte = byte_base + logical / 8;
+        u8 within = (u8)(logical % 8);
+
+        if (byte >= mask_size)
+            continue;
+        if (reverse)
+            within = (u8)(7 - within);
+        mask[byte] |= (u8)(1u << within);
+    }
+}
+
+static void clear_padding_mark_value(Lower *lo, Type *t, u8 *mask,
+                                     u64 mask_size, u64 base)
+{
+    TypeLayout l;
+
+    if (!t || base >= mask_size)
+        return;
+    l = layout_of(lo->sema, t);
+    switch (t->kind) {
+    case TY_ARRAY: {
+        TypeLayout element;
+        u64 i;
+
+        if (!t->has_size || !t->base)
+            return; /* flexible array member: no bytes in sizeof(record) */
+        element = layout_of(lo->sema, t->base);
+        if (!element.size)
+            return; /* GNU zero-length arrays have no value bits. */
+        for (i = 0; i < t->size; i++)
+            clear_padding_mark_value(lo, t->base, mask, mask_size,
+                                     base + i * element.size);
+        return;
+    }
+    case TY_STRUCT:
+    case TY_UNION: {
+        Member *member;
+
+        layout_record(lo->sema, t);
+        for (member = t->tag->members; member; member = member->next) {
+            if (member->is_bitfield) {
+                /* An unnamed field has no value representation. Its bits,
+                 * including nonzero allocation barriers, are padding. */
+                if (member->name && member->bit_width)
+                    clear_padding_mark_bitfield(
+                        mask, mask_size, base, member,
+                        sema_scalar_storage_order_reversed(
+                            lo->sema, member->scalar_storage_order));
+            } else {
+                clear_padding_mark_value(lo, member->type, mask, mask_size,
+                                         base + member->offset);
+            }
+        }
+        return;
+    }
+    case TY_LDOUBLE:
+    case TY_FLOAT64X:
+        if (cgf_target_layout(lo->sema->target).ldbl_kind == CGF_LDBL_X87_80) {
+            u64 value_bytes = l.size < 10 ? l.size : 10;
+
+            if (value_bytes > mask_size - base)
+                value_bytes = mask_size - base;
+            memset(mask + base, 0xff, (size_t)value_bytes);
+            return;
+        }
+        break;
+    default:
+        break;
+    }
+
+    /* Every supported scalar other than x87 extended has no padding bits.
+     * This intentionally includes _Bool: GCC treats its whole byte as value
+     * representation for clear_padding rather than normalizing it. */
+    if (l.size > mask_size - base)
+        l.size = mask_size - base;
+    memset(mask + base, 0xff, (size_t)l.size);
+}
+
+static bool clear_padding_mask_has_work(const u8 *mask, u64 size)
+{
+    u64 i;
+
+    for (i = 0; i < size; i++)
+        if (mask[i] != 0xff)
+            return true;
+    return false;
+}
+
+static void lower_clear_padding_one(Lower *lo, IrOperand base, const u8 *mask,
+                                    u64 size, u8 flags)
+{
+    u64 i = 0;
+
+    while (i < size) {
+        IrOperand at;
+
+        if (mask[i] == 0xff) {
+            i++;
+            continue;
+        }
+        at = addr_plus(lo, base, (i64)i);
+        if (mask[i] == 0) {
+            u64 first = i;
+
+            while (i < size && mask[i] == 0)
+                i++;
+            ir_build_memset(&lo->b, at, ir_op_iconst(IRT_I32, 0),
+                            lower_i64((i64)(i - first)), 1, flags);
+            continue;
+        }
+        {
+            ValueId old =
+                ir_build_load_typed(&lo->b, IRT_I8, at, 1, flags, ETYPE_CHAR);
+            ValueId kept =
+                ir_build2(&lo->b, IR_AND, IRT_I8, ir_op_value(lo->fn, old),
+                          ir_op_iconst(IRT_I8, mask[i]));
+
+            ir_build_store_typed(&lo->b, ir_op_value(lo->fn, kept), at, 1,
+                                 flags, ETYPE_CHAR);
+            i++;
+        }
+    }
+}
+
+static void lower_clear_padding(Lower *lo, AstNode *e)
+{
+    Type *pointer = sem(e->args[0]);
+    Type *object = pointer ? pointer->base : NULL;
+    Type *leaf = object;
+    IrOperand base = lower_rvalue(lo, e->args[0]);
+    TypeLayout leaf_layout;
+    u8 *mask;
+    u8 flags = 0;
+
+    if (!object || object->kind == TY_FUNC)
+        return;
+    while (leaf && leaf->kind == TY_ARRAY)
+        leaf = leaf->base;
+    if (!leaf)
+        return;
+    if (type_is_runtime_sized(leaf))
+        CGF_ICE("runtime-sized clear_padding leaf escaped sema");
+    leaf_layout = layout_of(lo->sema, leaf);
+    if (!leaf_layout.size)
+        return;
+    mask = arena_alloc(lo->arena, (size_t)leaf_layout.size, 1);
+    memset(mask, 0, (size_t)leaf_layout.size);
+    clear_padding_mark_value(lo, leaf, mask, leaf_layout.size, 0);
+    if (!clear_padding_mask_has_work(mask, leaf_layout.size))
+        return;
+    if ((object->quals | leaf->quals) & CGF_QUAL_VOLATILE)
+        flags |= IRF_VOLATILE;
+
+    if (object->kind != TY_ARRAY) {
+        lower_clear_padding_one(lo, base, mask, leaf_layout.size, flags);
+        return;
+    }
+    {
+        IrOperand total = lower_type_size(lo, object);
+        BlockId head;
+        BlockId body;
+        BlockId done;
+        ValueId offset;
+        IrOperand zero = lower_i64(0);
+
+        if (total.kind == IROP_ICONST && total.a == 0)
+            return;
+        if (total.kind == IROP_ICONST && total.a == leaf_layout.size) {
+            lower_clear_padding_one(lo, base, mask, leaf_layout.size, flags);
+            return;
+        }
+        head = lower_new_block(lo, "clearpad.head");
+        body = lower_new_block(lo, "clearpad.body");
+        done = lower_new_block(lo, "clearpad.done");
+        offset = ir_block_param(lo->m, lo->fn, head, IRT_I64);
+        ir_build_br(&lo->b, head, &zero, 1);
+        lower_at(lo, head);
+        {
+            ValueId more = ir_build_icmp(&lo->b, ICMP_ULT,
+                                         ir_op_value(lo->fn, offset), total);
+
+            ir_build_condbr(&lo->b, ir_op_value(lo->fn, more), body, NULL, 0,
+                            done, NULL, 0);
+        }
+        lower_at(lo, body);
+        {
+            IrOperand at = ir_op_value(
+                lo->fn,
+                ir_build_ptradd(&lo->b, base, ir_op_value(lo->fn, offset)));
+            ValueId next;
+            IrOperand next_operand;
+
+            lower_clear_padding_one(lo, at, mask, leaf_layout.size, flags);
+            next =
+                ir_build2(&lo->b, IR_IADD, IRT_I64, ir_op_value(lo->fn, offset),
+                          lower_i64((i64)leaf_layout.size));
+            next_operand = ir_op_value(lo->fn, next);
+            ir_build_br(&lo->b, head, &next_operand, 1);
+        }
+        lower_at(lo, done);
+    }
+}
+
 /* Simple compiler-owned builtins with fixed lowering rules. The mem/str family
  * deliberately does NOT appear here: v0.1.0 lowers those through the generic
  * libc-call path (inline expansion is a Phase 7/11 optimization, and
@@ -3472,6 +3701,10 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
         return true;
     case SEMA_BUILTIN_STACK_RESTORE:
         ir_build_stackrestore(&lo->b, lower_rvalue(lo, e->args[0]));
+        *out = ir_op_undef(IRT_I32);
+        return true;
+    case SEMA_BUILTIN_CLEAR_PADDING:
+        lower_clear_padding(lo, e);
         *out = ir_op_undef(IRT_I32);
         return true;
     case SEMA_BUILTIN_CONSTANT_P:

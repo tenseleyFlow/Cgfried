@@ -775,6 +775,59 @@ void test_lower_builtin_stack_save_restore_and_roundtrip(TestCtx *t)
     }
 }
 
+void test_lower_builtin_clear_padding_and_roundtrip(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    const char *source =
+        "struct S { char c; int x; }; "
+        "struct B { unsigned a:3; unsigned :3; unsigned b:2; }; "
+        "struct RB { unsigned a:3; unsigned :3; unsigned b:2; } "
+        "__attr"
+        "ibute__((scalar_storage_order(\"big-endian\"))); "
+        "union U { struct S s; long long whole; }; "
+        "void use(int n, struct S *s, volatile struct S *vs, struct B *b, "
+        "struct RB *rb, union U *u, "
+        "struct S (*vla)[n], long double *ld) { "
+        "__builtin_clear_padding(s); __builtin_clear_padding(vs); "
+        "__builtin_clear_padding(b); __builtin_clear_padding(rb); "
+        "__builtin_clear_padding(u); "
+        "__builtin_clear_padding(vla); "
+        "__builtin_clear_padding(ld); }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+        const char *ir;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, false, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        ir = txt(&f);
+        T_ASSERT_EQ_INT(t, count_of(ir, "and i8"), 2);
+        T_ASSERT_EQ_INT(t, count_of(ir, ", 199"), 1);
+        T_ASSERT_EQ_INT(t, count_of(ir, ", 227"), 1);
+        T_ASSERT_EQ_INT(t, count_of(ir, "memset"),
+                        targets[i] == CGF_TARGET_X86_64_LINUX_GNU ||
+                                targets[i] == CGF_TARGET_X86_64_LINUX_MUSL ||
+                                targets[i] == CGF_TARGET_X86_64_FREEBSD
+                            ? 6
+                            : 5);
+        T_ASSERT_EQ_INT(t, count_of(ir, ", volatile"), 1);
+        T_ASSERT_EQ_INT(t, count_of(ir, "\nclearpad.head"), 1);
+        /* The union has a full-width long long member, so no bit is padding
+         * in every member and its pointer evaluation is the only IR effect. */
+        round = ir_parse_module(&f.arena, f.dc, ir, "<clear-padding>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_mempcpy_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;
