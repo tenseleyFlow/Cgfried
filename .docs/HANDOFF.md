@@ -7783,8 +7783,44 @@ and green post-publication CI.
   only the same eight pre-existing Apple host-assumption failures. Both new
   tests also pass under ASan+UBSan with no sanitizer report. The permanent
   fixture deliberately repins the closed-ISA corpus at 126 sources / 756
-  optimization objects; Linux x86, native ARM, full CI, and target-complete
-  torture publication remain to be proved.
+  optimization objects.
+
+  Behavior commit `54264e25` plus pinned-format correction `5d77a94d` pass
+  prepublication standard
+  [run 36072434404](https://github.com/tenseleyFlow/Cgfried/actions/runs/36072434404)
+  in all 23 ordinary jobs; it refuses only the expected five unpublished x86
+  `pr59362.c` cells, and its tag-only job is intentionally skipped. PR
+  bootstrap
+  [run 36072430893](https://github.com/tenseleyFlow/Cgfried/actions/runs/36072430893)
+  is green. GitHub's exact prepublication synthetic merge is
+  `d4f128461b7de0e80c8b5eb2a2ac7368e67e4a92`, with parents `829eaa70`
+  and `5d77a94d` and tree `2dd9cb835a67ce84425f61c32c87db290feda1d4`,
+  byte-identical to the feature head. Exact-merge native ARM nightly
+  [run 36074110157](https://github.com/tenseleyFlow/Cgfried/actions/runs/36074110157)
+  passes all fourteen unrelated jobs and refuses only the matching five ARM
+  cells. Exact-merge full-lattice bootstrap
+  [run 36074112313](https://github.com/tenseleyFlow/Cgfried/actions/runs/36074112313)
+  passes all seven jobs.
+
+  The retained x86 and ARM streams both name that exact merge, share compiler
+  source SHA-256
+  `b27f430f8322abb0c9ca6b5dc8e184f4289f5720434c47053405cadbea950ab7`
+  plus identical harness and manifest hashes, and have SHA-256 values
+  `5f919b643556a278090b69f6289316fda076a90a5c6bf542b5b12db8c9b57269`
+  and `49263b4753b8d5925af3312aac4728d95d9296cef9980c6464e97067fb23ed7d`.
+  Each contains 20,325 unique cells -- 15,920 PASS, 3,305 SKIP, and
+  1,100 COMPILE_FAIL -- with exactly five new `pr59362.c` PASS keys and no
+  old-PASS regression. Formal GNU-make atomic publication consumes both exact
+  streams; reversing their order regenerates both outputs byte-identically,
+  and both streams pass the resulting ratchet. The result is 31,840 PASS keys
+  (31,843 lines), 2,200 failed cells with complete bucket coverage,
+  24 applied decisions, two retained stale decisions, and zero
+  unbucketed/unresolved cells. `gcc-builtin` falls from 30 to 20. PASS and
+  triage SHA-256 values are respectively
+  `a4257bd85fca29c6048da7a7a78c8512e910199de30ca88afcd4ea28086292a0`
+  and `821468c913d785258b3af129085f2274aab6ad5d2ecbe98091ca52dd9c8bbd85`.
+  Fresh postpublication standard CI and exact-merge ARM evidence remain to be
+  run before green-only merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
