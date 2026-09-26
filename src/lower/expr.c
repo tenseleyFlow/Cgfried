@@ -4047,7 +4047,9 @@ static IrOperand lower_formatted_output_builtin(Lower *lo, AstNode *e)
     for (i = 0; i < e->nargs; i++) {
         AstNode *arg = e->args[i];
 
-        if (arg && arg->kind == AST_EXPR_VA_ARG_PACK) {
+        if (!arg)
+            CGF_ICE("formatted-output builtin lost argument %u", i);
+        if (arg->kind == AST_EXPR_VA_ARG_PACK) {
             u32 pi;
 
             if (!lo->va_pack) {

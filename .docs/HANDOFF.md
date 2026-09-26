@@ -8023,7 +8023,14 @@ and green post-publication CI.
   2,000/0 in both configurations. The intended fixture growth repins the
   5,000-iteration frontend mutation digest to `589933d5cea39a7b`, reproduced
   twice normally and once under ASan+UBSan. Atomic target-complete evidence and
-  publication remain pending.
+  publication remain pending. PR #150 is open. Its first prepublication
+  standard run `36198331889` passed all 23 ordinary jobs; the torture job has
+  the expected unpublished-ratchet failure, while `safe-dogfood` exposed that
+  its null-dereference proof did not inherit the non-null call-argument AST
+  invariant after the new argument-pack branch. Lowering now states that
+  invariant explicitly through the established internal-error path. An exact
+  Linux x86-64 reproduction builds all 107 compiler translation units under
+  `-fsafe` with zero exemptions, then passes the safe-built driver smoke.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
