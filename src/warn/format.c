@@ -22,7 +22,7 @@ typedef struct {
     BuiltinGate gate;
     TypeKind result;
     u8 fixed_params;
-    BuiltinParam params[4];
+    BuiltinParam params[5];
 } BuiltinFmt;
 
 /* These are deliberately the pre-attribute names promised by Sprint 39.
@@ -30,6 +30,13 @@ typedef struct {
  * spellings before sema sees them.  Sprint 55's explicit format attribute
  * will take precedence over this table. */
 static const BuiltinFmt builtin_formats[] = {
+    {"__snprintf_chk",
+     {FMT_PRINTF, 5, 6},
+     GATE_GNU_LIBC,
+     TY_INT,
+     5,
+     {BUILTIN_PARAM_CHAR_PTR, BUILTIN_PARAM_ULONG, BUILTIN_PARAM_INT,
+      BUILTIN_PARAM_ULONG, BUILTIN_PARAM_CHAR_PTR}},
     {"__isoc99_fscanf",
      {FMT_SCANF, 2, 3},
      GATE_GNU_LIBC,
