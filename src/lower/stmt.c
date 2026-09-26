@@ -67,9 +67,6 @@ static void mark_config_branch(Lower *lo, const AstNode *condition)
 static bool constant_p_condition(Lower *lo, const AstNode *e, bool *taken)
 {
     bool negate = false;
-    const AstNode *core;
-    ConstValue cv;
-    u32 i;
 
     while (e && (e->kind == AST_EXPR_PAREN ||
                  (e->kind == AST_EXPR_CAST && e->implicit)))
@@ -84,26 +81,9 @@ static bool constant_p_condition(Lower *lo, const AstNode *e, bool *taken)
     if (!e || e->kind != AST_EXPR_CALL || e->op != SEMA_BUILTIN_CONSTANT_P ||
         e->nargs != 1)
         return false;
-    /* Variadic-pack wrapper specialization may know a named parameter's
-     * outer argument even though the parameter has been materialized in a
-     * local slot.  Keep this answer in lockstep with lower_rvalue's builtin
-     * implementation before consulting the general constant engine. */
-    core = e->args[0];
-    while (core && (core->kind == AST_EXPR_PAREN ||
-                    (core->kind == AST_EXPR_CAST && core->implicit)))
-        core = core->lhs;
-    if (lo->va_pack && core && core->kind == AST_EXPR_IDENT && core->sym) {
-        for (i = 0; i < lo->va_pack->nparams; i++) {
-            if (lo->va_pack->params[i] != core->sym)
-                continue;
-            *taken = lo->va_pack->param_constant[i];
-            if (negate)
-                *taken = !*taken;
-            return true;
-        }
-    }
-    cv = constexpr_eval(lo->sema, e->args[0], CE_FOLD);
-    *taken = cv.kind == CV_INT || cv.kind == CV_FLOAT;
+    *taken = constexpr_builtin_constant_p(
+        lo->sema, e->args[0], lo->va_pack ? lo->va_pack->bindings : NULL,
+        lo->va_pack ? lo->va_pack->nbindings : 0);
     if (negate)
         *taken = !*taken;
     return true;

@@ -257,7 +257,10 @@ static void ce_error(Sema *s, CeMode m, Span sp, const char *fmt, ...)
     diag_emit(s->dc, DIAG_ERROR, sp, "%s", msg);
 }
 
-static ConstValue eval(Sema *s, AstNode *e, CeMode m);
+static ConstValue eval(Sema *s, AstNode *e, CeMode m,
+                       const ConstexprBinding *bindings, u32 nbindings);
+static bool constant_p_known(Sema *s, AstNode *e,
+                             const ConstexprBinding *bindings, u32 nbindings);
 
 /* The traditional offsetof macro spells a member address from a null
  * pointer, rather than using __builtin_offsetof:
@@ -369,7 +372,9 @@ static bool address_add_bytes(ConstValue *v, u64 bytes)
  * idiom needs the address arithmetic instead.  `from_null` lets the caller
  * distinguish that GNU ICE extension from an ordinary address constant. */
 static ConstValue eval_lvalue_address(Sema *s, AstNode *e, CeMode m,
-                                      bool *from_null)
+                                      bool *from_null,
+                                      const ConstexprBinding *bindings,
+                                      u32 nbindings)
 {
     ConstValue base;
 
@@ -385,7 +390,7 @@ static ConstValue eval_lvalue_address(Sema *s, AstNode *e, CeMode m,
         bool base_from_null = false;
 
         if (e->is_arrow) {
-            base = eval(s, e->lhs, m);
+            base = eval(s, e->lhs, m, bindings, nbindings);
             if (is_null_pointer_value(&base)) {
                 base = null_address(base.type);
                 base_from_null = true;
@@ -393,7 +398,8 @@ static ConstValue eval_lvalue_address(Sema *s, AstNode *e, CeMode m,
             if (rec && rec->kind == TY_PTR)
                 rec = rec->base;
         } else {
-            base = eval_lvalue_address(s, e->lhs, m, &base_from_null);
+            base = eval_lvalue_address(s, e->lhs, m, &base_from_null, bindings,
+                                       nbindings);
         }
         if (base.kind == CV_ERROR)
             return base;
@@ -423,8 +429,10 @@ static ConstValue eval_lvalue_address(Sema *s, AstNode *e, CeMode m,
             idx_node = tmp;
         }
         ptr = base_node->sem_type;
-        base = eval_lvalue_address(s, base_node, m, from_null);
-        idx = eval(s, idx_node, m == CE_FOLD ? CE_FOLD : CE_ICE);
+        base = eval_lvalue_address(s, base_node, m, from_null, bindings,
+                                   nbindings);
+        idx = eval(s, idx_node, m == CE_FOLD ? CE_FOLD : CE_ICE, bindings,
+                   nbindings);
         if (base.kind == CV_ERROR || idx.kind == CV_ERROR)
             return cv_error();
         if (idx.kind != CV_INT || !ptr ||
@@ -486,7 +494,7 @@ static ConstValue eval_lvalue_address(Sema *s, AstNode *e, CeMode m,
         return v;
     }
 
-    base = eval(s, e, m);
+    base = eval(s, e, m, bindings, nbindings);
     if (is_null_pointer_value(&base)) {
         base = null_address(base.type);
         *from_null = true;
@@ -601,13 +609,14 @@ static bool ce_mul_overflow_p(Sema *s, CeOverflowInteger left,
     return left.magnitude != 0 && right.magnitude > limit / left.magnitude;
 }
 
-static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
+static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m,
+                              const ConstexprBinding *bindings, u32 nbindings)
 {
     bool pointer_difference =
         e->op == PUNCT_MINUS && e->lhs->sem_type && e->rhs->sem_type &&
         e->lhs->sem_type->kind == TY_PTR && e->rhs->sem_type->kind == TY_PTR;
     CeMode operand_mode = pointer_difference && m == CE_ARITH ? CE_ADDR : m;
-    ConstValue l = eval(s, e->lhs, operand_mode);
+    ConstValue l = eval(s, e->lhs, operand_mode, bindings, nbindings);
     ConstValue r;
     Type *t = e->sem_type;
     u64 res;
@@ -621,7 +630,7 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
     if (e->op == PUNCT_PIPEPIPE && l.kind == CV_INT && l.i != 0)
         return cv_int(s, type_basic(TY_INT), 1);
 
-    r = eval(s, e->rhs, operand_mode);
+    r = eval(s, e->rhs, operand_mode, bindings, nbindings);
     if (r.kind == CV_ERROR)
         return r;
 
@@ -893,7 +902,8 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m)
  * `offset` is relative to its own enclosing record). A bitfield has no
  * address, so offsetof of one is an error rather than a rounded-down
  * byte — gcc says the same. */
-static bool offsetof_walk(Sema *s, CeMode m, AstNode *e, u64 *out)
+static bool offsetof_walk(Sema *s, CeMode m, AstNode *e, u64 *out,
+                          const ConstexprBinding *bindings, u32 nbindings)
 {
     if (!e)
         return false;
@@ -910,7 +920,7 @@ static bool offsetof_walk(Sema *s, CeMode m, AstNode *e, u64 *out)
         const Type *rec = e->lhs ? e->lhs->sem_type : NULL;
         u64 base_off = 0;
 
-        if (!offsetof_walk(s, m, e->lhs, &base_off))
+        if (!offsetof_walk(s, m, e->lhs, &base_off, bindings, nbindings))
             return false;
         if (!rec || !rec->tag) {
             ce_error(s, m, e->span, "this is not a constant expression");
@@ -969,9 +979,9 @@ static bool offsetof_walk(Sema *s, CeMode m, AstNode *e, u64 *out)
         ConstValue idx;
         const Type *arr = e->lhs ? e->lhs->sem_type : NULL;
 
-        if (!offsetof_walk(s, m, e->lhs, &base_off))
+        if (!offsetof_walk(s, m, e->lhs, &base_off, bindings, nbindings))
             return false;
-        idx = eval(s, e->rhs, m);
+        idx = eval(s, e->rhs, m, bindings, nbindings);
         /* `arr->base` is the element type whether arr is still an array
          * type or the decayed pointer — both spell the same element. */
         if (idx.kind != CV_INT || !arr || !arr->base) {
@@ -990,7 +1000,8 @@ static bool offsetof_walk(Sema *s, CeMode m, AstNode *e, u64 *out)
     }
 }
 
-static ConstValue eval(Sema *s, AstNode *e, CeMode m)
+static ConstValue eval(Sema *s, AstNode *e, CeMode m,
+                       const ConstexprBinding *bindings, u32 nbindings)
 {
     if (!e)
         return cv_error();
@@ -1100,21 +1111,30 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
     case AST_EXPR_CHOOSE_EXPR:
         /* The SELECTED arm, and only that one. Folding the other would
          * evaluate an expression the language says is not evaluated. */
-        return eval(s, e->choose_taken ? e->mid : e->rhs, m);
+        return eval(s, e->choose_taken ? e->mid : e->rhs, m, bindings,
+                    nbindings);
     case AST_EXPR_GENERIC:
         /* SEMA-H-07: sema stores the selected association in `mid`.
          * Evaluate only that arm, in the caller's constant-expression mode;
          * the controlling expression and unselected associations are not
          * evaluated. */
-        return eval(s, e->mid, m);
+        return eval(s, e->mid, m, bindings, nbindings);
     case AST_EXPR_PAREN:
-        return eval(s, e->lhs, m);
+        return eval(s, e->lhs, m, bindings, nbindings);
     case AST_EXPR_IDENT: {
         Symbol *sym = e->sym;
         ConstValue v;
+        u32 i;
 
         if (sym && sym->kind == SYM_ENUM_CONST)
             return cv_int(s, e->sem_type, (u64)sym->enum_value);
+        for (i = 0; sym && i < nbindings; i++) {
+            if (bindings[i].sym == sym) {
+                v = bindings[i].value;
+                v.type = e->sem_type;
+                return v;
+            }
+        }
         /* GCC treats an already-initialized, top-level const scalar object
          * as foldable in later static initializers. It deliberately does
          * NOT promote the name to an integer constant expression, so keep
@@ -1125,7 +1145,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
          * diagnostic from the initializer's source location. */
         if (sym && sym->kind == SYM_VAR && sym->foldable_const_init &&
             m != CE_ICE && m != CE_VLA) {
-            v = eval(s, sym->foldable_const_init, CE_FOLD);
+            v = eval(s, sym->foldable_const_init, CE_FOLD, bindings, nbindings);
             if (v.kind != CV_ERROR) {
                 v.type = e->sem_type;
                 return v;
@@ -1170,7 +1190,8 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
                  * ordinary `&object.member` remains CE_ADDR/CE_FOLD only. */
                 bool from_null = false;
 
-                v = eval_lvalue_address(s, inner, m, &from_null);
+                v = eval_lvalue_address(s, inner, m, &from_null, bindings,
+                                        nbindings);
                 if (v.kind == CV_ERROR)
                     return v;
                 if (!from_null && m != CE_ADDR && m != CE_FOLD) {
@@ -1224,7 +1245,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             return cv_error();
         }
 
-        o = eval(s, e->lhs, m);
+        o = eval(s, e->lhs, m, bindings, nbindings);
         if (o.kind == CV_ERROR)
             return o;
         if (e->is_postfix) {
@@ -1285,9 +1306,9 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         }
     }
     case AST_EXPR_BINARY:
-        return eval_binary(s, e, m);
+        return eval_binary(s, e, m, bindings, nbindings);
     case AST_EXPR_COND: {
-        ConstValue c = eval(s, e->lhs, m);
+        ConstValue c = eval(s, e->lhs, m, bindings, nbindings);
 
         if (c.kind == CV_ERROR)
             return c;
@@ -1300,11 +1321,13 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
          * to duplicate) but returning `c` says what the form MEANS. */
         if (c.kind == CV_FLOAT)
             return sf_is_zero(c.f)
-                       ? eval(s, e->rhs, m)
-                       : (e->cond_omits_mid ? c : eval(s, e->mid, m));
+                       ? eval(s, e->rhs, m, bindings, nbindings)
+                       : (e->cond_omits_mid
+                              ? c
+                              : eval(s, e->mid, m, bindings, nbindings));
         if (!c.i)
-            return eval(s, e->rhs, m);
-        return e->cond_omits_mid ? c : eval(s, e->mid, m);
+            return eval(s, e->rhs, m, bindings, nbindings);
+        return e->cond_omits_mid ? c : eval(s, e->mid, m, bindings, nbindings);
     }
     case AST_EXPR_CAST: {
         Type *from = e->lhs ? e->lhs->sem_type : NULL;
@@ -1323,9 +1346,10 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             to->kind == TY_PTR) {
             bool from_null = false;
 
-            o = eval_lvalue_address(s, e->lhs, cast_mode, &from_null);
+            o = eval_lvalue_address(s, e->lhs, cast_mode, &from_null, bindings,
+                                    nbindings);
         } else {
-            o = eval(s, e->lhs, cast_mode);
+            o = eval(s, e->lhs, cast_mode, bindings, nbindings);
         }
         if (o.kind == CV_ERROR)
             return o;
@@ -1436,7 +1460,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
     case AST_EXPR_OFFSETOF: {
         u64 off = 0;
 
-        if (!offsetof_walk(s, m, e->lhs, &off))
+        if (!offsetof_walk(s, m, e->lhs, &off, bindings, nbindings))
             return cv_error();
         return cv_int(s, e->sem_type, off);
     }
@@ -1454,9 +1478,11 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
              e->op == SEMA_BUILTIN_SUB_OVERFLOW_P ||
              e->op == SEMA_BUILTIN_MUL_OVERFLOW_P) &&
             e->nargs == 3) {
-            ConstValue left_value = eval(s, e->args[0], m);
-            ConstValue right_value = eval(s, e->args[1], m);
-            ConstValue selector_value = eval(s, e->args[2], m);
+            ConstValue left_value = eval(s, e->args[0], m, bindings, nbindings);
+            ConstValue right_value =
+                eval(s, e->args[1], m, bindings, nbindings);
+            ConstValue selector_value =
+                eval(s, e->args[2], m, bindings, nbindings);
             Type *result_type =
                 conv_unpromoted_integer_expr_type(s, e->args[2]);
             CeOverflowInteger left;
@@ -1480,7 +1506,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
         }
 
         if (bytes && e->nargs == 1) {
-            ConstValue a = eval(s, e->args[0], m);
+            ConstValue a = eval(s, e->args[0], m, bindings, nbindings);
 
             if (a.kind != CV_INT)
                 return cv_error();
@@ -1496,7 +1522,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
               strcmp(callee->name, "__builtin_labs") == 0) ||
              (e->op == SEMA_BUILTIN_LLABS &&
               strcmp(callee->name, "__builtin_llabs") == 0))) {
-            ConstValue a = eval(s, e->args[0], m);
+            ConstValue a = eval(s, e->args[0], m, bindings, nbindings);
             u32 w = conv_int_bits(s, e->sem_type);
 
             /* Only the explicitly spelled compiler builtin is an ICE. A
@@ -1519,7 +1545,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
              e->op == SEMA_BUILTIN_FFSLL) &&
             e->nargs == 1 && callee && callee->kind == AST_EXPR_IDENT &&
             callee->name && strncmp(callee->name, "__builtin_", 10) == 0) {
-            ConstValue a = eval(s, e->args[0], m);
+            ConstValue a = eval(s, e->args[0], m, bindings, nbindings);
             u32 bit = 1;
 
             /* The argument already carries the exact signed prototype type.
@@ -1541,7 +1567,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
              e->op == SEMA_BUILTIN_CTZL || e->op == SEMA_BUILTIN_CTZLL) &&
             e->nargs == 1 && callee && callee->kind == AST_EXPR_IDENT &&
             callee->name && strncmp(callee->name, "__builtin_", 10) == 0) {
-            ConstValue a = eval(s, e->args[0], m);
+            ConstValue a = eval(s, e->args[0], m, bindings, nbindings);
             u32 width = conv_int_bits(s, e->args[0]->sem_type);
             bool leading = e->op == SEMA_BUILTIN_CLZ ||
                            e->op == SEMA_BUILTIN_CLZL ||
@@ -1569,7 +1595,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
              e->op == SEMA_BUILTIN_CLRSBLL) &&
             e->nargs == 1 && callee && callee->kind == AST_EXPR_IDENT &&
             callee->name && strncmp(callee->name, "__builtin_", 10) == 0) {
-            ConstValue a = eval(s, e->args[0], m);
+            ConstValue a = eval(s, e->args[0], m, bindings, nbindings);
             u32 width = conv_int_bits(s, e->args[0]->sem_type);
             u32 count = 0;
             u32 bit;
@@ -1596,7 +1622,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
              e->op == SEMA_BUILTIN_PARITYL || e->op == SEMA_BUILTIN_PARITYLL) &&
             e->nargs == 1 && callee && callee->kind == AST_EXPR_IDENT &&
             callee->name && strncmp(callee->name, "__builtin_", 10) == 0) {
-            ConstValue a = eval(s, e->args[0], m);
+            ConstValue a = eval(s, e->args[0], m, bindings, nbindings);
             u32 width = conv_int_bits(s, e->args[0]->sem_type);
             u32 count = 0;
             u32 bit;
@@ -1623,8 +1649,10 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
              e->op == SEMA_BUILTIN_ISLESSGREATER) &&
             e->nargs == 2) {
             CeMode operand_mode = is_required(m) ? CE_ARITH : m;
-            ConstValue left = eval(s, e->args[0], operand_mode);
-            ConstValue right = eval(s, e->args[1], operand_mode);
+            ConstValue left =
+                eval(s, e->args[0], operand_mode, bindings, nbindings);
+            ConstValue right =
+                eval(s, e->args[1], operand_mode, bindings, nbindings);
             bool unordered;
             int cmp;
             bool truth;
@@ -1662,7 +1690,8 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
              e->op == SEMA_BUILTIN_ISFINITE || e->op == SEMA_BUILTIN_SIGNBIT) &&
             e->nargs == 1) {
             CeMode operand_mode = is_required(m) ? CE_ARITH : m;
-            ConstValue value = eval(s, e->args[0], operand_mode);
+            ConstValue value =
+                eval(s, e->args[0], operand_mode, bindings, nbindings);
             bool truth;
 
             if (value.kind != CV_FLOAT)
@@ -1687,7 +1716,8 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
              e->op == SEMA_BUILTIN_FABSL) &&
             e->nargs == 1) {
             CeMode operand_mode = is_required(m) ? CE_ARITH : m;
-            ConstValue value = eval(s, e->args[0], operand_mode);
+            ConstValue value =
+                eval(s, e->args[0], operand_mode, bindings, nbindings);
 
             if (value.kind != CV_FLOAT)
                 return cv_error();
@@ -1703,8 +1733,10 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
              e->op == SEMA_BUILTIN_COPYSIGNL) &&
             e->nargs == 2) {
             CeMode operand_mode = is_required(m) ? CE_ARITH : m;
-            ConstValue magnitude = eval(s, e->args[0], operand_mode);
-            ConstValue sign = eval(s, e->args[1], operand_mode);
+            ConstValue magnitude =
+                eval(s, e->args[0], operand_mode, bindings, nbindings);
+            ConstValue sign =
+                eval(s, e->args[1], operand_mode, bindings, nbindings);
 
             if (magnitude.kind != CV_FLOAT || sign.kind != CV_FLOAT)
                 return cv_error();
@@ -1717,13 +1749,11 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
             return magnitude;
         }
         if (e->op == SEMA_BUILTIN_CONSTANT_P && e->nargs == 1) {
-            ConstValue a = eval(s, e->args[0], CE_FOLD);
-
             return cv_int(s, e->sem_type,
-                          a.kind == CV_INT || a.kind == CV_FLOAT);
+                          constant_p_known(s, e->args[0], bindings, nbindings));
         }
         if (e->op == SEMA_BUILTIN_OBJECT_SIZE && e->nargs == 2) {
-            ConstValue mode = eval(s, e->args[1], CE_ICE);
+            ConstValue mode = eval(s, e->args[1], CE_ICE, bindings, nbindings);
 
             if (mode.kind != CV_INT || mode.i > 3)
                 return cv_error();
@@ -1763,9 +1793,72 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m)
     }
 }
 
+static AstNode *constant_p_core(AstNode *e)
+{
+    while (e && (e->kind == AST_EXPR_PAREN ||
+                 (e->kind == AST_EXPR_CAST && e->implicit && e->lhs)))
+        e = e->lhs;
+    return e;
+}
+
+/* GCC treats a literal's contents as compiler-known even though the literal
+ * evaluates to an address, while other address constants (`&global`, array
+ * designators, function names) deliberately remain unknown. At optimized
+ * levels it also recovers an in-bounds element from that literal pool. */
+static bool constant_p_string_form(Sema *s, AstNode *e,
+                                   const ConstexprBinding *bindings,
+                                   u32 nbindings)
+{
+    AstNode *base;
+    AstNode *idx_node;
+    ConstValue idx;
+
+    e = constant_p_core(e);
+    if (!e)
+        return false;
+    if (e->kind == AST_EXPR_STRING)
+        return true;
+    if (!s->lang->optimize || e->kind != AST_EXPR_INDEX)
+        return false;
+
+    base = e->lhs;
+    idx_node = e->rhs;
+    if ((!base->sem_type || base->sem_type->kind != TY_PTR) &&
+        idx_node->sem_type && idx_node->sem_type->kind == TY_PTR) {
+        AstNode *tmp = base;
+
+        base = idx_node;
+        idx_node = tmp;
+    }
+    base = constant_p_core(base);
+    if (!base || base->kind != AST_EXPR_STRING || !base->tok)
+        return false;
+    idx = eval(s, idx_node, CE_FOLD, bindings, nbindings);
+    return idx.kind == CV_INT && (i64)idx.i >= 0 &&
+           idx.i <= (u64)base->tok->str.nelems;
+}
+
+static bool constant_p_known(Sema *s, AstNode *e,
+                             const ConstexprBinding *bindings, u32 nbindings)
+{
+    ConstValue value;
+
+    if (constant_p_string_form(s, e, bindings, nbindings))
+        return true;
+    value = eval(s, e, CE_FOLD, bindings, nbindings);
+    return value.kind == CV_INT || value.kind == CV_FLOAT;
+}
+
 ConstValue constexpr_eval(Sema *s, AstNode *e, CeMode mode)
 {
-    return eval(s, e, mode);
+    return eval(s, e, mode, NULL, 0);
+}
+
+bool constexpr_builtin_constant_p(Sema *s, AstNode *e,
+                                  const ConstexprBinding *bindings,
+                                  u32 nbindings)
+{
+    return constant_p_known(s, e, bindings, nbindings);
 }
 
 bool sema_require_ice(Sema *s, AstNode *e, i64 *out, const char *what)
@@ -1779,7 +1872,7 @@ bool sema_require_ice(Sema *s, AstNode *e, i64 *out, const char *what)
      * expression sema has visited them. */
     if (!e->sem_type)
         (void)sema_expr(s, e);
-    v = eval(s, e, CE_ICE);
+    v = eval(s, e, CE_ICE, NULL, 0);
     if (v.kind != CV_INT) {
         if (v.kind != CV_ERROR)
             ce_error(s, CE_ICE, e->span,
