@@ -298,16 +298,23 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #149 are now integrated; the detailed ledger below is authoritative. The
-latest merged tranche implements the translation-unit-wide GNU89 inline model
-and publishes 190 target-complete cells, raising the ratchet to 32,050 PASS
-keys. The active `s56.55-gnu-va-pack-checked-snprintf` tranche implements the
-exact glibc fortify call seam isolated by that work:
-`__builtin___snprintf_chk`, `__builtin_strdup`, and expansion of a final
-`__builtin_va_arg_pack()` through the checked formatted-output path. Its
+PR #150 are now integrated; the detailed ledger below is authoritative. PR
+#150 implements the exact glibc fortify seam isolated by the GNU89-inline
+campaign: `__builtin___snprintf_chk`, `__builtin_strdup`, and expansion of a
+final `__builtin_va_arg_pack()` through the checked formatted-output path. Its
 exact x86-64 and native ARM64 Linux evidence promotes all ten `pr37669.c`
 cells and raises the target-complete ratchet to 32,060 PASS keys (32,063
-lines). Final post-publication CI remains before merge.
+lines). It merged green-only as
+`5ceb26c22db13bdf0c4b8da09064cdb342960ed3`. The active
+`s56.56-constant-p-expression-folding` tranche addresses the ten remaining
+`bcp-1.c` cells: string literals are known without treating general addresses
+as constants; optimized literal indexing and caller-value substitution
+through a bounded single-return inline query are implemented; and O0,
+indirect-call, side-effect, automatic-array, global, and pointer negative
+cases retain their prior answers. Native arm64-macos execution is green at
+O0/O1/O2/O3/Os, focused unit coverage is green, and both Linux backends emit
+all ten target/level combinations. Target-complete Linux execution evidence
+and atomic ratchet publication remain before merge.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -8002,7 +8009,7 @@ and green post-publication CI.
   `5cc4eb067ef34204e2cc33d5a2d20e33b1665750`; its parents are `e69985c8`
   and `8f4ed5c4`, and tree `c2685c47b068cd5f2f8bb58991124c240ee2c295`
   is byte-identical to the final tested synthetic merge.
-- The active `s56.55-gnu-va-pack-checked-snprintf` tranche starts from exact
+- PR #150's `s56.55-gnu-va-pack-checked-snprintf` tranche starts from exact
   merged #149. It adds `__builtin___snprintf_chk` with glibc's five fixed
   operands, default promotions for its anonymous suffix, GNU format metadata
   at operands five/six, and ordinary `__snprintf_chk` linkage. A final
@@ -8073,6 +8080,37 @@ and green post-publication CI.
   `7ffe2f12050ae6aa85bb7378f594fa90435d2e33d968895189848bfb41823b6d`
   and
   `f54c5f227c342a0837ebf743259727c4c39d93cb76f00a784b062ca3a9c15d08`.
+  Final standard
+  [run 36275024489](https://github.com/tenseleyFlow/Cgfried/actions/runs/36275024489),
+  nightly
+  [run 36275054483](https://github.com/tenseleyFlow/Cgfried/actions/runs/36275054483),
+  and bootstrap
+  [run 36275056120](https://github.com/tenseleyFlow/Cgfried/actions/runs/36275056120)
+  are fully green. PR #150 merged green-only as
+  `5ceb26c22db13bdf0c4b8da09064cdb342960ed3`; its parents are `5cc4eb06`
+  and `d162620b`, and tree `2e4085c65be9691bd95ddf966a80e8c0f08e6123` is
+  byte-identical to the final tested synthetic merge.
+- The active `s56.56-constant-p-expression-folding` tranche starts from exact
+  merged #150. It extends the unevaluated constant-expression query without
+  treating arbitrary addresses as constants: string literals are known at
+  every optimization level, while optimized levels also recognize in-bounds
+  literal indexing. A deliberately bounded direct-call specialization maps
+  already-converted scalar actual arguments into a same-translation-unit
+  inline definition only when its complete body is a single
+  `__builtin_constant_p` return. Actual arguments remain evaluated exactly
+  once and left-to-right; O0 calls, indirect calls, side-effecting
+  expressions, automatic arrays, globals, pointer parameters, variadic
+  definitions, runtime-sized parameters, and nontrivial bodies stay on the
+  conservative path.
+
+  Native arm64-macos execution of unmodified GCC torture `bcp-1.c` passes at
+  O0/O1/O2/O3/Os. Focused unit coverage passes three tests and 33 assertions,
+  including caller-side effects and the O0/optimized boundary. Both Linux
+  backends emit nonempty assembly in all ten target/optimization cells. The
+  full 971-test Darwin unit binary reaches 4,330,093 assertions with only its
+  unchanged eight documented host-assumption failures, reproduced against
+  the untouched checkout. Exact Linux x86-64 and native ARM64 execution,
+  target-complete evidence publication, and final CI remain before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

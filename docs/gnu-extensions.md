@@ -73,6 +73,7 @@ predefine.
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
 | `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
 | `__builtin_types_compatible_p`, `__builtin_choose_expr` | `tests/corpus/x86_64/int/builtin_type_query.c` | glibc's type-dispatch macros, Linux's `__same_type` |
+| `__builtin_constant_p(expr)` | `tests/torture/execute/bcp-1.c` | compile-time selection over literals and arithmetic, including optimized propagation through simple inline query wrappers |
 | `__builtin_classify_type(expr-or-type)` | `tests/programs/builtins/classify_type_runtime.c` | GCC torture's generic bit-field arithmetic tests; compile-time type dispatch |
 | `__builtin_extract_return_addr(ptr)` | `tests/corpus/x86_64/int/gnu_extract_return_addr.c` | target-neutral decoding of addresses obtained from return-address machinery; an evaluated identity on supported x86-64 and AArch64 ABIs |
 | `__builtin_clear_padding(pointer)` | `tests/corpus/x86_64/int/gnu_clear_padding.c` | value-preserving representation canonicalization for structures, unions, bit-fields, fixed arrays, VLAs, and target-specific `long double` padding |
@@ -232,6 +233,17 @@ passes `__builtin_va_arg_pack()` as the final operand, specialization expands
 the caller's anonymous operands before the destination call's ABI is planned;
 the placeholder itself never reaches IR. This is the fortify pattern exercised
 by unmodified GCC torture `pr37669.c` on both Linux ABIs.
+
+`__builtin_constant_p(expr)` never evaluates `expr`. Integer and floating
+constant expressions are recognized at every level, as are string literals;
+other addresses such as `&global`, automatic arrays, function designators,
+and pointer parameters remain unknown. At optimized levels, an in-bounds
+constant string element is known as well. A direct call to a same-translation-
+unit inline definition whose complete body is a single constant query may
+substitute already-converted constant scalar arguments into that query. The
+actual arguments are still evaluated exactly once, left-to-right. Calls
+through pointers and nontrivial inline bodies retain the standalone answer,
+so this source-time fold never claims a general-purpose inliner.
 
 `__builtin_bcopy` has the `void (const void *, void *, size_t)` contract:
 source precedes destination, unlike `memmove`. Arguments receive ordinary

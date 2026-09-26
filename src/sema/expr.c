@@ -1472,6 +1472,8 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                     direct_ident->name, want, want == 1 ? "" : "s");
                 return poison(s, e);
             }
+            if (b == SEMA_BUILTIN_CONSTANT_P && s->cur_func)
+                s->cur_func->uses_builtin_constant_p = true;
             for (i = 0; i < e->nargs; i++) {
                 if (e->args[i] && e->args[i]->kind == AST_EXPR_VA_ARG_PACK)
                     continue;
