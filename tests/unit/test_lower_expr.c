@@ -37,8 +37,9 @@ VEC_DECL(PpVecL, PpToken);
 
 /* Front end + lowering + verify + print. Returns false if lowering
  * refused (a deferral fired). */
-static bool run_lower_target_opts(LowFix *f, const char *src, CStd std,
-                                  bool freestanding, TargetKind target_kind)
+static bool run_lower_target_opts_opt(LowFix *f, const char *src, CStd std,
+                                      bool freestanding, TargetKind target_kind,
+                                      bool optimize)
 {
     DiagSink sink;
     SourceFile *sf;
@@ -62,6 +63,7 @@ static bool run_lower_target_opts(LowFix *f, const char *src, CStd std,
     lang.std = std;
     lang.gnu_mode = std >= STD_GNU89;
     lang.freestanding = freestanding;
+    lang.optimize = optimize;
     lang.warnings = warn_ctx_new(&f->arena, f->dc);
     f->pp.warn = lang.warnings;
     f->pp.freestanding = freestanding;
@@ -89,6 +91,13 @@ static bool run_lower_target_opts(LowFix *f, const char *src, CStd std,
     return true;
 }
 
+static bool run_lower_target_opts(LowFix *f, const char *src, CStd std,
+                                  bool freestanding, TargetKind target_kind)
+{
+    return run_lower_target_opts_opt(f, src, std, freestanding, target_kind,
+                                     false);
+}
+
 static bool run_lower_opts(LowFix *f, const char *src, CStd std,
                            bool freestanding)
 {
@@ -99,6 +108,12 @@ static bool run_lower_opts(LowFix *f, const char *src, CStd std,
 static bool run_lower(LowFix *f, const char *src)
 {
     return run_lower_opts(f, src, STD_C17, false);
+}
+
+static bool run_lower_optimized(LowFix *f, const char *src)
+{
+    return run_lower_target_opts_opt(f, src, STD_GNU17, false,
+                                     CGF_TARGET_X86_64_LINUX_GNU, true);
 }
 
 static void low_free(LowFix *f)
@@ -161,6 +176,79 @@ void test_lower_builtin_expect_evaluates_both_arguments(TestCtx *t)
                               "__builtin_expect(value(), prediction()); }\n"));
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @value()"), 1);
     T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @prediction()"), 1);
+    low_free(&f);
+}
+
+void test_lower_builtin_constant_p_string_forms_follow_optimization(TestCtx *t)
+{
+    LowFix f;
+    const char *source =
+        "int global;\n"
+        "int literal(void) { return __builtin_constant_p(\"hi\"); }\n"
+        "int element(void) { return __builtin_constant_p(\"hi\"[0]); }\n"
+        "int address(void) { return __builtin_constant_p(&global); }\n";
+
+    T_ASSERT(t, run_lower(&f, source));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, strstr(txt(&f), "func i32 @literal() {\nentry():\n"
+                                "    ret i32 1") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "func i32 @element() {\nentry():\n"
+                                "    ret i32 0") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "func i32 @address() {\nentry():\n"
+                                "    ret i32 0") != NULL);
+    low_free(&f);
+
+    T_ASSERT(t, run_lower_optimized(&f, source));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, strstr(txt(&f), "func i32 @element() {\nentry():\n"
+                                "    ret i32 1") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "func i32 @address() {\nentry():\n"
+                                "    ret i32 0") != NULL);
+    low_free(&f);
+}
+
+void test_lower_builtin_constant_p_specializes_simple_inline_call(TestCtx *t)
+{
+    LowFix f;
+    const char *source = "static inline int direct(int x) {\n"
+                         "  return __builtin_constant_p(x);\n"
+                         "}\n"
+                         "static inline int arithmetic(int x) {\n"
+                         "  return __builtin_constant_p(x + 1);\n"
+                         "}\n"
+                         "static inline int changed(int x) {\n"
+                         "  return __builtin_constant_p(x++);\n"
+                         "}\n"
+                         "static inline int pointer(const char *p) {\n"
+                         "  return __builtin_constant_p(p);\n"
+                         "}\n"
+                         "int yes0(void) { return direct(1); }\n"
+                         "int yes1(void) { return arithmetic(1); }\n"
+                         "int no0(void) { return changed(1); }\n"
+                         "int no1(void) { return pointer(\"hi\"); }\n"
+                         "int effect(int *p) { return direct((*p)++); }\n";
+
+    T_ASSERT(t, run_lower_optimized(&f, source));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT(t, strstr(txt(&f), "func i32 @yes0() {\nentry():\n"
+                                "    ret i32 1") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "func i32 @yes1() {\nentry():\n"
+                                "    ret i32 1") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "func i32 @no0() {\nentry():\n"
+                                "    ret i32 0") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "func i32 @no1() {\nentry():\n"
+                                "    ret i32 0") != NULL);
+    /* Folding the call cannot erase evaluation of its actual argument. */
+    T_ASSERT(t, strstr(txt(&f), "func i32 @effect(ptr %0)") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "store i32") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "call i32 @direct") == NULL);
+    low_free(&f);
+
+    /* At O0 the direct call remains a call and the callee's standalone
+     * answer for its parameter remains false. */
+    T_ASSERT(t, run_lower(&f, source));
+    T_ASSERT(t, strstr(txt(&f), "call i32 @direct(i32 1)") != NULL);
     low_free(&f);
 }
 

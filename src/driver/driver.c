@@ -1609,6 +1609,7 @@ static int run_preprocess(Arena *arena, Arena *ir_arena, DiagCtx *dc,
         if (a->fast_math && !a->fp_contract_set)
             lang.fp_contract = 2;
         lang.pedantic = a->pedantic;
+        lang.optimize = a->opt_level > OPT_O0;
         lang.fwrapv = a->fwrapv;
         lang.safe_mode = a->fsafe;
         lang.freestanding = a->freestanding;
