@@ -38,17 +38,17 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 17/30 consecutive distinct UTC dates green.** The current strict
+**RUNNING: 18/30 consecutive distinct UTC dates green.** The current strict
 streak started on 2026-09-09. Matching-head x86 and ARM runs passed both
 optimization levels and retained all four required artifacts on September
-9--25. The September 11 scheduled run did not start; same-date
+9--26. The September 11 scheduled run did not start; same-date
 `workflow_dispatch` recovery completed the full hosted lattice before the UTC
 date ended, as the gate contract permits for a pre-bootstrap infrastructure
 failure. September 13 also passed the complete weekly reproducibility and
 cross-host lattice at the same exact head as its daily run. September 20's
 daily and separate weekly scheduled runs share one exact head; the daily run
 passed all four fixed points and the weekly run passed the complete seven-job
-lattice. September 14--19 and September 21--25 each passed the four daily
+lattice. September 14--19 and September 21--26 each passed the four daily
 jobs at one exact head; no weekly work was due on those dates.
 
 The first streak began on 2026-08-13 and reached 5/30 through 2026-08-17. It
@@ -61,8 +61,8 @@ so it reset the streak. September 6 passed the complete weekly lattice.
 September 7 and 8 each had green hosted work, but the daily x86 and ARM jobs
 did not run at one matching commit; neither date continues a strict
 matching-head streak. September 9 is therefore the new day 1. September 10,
-the eligible September 11 recovery, and the September 12--25 scheduled runs
-are days 2--17. If uninterrupted, day 30 is 2026-10-08.
+the eligible September 11 recovery, and the September 12--26 scheduled runs
+are days 2--18. If uninterrupted, day 30 is 2026-10-08.
 
 The workflow previously scheduled only ARM every day and obtained x86 evidence
 accidentally from repository pushes. The current automation repair schedules
@@ -141,8 +141,9 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-09-23 | `9d2290212d8ead89c9d0042ea06c9af2eb8ef70b` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 35837871694](https://github.com/tenseleyFlow/Cgfried/actions/runs/35837871694) |
 | 2026-09-24 | `d958f633d818b7dde8eacfb9a3f2074b45600285` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 35975305182](https://github.com/tenseleyFlow/Cgfried/actions/runs/35975305182) |
 | 2026-09-25 | `e69985c8aefd24bdf8105bfb7d594ad9ef8a0db8` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36114957016](https://github.com/tenseleyFlow/Cgfried/actions/runs/36114957016) |
+| 2026-09-26 | `5cc4eb067ef34204e2cc33d5a2d20e33b1665750` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36230220640](https://github.com/tenseleyFlow/Cgfried/actions/runs/36230220640) |
 
-The August 29–September 25 reconciliation uses GitHub's workflow, job, and
+The August 29–September 26 reconciliation uses GitHub's workflow, job, and
 retained-artifact metadata. Every qualifying non-Sunday pair retains
 `sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
@@ -158,12 +159,20 @@ run `35500570594`, retain those four plus
 green. This reconciliation does not claim a new full payload-rehash audit for
 those dates.
 
-The September 15--19 and 21--25 daily runs each retain the expected four
+The September 15--19 and 21--26 daily runs each retain the expected four
 unexpired fixed-point artifacts. September 20's daily run retains those same
 four, and its separate weekly run retains all eight required daily and
 cross-host artifacts. GitHub's artifact API reports a non-expired SHA-256 digest for
-every one of those 44 daily artifacts. These are workflow, job, and artifact API
+every one of those 48 daily artifacts. These are workflow, job, and artifact API
 metadata checks, not a separate download-and-rehash audit.
+
+The September 26 run's artifact API SHA-256 digests are
+`f5c43b5b56edd9fdbfcab7a3c3cdc435db1db5a0f5ddeae092a5c32a9d0a55ff`
+(x86 O0), `60d898d99b2826a65e9488cc974823ec58b8b5436dfb97632413cd349cf3fc13`
+(x86 O2), `c25c790233b06945bdb06b6073940f26bb9624d4843e3bf89d0fdea6b9dca973`
+(ARM O0), and `565fca2aa85591d2810727cc85fc9b694970a69d15b05a0d490e0691f5e26ce5`
+(ARM O2). All four jobs and the workflow are green. These are API metadata
+checks, not a separate download-and-rehash audit.
 
 The September 25 run's artifact API SHA-256 digests are
 `8fd19601468596277c36042f4677b67d0a16a58a237abd6e8c5e23749e63dc97`
