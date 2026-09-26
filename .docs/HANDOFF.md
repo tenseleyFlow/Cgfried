@@ -313,8 +313,10 @@ through a bounded single-return inline query are implemented; and O0,
 indirect-call, side-effect, automatic-array, global, and pointer negative
 cases retain their prior answers. Native arm64-macos execution is green at
 O0/O1/O2/O3/Os, focused unit coverage is green, and both Linux backends emit
-all ten target/level combinations. Target-complete Linux execution evidence
-and atomic ratchet publication remain before merge.
+all ten target/level combinations. Exact Linux x86-64 and native ARM64
+execution promotes all ten `bcp-1.c` cells, raising the target-complete
+ratchet to 32,070 PASS keys (32,073 lines). Final post-publication CI remains
+before merge.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -8109,8 +8111,48 @@ and green post-publication CI.
   backends emit nonempty assembly in all ten target/optimization cells. The
   full 971-test Darwin unit binary reaches 4,330,093 assertions with only its
   unchanged eight documented host-assumption failures, reproduced against
-  the untouched checkout. Exact Linux x86-64 and native ARM64 execution,
-  target-complete evidence publication, and final CI remain before merge.
+  the untouched checkout.
+
+  GitHub's exact prepublication synthetic merge is
+  `ce97eae5dd61caab1d18fe7118cf19783230be1e`; its parents are exact merged
+  #150 `5ceb26c2` and behavior head `246d0e10`, and tree
+  `da19083ec43aa285f850cb3b9b9f4200903d38df` is byte-identical to the feature
+  head. Prepublication standard
+  [run 36278245446](https://github.com/tenseleyFlow/Cgfried/actions/runs/36278245446)
+  passes all 23 ordinary jobs, intentionally skips the tag-only job, and
+  refuses only the intended x86 torture-ratchet cells.
+  Exact-merge nightly
+  [run 36278906382](https://github.com/tenseleyFlow/Cgfried/actions/runs/36278906382)
+  passes all fourteen ordinary jobs and refuses only the matching ARM torture
+  cells. Exact-merge bootstrap
+  [run 36278908582](https://github.com/tenseleyFlow/Cgfried/actions/runs/36278908582)
+  passes all seven jobs.
+
+  The retained x86 and ARM streams each contain 20,325 unique cells: 16,035
+  PASS, 3,200 SKIP, and 1,090 COMPILE_FAIL, with zero duplicate key or old-
+  PASS regression. Their SHA-256 values are respectively
+  `3bc9d1a76e8e0523a824f88a6c844ed1e68d9b9e09494f9475fb25b7c70f5d00`
+  and
+  `671a1a52640a1cba3e48fadc8560c8020bd3c69d9ba7129678b99cae8dec37b1`.
+  Both name the exact synthetic merge and share compiler-source SHA-256
+  `41e5554b1dd4194580ac0d8091ad7d4c2983d5cf97c4db85e4493db75dda6f49`,
+  harness SHA-256
+  `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`,
+  and identical manifest hashes. Each target contributes exactly five new
+  `bcp-1.c` PASS cells.
+
+  GNU Make atomic publication consumes those exact streams through
+  `gmake -o torture-run torture-baseline`; reversing their order regenerates
+  both outputs byte-identically, both streams pass the published ratchet, and
+  the complete torture metadata suite is green. The result is 32,070 PASS
+  keys (32,073 lines), 2,180 failed cells fully covered by 29 deterministic
+  buckets, 24 applied decisions, four deliberately retained stale decisions,
+  and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `75330c4e9acd30feedad7efc154050e862c594f027312a648832036e520ab151`
+  and
+  `ca1bb58b1808aebbedcb04cb240c72f64721c8d4aa2ae5b19a46f411561b7325`.
+  Final post-publication CI remains before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

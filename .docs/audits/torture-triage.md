@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `d7e96f1dad26dd334f19b4269394410728ed861f`
-- compiler-source-sha256: `a3dfa1bfd032236d5087a9b70793c248da1fe502fa60bdfcb5b526049a8de9a4`
+- source-revision: `ce97eae5dd61caab1d18fe7118cf19783230be1e`
+- compiler-source-sha256: `41e5554b1dd4194580ac0d8091ad7d4c2983d5cf97c4db85e4493db75dda6f49`
 - harness-sha256: `6109f4d0bfa5a8e04b29e61c2bdf0ccb2d6eb2ef208c4fb16b8d1a2ac3dc957b`
 - torture-manifest-sha256: `53a8a70ea4b8841f5fa29ad3938c0eeccad33077560dd8db69b5fcc510fd5307`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `75c3c833f7661a385cfecb26bad808fc006f61fafb71a6248151bc2d1ac172f7` | `75c3c833f7661a385cfecb26bad808fc006f61fafb71a6248151bc2d1ac172f7` |
-| x86_64-linux-gnu | `c100961c54c171de2d4c843244708210eabb38675e565604249b396654ebae2c` | `c100961c54c171de2d4c843244708210eabb38675e565604249b396654ebae2c` |
+| arm64-linux | `8502e3e7df27067de93dcd7314fceb0ed54e899f3f1c4476341f3490c87bb0dd` | `8502e3e7df27067de93dcd7314fceb0ed54e899f3f1c4476341f3490c87bb0dd` |
+| x86_64-linux-gnu | `4504076903138d33a0c6b85c29f50dcfa1a2dd2725c45847813fe08132af83dc` | `4504076903138d33a0c6b85c29f50dcfa1a2dd2725c45847813fe08132af83dc` |
 
 ## Baseline
 
@@ -39,16 +39,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | torture-compile | O3 | x86_64-linux-gnu | 2016 | 1510 | 367 | 0 | 139 | 91.57% |
 | torture-compile | Os | arm64-linux | 2016 | 1510 | 367 | 0 | 139 | 91.57% |
 | torture-compile | Os | x86_64-linux-gnu | 2016 | 1510 | 367 | 0 | 139 | 91.57% |
-| torture-execute | O0 | arm64-linux | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
-| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
-| torture-execute | O1 | arm64-linux | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
-| torture-execute | O1 | x86_64-linux-gnu | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
-| torture-execute | O2 | arm64-linux | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
-| torture-execute | O2 | x86_64-linux-gnu | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
-| torture-execute | O3 | arm64-linux | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
-| torture-execute | O3 | x86_64-linux-gnu | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
-| torture-execute | Os | arm64-linux | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
-| torture-execute | Os | x86_64-linux-gnu | 1752 | 1432 | 244 | 0 | 76 | 94.96% |
+| torture-execute | O0 | arm64-linux | 1752 | 1433 | 244 | 0 | 75 | 95.03% |
+| torture-execute | O0 | x86_64-linux-gnu | 1752 | 1433 | 244 | 0 | 75 | 95.03% |
+| torture-execute | O1 | arm64-linux | 1752 | 1433 | 244 | 0 | 75 | 95.03% |
+| torture-execute | O1 | x86_64-linux-gnu | 1752 | 1433 | 244 | 0 | 75 | 95.03% |
+| torture-execute | O2 | arm64-linux | 1752 | 1433 | 244 | 0 | 75 | 95.03% |
+| torture-execute | O2 | x86_64-linux-gnu | 1752 | 1433 | 244 | 0 | 75 | 95.03% |
+| torture-execute | O3 | arm64-linux | 1752 | 1433 | 244 | 0 | 75 | 95.03% |
+| torture-execute | O3 | x86_64-linux-gnu | 1752 | 1433 | 244 | 0 | 75 | 95.03% |
+| torture-execute | Os | arm64-linux | 1752 | 1433 | 244 | 0 | 75 | 95.03% |
+| torture-execute | Os | x86_64-linux-gnu | 1752 | 1433 | 244 | 0 | 75 | 95.03% |
 | torture-execute-ieee | O0 | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
 | torture-execute-ieee | O0 | x86_64-linux-gnu | 78 | 46 | 29 | 0 | 3 | 93.88% |
 | torture-execute-ieee | O1 | arm64-linux | 78 | 46 | 29 | 0 | 3 | 93.88% |
@@ -526,21 +526,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ### Bucket 26
 
-- Count: 10
-- Cluster: signal=`6`; phase=`run`
-- Runtime split: `non-optdiv`
-- Fingerprint: `7185bb28ba16ee3587e8cde30e5763061a385d6bede1e7fc08cc4c2a48f66831`
-- Exemplars: torture-execute/bcp-1.c@O0@arm64-linux, torture-execute/bcp-1.c@O0@x86_64-linux-gnu, torture-execute/bcp-1.c@O1@arm64-linux
-- Diagnostic: program killed by signal 6
-- Labels: -
-- Tags: -
-- Optdiv members: 0 of 10
-- Optdiv exemplars: -
-- Hypothesis: The newly exposed bcp-1.c case needs broader __builtin_constant_p folding, including string literals and optimized inline-call expressions.
-- Disposition: `fix-sprint:s56.56-constant-p-expression-folding`
-
-### Bucket 27
-
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
 - Fingerprint: `5af19e793c6f35ae33c0aa34abf6552c58591c99400d16038ff878b4332002d0`
@@ -553,7 +538,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: arm64 multi-register-output extended asm is a documented deliberate v0.1.0 refusal
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 28
+### Bucket 27
 
 - Count: 5
 - Cluster: signal=`-`; phase=`as`
@@ -567,7 +552,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The test embeds raw target-specific asm mnemonics that are invalid on both supported x86_64 and arm64 assemblers.
 - Disposition: `out-of-scope`
 
-### Bucket 29
+### Bucket 28
 
 - Count: 5
 - Cluster: signal=`-`; phase=`sema`
@@ -581,7 +566,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: allocator-chosen extra x86 register outputs are a documented deliberate v0.1.0 refusal
 - Disposition: `wontfix-0.1.0`
 
-### Bucket 30
+### Bucket 29
 
 - Count: 5
 - Cluster: signal=`-`; phase=`as`
@@ -597,19 +582,20 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Policy Overlay
 
-- Applied decisions: 25
-- Stale decisions: 3
+- Applied decisions: 24
+- Stale decisions: 4
 
 | Signal | Fingerprint | Phase | Variant | Hypothesis | Disposition |
 |---|---|---|---|---|---|
 | - | `70f8ab7d8e3ce9b973cfeb05b4e407e6efc4b75594aa1ae13705eadb9e57c152` | parse | all | The newly exposed pr37669.c case needs __builtin___snprintf_chk, __builtin_strdup, and variadic argument-pack forwarding through the checked call. | `fix-sprint:s56.55-gnu-va-pack-checked-snprintf` |
 | - | `cfa8a29b24c9c9402d3d557912a1d0bd9dc054a7c7c29e8d4a1d3e81365645eb` | run | all | UTF-8 source bytes are widened independently instead of decoded into Unicode code points for wide string literals | `fix-sprint:s56.5-utf8-wide-literal-decoding` |
 | - | `e52eb5707422df12f2923cc404dd36f80c00c96e1901f9885f67a72595134e73` | parse | all | The ten-thousand-level expression nesting stress reaches Cgfried's explicit bracket-nesting translation limit on hosts where parsing stops before the harness output guard. | `out-of-scope` |
+| 6 | `7185bb28ba16ee3587e8cde30e5763061a385d6bede1e7fc08cc4c2a48f66831` | run | non-optdiv | The newly exposed bcp-1.c case needs broader __builtin_constant_p folding, including string literals and optimized inline-call expressions. | `fix-sprint:s56.56-constant-p-expression-folding` |
 
 ## Coverage
 
-- Failed cells: 2190
-- Bucketed cells: 2190
+- Failed cells: 2180
+- Bucketed cells: 2180
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%
