@@ -8230,10 +8230,12 @@ and green post-publication CI.
   the deterministic 5,000-case mutation stream; normal and sanitized builds
   reproduce its re-pinned digest `026cdc158bab48dc`. GNU-tier, source-ban,
   unit-registry, format-matrix, warning-matrix, and whitespace gates are
-  green. The full native ARM64 corpus executes the new fixture successfully;
-  its six unrelated Apple-profile failures and one expected TLS skip are
-  unchanged local platform boundaries. No imported torture source spells
-  `mode(TI)`, so no ratchet publication is expected for this tranche.
+  green. The permanent ISA corpus inventory deliberately advances from 128 to
+  129 sources so its all-six-optimization-level ratchet includes the new case.
+  The full native ARM64 corpus executes the new fixture successfully; its six
+  unrelated Apple-profile failures and one expected TLS skip are unchanged
+  local platform boundaries. No imported torture source spells `mode(TI)`, so
+  no torture-ratchet publication is expected for this tranche.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
