@@ -32,8 +32,8 @@ typedef enum {
     TY_ULONG,
     TY_LLONG,
     TY_ULLONG,
-    /* GNU machine-mode integers.  Cgfried deliberately does not expose the
-     * __int128 spelling yet; mode(TI) reaches these distinct 128-bit types. */
+    /* GNU 128-bit integers. `mode(TI)`, `__int128`, and the compiler-provided
+     * `__int128_t` / `__uint128_t` names reach these canonical types. */
     TY_INT128,
     TY_UINT128,
     TY_FLOAT,

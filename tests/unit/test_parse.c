@@ -302,6 +302,48 @@ void test_parse_inner_pointer_aligned_attribute(TestCtx *t)
     pfix_free(&f);
 }
 
+void test_parse_gnu_int128_spellings(TestCtx *t)
+{
+    ParseFix f;
+    AstNode *tu;
+    static const struct {
+        const char *src;
+        AstBaseType want;
+    } accepted[] = {
+        {"__int128 value;\n", ABT_INT128},
+        {"signed __int128 value;\n", ABT_INT128},
+        {"__int128 signed value;\n", ABT_INT128},
+        {"unsigned __int128 value;\n", ABT_UINT128},
+        {"__int128 unsigned value;\n", ABT_UINT128},
+        {"__int128_t value;\n", ABT_INT128},
+        {"__uint128_t value;\n", ABT_UINT128},
+    };
+    static const char *const rejected[] = {
+        "signed __int128_t value;\n",
+        "unsigned __uint128_t value;\n",
+        "long __int128 value;\n",
+        "__int128 int value;\n",
+        "__int128 __int128 value;\n",
+        "signed signed __int128 value;\n",
+        "unsigned unsigned __int128 value;\n",
+    };
+    u32 i;
+
+    for (i = 0; i < sizeof(accepted) / sizeof(accepted[0]); i++) {
+        tu = parse_src_with_options(&f, accepted[i].src, STD_C17, false, true);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT_EQ_INT(t, f.warnings, 0);
+        T_ASSERT_EQ_INT(t, (int)tu->ndecls, 1);
+        T_ASSERT_EQ_INT(t, tu->decls[0]->type->base, accepted[i].want);
+        pfix_free(&f);
+    }
+    for (i = 0; i < sizeof(rejected) / sizeof(rejected[0]); i++) {
+        (void)parse_src(&f, rejected[i], STD_C17);
+        T_ASSERT(t, f.errors > 0);
+        pfix_free(&f);
+    }
+}
+
 void test_parse_system_float128_compat_typedef(TestCtx *t)
 {
     ParseFix f;

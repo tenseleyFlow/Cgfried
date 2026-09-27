@@ -866,6 +866,10 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
         return type_basic(TY_LLONG);
     case ABT_ULLONG:
         return type_basic(TY_ULLONG);
+    case ABT_INT128:
+        return type_basic(TY_INT128);
+    case ABT_UINT128:
+        return type_basic(TY_UINT128);
     case ABT_FLOAT:
         return type_basic(TY_FLOAT);
     case ABT_DOUBLE:

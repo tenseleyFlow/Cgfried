@@ -251,6 +251,11 @@ void test_target_predefines_use_canonical_long_double_size(TestCtx *t)
         buf_init(&predefs);
         cgf_target_predef_lines(spec, false, &predefs);
         T_ASSERT(t, strstr((const char *)predefs.data, macro) != NULL);
+        /* The source types are available, but this GCC effective-target
+         * advertisement remains withheld until the guarded bit-field,
+         * vector, and checked-overflow boundaries are implemented. */
+        T_ASSERT(t, strstr((const char *)predefs.data, "__SIZEOF_INT128__") ==
+                        NULL);
         buf_free(&predefs);
     }
 }

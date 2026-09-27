@@ -98,6 +98,10 @@ const char *ast_base_type_name(AstBaseType b)
         return "long long";
     case ABT_ULLONG:
         return "unsigned long long";
+    case ABT_INT128:
+        return "__int128";
+    case ABT_UINT128:
+        return "unsigned __int128";
     case ABT_FLOAT:
         return "float";
     case ABT_DOUBLE:

@@ -117,11 +117,10 @@ expect_outcome "$execute" xfail.c XFAIL
 expect_outcome "$execute" xfail-signal.c XFAIL
 expect_outcome "$execute" xpass.c PASS
 expect_outcome "$execute" requirement.c SKIP
-expect_outcome "$execute" int128-requirement.c SKIP
+expect_outcome "$execute" int128-requirement.c PASS
 awk -F "$tab" '$3 == "xfail-signal.c" && $7 == "-" { found=1 } END { exit !found }' "$execute"
 awk -F "$tab" '$3 == "xfail.c" && $10 ~ /^xfail:TORT-999 / { found=1 } END { exit !found }' "$execute"
 awk -F "$tab" '$3 == "requirement.c" && $10 == "skip-unless:label_values" { found=1 } END { exit !found }' "$execute"
-awk -F "$tab" '$3 == "int128-requirement.c" && $10 == "skip-unless:int128" { found=1 } END { exit !found }' "$execute"
 
 [ "$(wc -l < "$execute" | tr -d ' ')" -eq 15 ] || {
     echo "torture_runner_test: execute result did not have two headers plus thirteen rows" >&2
@@ -195,9 +194,9 @@ arm_signal_fp=$(awk -F "$tab" '$3 == "signal.c" {print $8}' \
     exit 1
 }
 
-# The frontend does not implement __int128.  The default capability set must
-# therefore skip int128-gated imports, while an explicit operator override
-# remains available for a future implementation or a specialized compiler.
+# The frontend implements __int128, so the default capability set must run
+# int128-gated imports. An explicit operator override remains available for a
+# specialized compiler or a deliberately restricted capability audit.
 int128_manifest=$tmp/int128.MANIFEST
 printf 'execute/int128-requirement.c\t%s\trun\tint128\t-\tpass\t-\n' \
     "$(hash "$tmp/execute/int128-requirement.c")" >"$int128_manifest"

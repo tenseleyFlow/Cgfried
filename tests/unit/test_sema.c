@@ -113,6 +113,36 @@ void test_sema_basic_types_interned(TestCtx *t)
     T_ASSERT(t, !type_compatible(type_basic(TY_CHAR), type_basic(TY_SCHAR)));
 }
 
+void test_sema_gnu_int128_spellings_share_ti_types(TestCtx *t)
+{
+    SemaFix f;
+    Symbol *signed_value;
+    Symbol *unsigned_value;
+    const char *signed_name;
+    const char *unsigned_name;
+
+    run_sema_opts(
+        &f,
+        "__int128_t signed_value;\n"
+        "unsigned __int128 unsigned_value;\n"
+        "_Static_assert(__builtin_types_compatible_p(\n"
+        "    __int128, __int128_t), \"signed identity\");\n"
+        "_Static_assert(__builtin_types_compatible_p(\n"
+        "    unsigned __int128, __uint128_t), \"unsigned identity\");\n",
+        STD_C17, true);
+    signed_name = intern_str(&f.in, intern_cstr(&f.in, "signed_value"));
+    unsigned_name = intern_str(&f.in, intern_cstr(&f.in, "unsigned_value"));
+    signed_value = scope_lookup(f.sema.file_scope, signed_name, NS_ORDINARY);
+    unsigned_value =
+        scope_lookup(f.sema.file_scope, unsigned_name, NS_ORDINARY);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    T_ASSERT(t, signed_value && signed_value->type == type_basic(TY_INT128));
+    T_ASSERT(t,
+             unsigned_value && unsigned_value->type == type_basic(TY_UINT128));
+    sfix_free(&f);
+}
+
 void test_sema_finish_large_symbol_chain_is_iterative(TestCtx *t)
 {
     enum { NSYMS = 100000 };

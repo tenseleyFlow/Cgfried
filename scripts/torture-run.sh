@@ -504,7 +504,10 @@ requirement_supported()
     if [ "${CGF_TORTURE_CAPABILITIES+x}" = x ]; then
         rs_caps=$CGF_TORTURE_CAPABILITIES
     else
-        rs_caps=int32plus,ptr32plus,size20plus,size32plus,int32,longlong64,double64,double64plus,stdint_types,c99_runtime,indirect_calls,run_expensive_tests,fileio,mmap,pthread,fpic,nonpic,non_strict_prototype,named_sections,scheduling
+        # DejaGNU's int128 effective target means the source type exists. It
+        # does not promise the __SIZEOF_INT128__ predefine or every derived
+        # bit-field, vector, and checked-overflow surface.
+        rs_caps=int128,int32plus,ptr32plus,size20plus,size32plus,int32,longlong64,double64,double64plus,stdint_types,c99_runtime,indirect_calls,run_expensive_tests,fileio,mmap,pthread,fpic,nonpic,non_strict_prototype,named_sections,scheduling
     fi
     old_ifs=$IFS
     IFS=,
