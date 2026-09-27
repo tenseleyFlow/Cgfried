@@ -135,23 +135,25 @@ remain limited to pointer-width integer objects, matching GCC; a TI object is
 wider. TI bit-fields use the ordinary 128-bit allocation unit and preserve the
 address-backed two-limb value contract through static/runtime initialization,
 reads, writes, narrowed assignment results, compound updates, packed fields,
-and reverse scalar storage order. TI checked-overflow operations still fail
-closed. Floating conversions, atomic TI objects and atomic/TI compound
-operations, TI enums and switch controls, and reverse storage order for
-ordinary TI members or arrays likewise receive targeted errors.
+and reverse scalar storage order. TI switch controls compare the full
+two-limb value, including signed and unsigned labels and GNU ranges that cross
+the limb boundary. TI checked-overflow operations still fail closed. Floating
+conversions, atomic TI objects and atomic/TI compound operations, TI enums,
+and reverse storage order for ordinary TI members or arrays likewise receive
+targeted errors.
 
 `__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
 that macro as an effective-target promise for bodies that also exercise the
-still-refused vector and checked-overflow surfaces. Source
-may use the implemented types directly; the broader feature advertisement
-lands only when those guarded boundaries close.
+still-refused floating-conversion, vector, checked-overflow, and variadic TI
+surfaces. Source may use the implemented types directly; the broader feature
+advertisement lands only when those guarded boundaries close.
 
 The torture harness's narrower DejaGNU `int128` capability is enabled: that
 effective-target test asks whether the source type exists. It therefore runs
 direct `__int128` cases such as `pr84748.c` and the TI bit-field compile cases
-while continuing to expose separately named selector, vector, checked-overflow,
-and ordinary-member reverse-storage boundaries instead of hiding them as
-unsupported-type skips.
+while continuing to expose separately named floating-conversion, vector,
+checked-overflow, variadic, and ordinary-member reverse-storage boundaries
+instead of hiding them as unsupported-type skips.
 
 `__builtin_classify_type` is an integer constant expression and never
 evaluates an expression operand. Expression operands undergo GCC's ordinary

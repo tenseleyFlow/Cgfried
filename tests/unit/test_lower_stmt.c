@@ -374,6 +374,42 @@ void test_lower_switch_sorted_and_default(TestCtx *t)
     st_free(&f);
 }
 
+void test_lower_gnu_int128_switch_full_width(TestCtx *t)
+{
+    StFix f;
+
+    T_ASSERT(t, run_lower_s(&f, "typedef unsigned __int128 u128;\n"
+                                "typedef __int128 i128;\n"
+                                "#define U ((u128)1)\n"
+                                "#define B(n) (U << (n))\n"
+                                "int f(u128 x) { switch (x) {\n"
+                                "case B(100): return 1;\n"
+                                "case B(64) + 7: return 2;\n"
+                                "case B(64) - 2 ... B(64) + 2: return 3;\n"
+                                "default: return 0; } }\n"
+                                "int g(i128 x) { switch (x) {\n"
+                                "case -B(100): return 4;\n"
+                                "case -1: return 5;\n"
+                                "default: return 0; } }\n"));
+    T_ASSERT(t, f.m != NULL && ir_verify(f.dc, f.m));
+    /* TI has no scalar IR type. Dispatch must compare both i64 limbs and
+     * branch, never truncate the controller into an ordinary IR switch. */
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), "switch "), 0);
+    T_ASSERT(t, scount(stxt(&f), "icmp eq i64") >= 4);
+    T_ASSERT(t, scount(stxt(&f), "sw.wide.next") >= 4);
+    st_free(&f);
+
+    T_ASSERT(t, run_lower_s(&f, "typedef unsigned __int128 u128;\n"
+                                "volatile u128 control;\n"
+                                "int h(void) { switch (control) {\n"
+                                "case ((u128)1 << 80): return 1;\n"
+                                "default: return 0; } }\n"));
+    T_ASSERT(t, f.m != NULL && ir_verify(f.dc, f.m));
+    /* One volatile TI evaluation is exactly its two source-limb loads. */
+    T_ASSERT_EQ_INT(t, scount(stxt(&f), ", volatile"), 2);
+    st_free(&f);
+}
+
 void test_lower_goto_over_decl(TestCtx *t)
 {
     StFix f;

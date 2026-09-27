@@ -2221,7 +2221,8 @@ bool constexpr_builtin_constant_p(Sema *s, AstNode *e,
     return constant_p_known(s, e, bindings, nbindings);
 }
 
-bool sema_require_ice(Sema *s, AstNode *e, i64 *out, const char *what)
+bool sema_require_ice_wide(Sema *s, AstNode *e, u64 *out_lo, u64 *out_hi,
+                           const char *what)
 {
     ConstValue v;
 
@@ -2241,7 +2242,18 @@ bool sema_require_ice(Sema *s, AstNode *e, i64 *out, const char *what)
                      what);
         return false;
     }
-    *out = (i64)v.i;
+    *out_lo = v.i;
+    *out_hi = v.i_hi;
+    return true;
+}
+
+bool sema_require_ice(Sema *s, AstNode *e, i64 *out, const char *what)
+{
+    u64 lo, hi;
+
+    if (!sema_require_ice_wide(s, e, &lo, &hi, what))
+        return false;
+    *out = (i64)lo;
     return true;
 }
 

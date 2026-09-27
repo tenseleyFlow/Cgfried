@@ -712,6 +712,15 @@ static WideInt wide_load(Lower *lo, IrOperand addr, Type *t, u8 access_flags)
     return v;
 }
 
+void lower_int128_parts(Lower *lo, IrOperand addr, Type *type, u8 access_flags,
+                        IrOperand *low, IrOperand *high)
+{
+    WideInt value = wide_load(lo, addr, type, access_flags);
+
+    *low = value.lo;
+    *high = value.hi;
+}
+
 static void wide_store(Lower *lo, IrOperand addr, Type *t, WideInt v)
 {
     ir_build_store_typed(&lo->b, v.lo, addr, 8, 0, lower_efftype(lo, t));

@@ -123,8 +123,10 @@ typedef struct LoopCtx {
 typedef struct SwitchCase {
     const AstNode *stmt; /* the AST_STMT_CASE / AST_STMT_DEFAULT node */
     BlockId block;
-    i64 value; /* case value (range LOW end); unused for default */
-    i64 hi;    /* GNU `case lo ... hi:` high end, inclusive; else == value */
+    u64 value_lo; /* case value (range LOW end); unused for default */
+    u64 value_hi;
+    u64 end_lo; /* GNU range high end, inclusive; else == value */
+    u64 end_hi;
     bool is_range;
     bool is_default;
     struct SwitchCase *next;
@@ -134,6 +136,8 @@ typedef struct SwitchCtx {
     SwitchCase *cases;
     SwitchCase *cases_tail;
     Strmap case_blocks; /* AstNode* bytes -> BlockId */
+    u32 bits;           /* promoted controlling integer precision */
+    bool is_unsigned;
     struct SwitchCtx *prev;
 } SwitchCtx;
 
@@ -294,6 +298,9 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e); /* address; no load */
 void lower_asm(Lower *lo, AstNode *s);
 bool lower_asm_clobber_reg(const char *name, u8 *out);
 IrOperand lower_rvalue(Lower *lo, AstNode *e);
+/* Load the two limbs of one address-backed TI value exactly once. */
+void lower_int128_parts(Lower *lo, IrOperand addr, Type *type, u8 access_flags,
+                        IrOperand *low, IrOperand *high);
 /* Stores through an lvalue; returns the RESULT VALUE of an assignment,
  * which for a bitfield is the stored value re-narrowed (masked and, for
  * signed fields, sign-extended) — never the raw RHS. */

@@ -613,6 +613,38 @@ static bool case_in_table(const SwitchCase *c)
     return !c->is_range;
 }
 
+static u64 switch_low_mask(u32 bits)
+{
+    return bits >= 64 ? UINT64_MAX : ((1ull << bits) - 1);
+}
+
+/* Sema has already checked labels after conversion to the promoted control
+ * type.  Lowering repeats that bit-pattern conversion because the AST keeps
+ * the source expression rather than manufacturing an implicit cast node. */
+static void switch_convert_value(const SwitchCtx *ctx, u64 *low, u64 *high)
+{
+    u64 mask;
+
+    if (ctx->bits >= 128)
+        return;
+    if (ctx->bits > 64) {
+        u32 high_bits = ctx->bits - 64;
+
+        mask = switch_low_mask(high_bits);
+        *high &= mask;
+        if (!ctx->is_unsigned && (*high & (1ull << (high_bits - 1))))
+            *high |= ~mask;
+        return;
+    }
+    mask = switch_low_mask(ctx->bits);
+    *low &= mask;
+    *high = 0;
+    if (!ctx->is_unsigned && ctx->bits && (*low & (1ull << (ctx->bits - 1)))) {
+        *low |= ~mask;
+        *high = UINT64_MAX;
+    }
+}
+
 typedef struct SwitchEntry {
     i64 value;
     BlockId block;
@@ -652,16 +684,21 @@ static void collect_one_case(Lower *lo, SwitchCtx *ctx, AstNode *s,
     if (!c->is_default) {
         ConstValue cv = constexpr_eval(lo->sema, s->lhs, CE_FOLD);
 
-        c->value = cv.kind == CV_INT ? (i64)cv.i : 0;
-        c->hi = c->value;
+        c->value_lo = cv.kind == CV_INT ? cv.i : 0;
+        c->value_hi = cv.kind == CV_INT ? cv.i_hi : 0;
+        switch_convert_value(ctx, &c->value_lo, &c->value_hi);
+        c->end_lo = c->value_lo;
+        c->end_hi = c->value_hi;
         if (s->rhs) {
             ConstValue hv = constexpr_eval(lo->sema, s->rhs, CE_FOLD);
 
-            c->hi = hv.kind == CV_INT ? (i64)hv.i : c->value;
+            c->end_lo = hv.kind == CV_INT ? hv.i : c->value_lo;
+            c->end_hi = hv.kind == CV_INT ? hv.i_hi : c->value_hi;
+            switch_convert_value(ctx, &c->end_lo, &c->end_hi);
             /* Sema rejected the reversed form; a range that survives
              * to here is non-empty, and a one-value range is just a
              * plain label wearing the syntax. */
-            c->is_range = c->hi != c->value;
+            c->is_range = c->end_lo != c->value_lo || c->end_hi != c->value_hi;
         }
     }
     c->block = shared.v ? shared
@@ -738,6 +775,91 @@ static void collect_cases(Lower *lo, SwitchCtx *ctx, AstNode *s)
     }
 }
 
+static IrOperand switch_wide_eq(Lower *lo, IrOperand low, IrOperand high,
+                                u64 want_low, u64 want_high)
+{
+    ValueId low_eq = ir_build_icmp(&lo->b, ICMP_EQ, low,
+                                   ir_op_iconst(IRT_I64, (i64)want_low));
+    ValueId high_eq = ir_build_icmp(&lo->b, ICMP_EQ, high,
+                                    ir_op_iconst(IRT_I64, (i64)want_high));
+    ValueId both =
+        ir_build2(&lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, low_eq),
+                  ir_op_value(lo->fn, high_eq));
+
+    return ir_op_value(lo->fn, both);
+}
+
+/* Compare one two-limb controller against a constant endpoint.  The low limb
+ * is always unsigned; only the high-limb predicate depends on the source
+ * integer's signedness. */
+static IrOperand switch_wide_bound(Lower *lo, IrOperand low, IrOperand high,
+                                   u64 bound_low, u64 bound_high,
+                                   bool is_unsigned, bool upper)
+{
+    IrIcmp high_pred;
+    IrIcmp low_pred;
+    ValueId high_outside;
+    ValueId high_equal;
+    ValueId low_inside;
+    ValueId tied;
+    ValueId result;
+
+    if (upper) {
+        high_pred = is_unsigned ? ICMP_ULT : ICMP_SLT;
+        low_pred = ICMP_ULE;
+    } else {
+        high_pred = is_unsigned ? ICMP_UGT : ICMP_SGT;
+        low_pred = ICMP_UGE;
+    }
+    high_outside = ir_build_icmp(&lo->b, high_pred, high,
+                                 ir_op_iconst(IRT_I64, (i64)bound_high));
+    high_equal = ir_build_icmp(&lo->b, ICMP_EQ, high,
+                               ir_op_iconst(IRT_I64, (i64)bound_high));
+    low_inside = ir_build_icmp(&lo->b, low_pred, low,
+                               ir_op_iconst(IRT_I64, (i64)bound_low));
+    tied = ir_build2(&lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, high_equal),
+                     ir_op_value(lo->fn, low_inside));
+    result =
+        ir_build2(&lo->b, IR_OR, IRT_I32, ir_op_value(lo->fn, high_outside),
+                  ir_op_value(lo->fn, tied));
+    return ir_op_value(lo->fn, result);
+}
+
+static void lower_wide_switch_dispatch(Lower *lo, AstNode *s, SwitchCtx *ctx,
+                                       IrOperand address, BlockId defblk)
+{
+    IrOperand low, high;
+    SwitchCase *c;
+
+    lower_int128_parts(lo, address, s->lhs->sem_type,
+                       lower_aggregate_access_flags(s->lhs), &low, &high);
+    for (c = ctx->cases; c; c = c->next) {
+        BlockId next;
+        IrOperand match;
+
+        if (c->is_default)
+            continue;
+        next = lower_new_block(lo, "sw.wide.next");
+        if (!c->is_range) {
+            match = switch_wide_eq(lo, low, high, c->value_lo, c->value_hi);
+        } else {
+            IrOperand ge =
+                switch_wide_bound(lo, low, high, c->value_lo, c->value_hi,
+                                  ctx->is_unsigned, false);
+            IrOperand le = switch_wide_bound(lo, low, high, c->end_lo,
+                                             c->end_hi, ctx->is_unsigned, true);
+            ValueId inside = ir_build2(&lo->b, IR_AND, IRT_I32, ge, le);
+
+            match = ir_op_value(lo->fn, inside);
+        }
+        ir_build_condbr(&lo->b, match, c->block, NULL, 0, next, NULL, 0);
+        mark_config_branch(lo, s->lhs);
+        lower_at(lo, next);
+    }
+    ir_build_br(&lo->b, defblk, NULL, 0);
+    lo->terminated = true;
+}
+
 static void lower_switch(Lower *lo, AstNode *s)
 {
     SwitchCtx ctx;
@@ -750,6 +872,8 @@ static void lower_switch(Lower *lo, AstNode *s)
 
     memset(&ctx, 0, sizeof(ctx));
     strmap_init(&ctx.case_blocks);
+    ctx.bits = conv_int_bits(lo->sema, s->lhs->sem_type);
+    ctx.is_unsigned = !conv_is_signed(lo->sema, s->lhs->sem_type);
     collect_cases(lo, &ctx, s->body);
     join = lower_new_block(lo, "sw.join");
 
@@ -761,6 +885,11 @@ static void lower_switch(Lower *lo, AstNode *s)
     }
     if (defblk.v == 0)
         defblk = join; /* no default: fall past the switch */
+
+    if (type_is_int128(s->lhs->sem_type)) {
+        lower_wide_switch_dispatch(lo, s, &ctx, scrut, defblk);
+        goto lower_body;
+    }
 
     /* GNU case RANGES do not enter the IR switch table. Expanding
      * `case 0 ... 1000000:` into a million entries is not an option, and
@@ -774,8 +903,9 @@ static void lower_switch(Lower *lo, AstNode *s)
      * fail. Ranges are tested in SOURCE order, which is observable only if
      * two could match, and sema has already made that an error.
      *
-     * Building tables for range-heavy switches remains a post-v0.1.0 codegen
-     * optimization; this form is correct at every level and bounded in size. */
+     * Building tables for range-heavy switches remains a post-v0.1.0
+     * codegen optimization; this form is correct at every level and bounded
+     * in size. */
     for (c = ctx.cases; c; c = c->next) {
         BlockId next;
         u64 span;
@@ -784,9 +914,9 @@ static void lower_switch(Lower *lo, AstNode *s)
         if (c->is_default || case_in_table(c))
             continue;
         next = lower_new_block(lo, "sw.range.next");
-        span = (u64)c->hi - (u64)c->value;
+        span = c->end_lo - c->value_lo;
         d = ir_build2(&lo->b, IR_ISUB, scrut.type, scrut,
-                      ir_op_iconst(scrut.type, c->value));
+                      ir_op_iconst(scrut.type, (i64)c->value_lo));
         t = ir_build_icmp(&lo->b, ICMP_ULE, ir_op_value(lo->b.f, d),
                           ir_op_iconst(scrut.type, (i64)span));
         ir_build_condbr(&lo->b, ir_op_value(lo->b.f, t), c->block, NULL, 0,
@@ -797,9 +927,10 @@ static void lower_switch(Lower *lo, AstNode *s)
     /* The IR terminator carries a SORTED case table (backends choose
      * jump-table vs tree from it; the IR just keeps it canonical). Runs of
      * adjacent values which all enter the same statement are cheaper as the
-     * same constant-size unsigned range test used for GNU case ranges. Apart
-     * from bounding very large label lists, this also avoids manufacturing a
-     * target-specific compare chain for what is semantically one entry. */
+     * same constant-size unsigned range test used for GNU case ranges.
+     * Apart from bounding very large label lists, this also avoids
+     * manufacturing a target-specific compare chain for what is
+     * semantically one entry. */
     {
         SwitchEntry *entries =
             arena_alloc(lo->arena, (ncases ? ncases : 1) * sizeof(SwitchEntry),
@@ -814,7 +945,7 @@ static void lower_switch(Lower *lo, AstNode *s)
 
         for (c = ctx.cases; c; c = c->next)
             if (!c->is_default && case_in_table(c)) {
-                entries[n].value = c->value;
+                entries[n].value = (i64)c->value_lo;
                 entries[n].block = c->block;
                 n++;
             }
@@ -853,7 +984,7 @@ static void lower_switch(Lower *lo, AstNode *s)
         mark_config_branch(lo, s->lhs);
         lo->terminated = true;
     }
-
+lower_body:
     /* Body lowering: push contexts, then lower the body statement with
      * the current block CLOSED — the first thing reachable inside is a
      * case label, which opens its block. */
