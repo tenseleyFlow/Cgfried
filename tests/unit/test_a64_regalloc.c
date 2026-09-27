@@ -756,6 +756,130 @@ void test_a64_regalloc_aligns_stacked_composite_first_leaf(TestCtx *t)
     arena_free_all(&arena);
 }
 
+/* Apple preserves an anonymous aggregate's source alignment in its variadic
+ * stack area.  Relative NSAA padding is insufficient when that alignment is
+ * wider than the ABI's 16-byte SP guarantee: the caller must temporarily
+ * align SP itself, then restore the exact pre-call value after `bl`. */
+void test_a64_regalloc_realigns_apple_overaligned_outgoing_area(TestCtx *t)
+{
+    Arena arena;
+    A64Func f;
+    TargetSpec previous = cgf_target_selected();
+    A64Reg v[5], res, saved = {0, 0}, aligned = {0, 0};
+    A64CallInfo *call;
+    A64Inst in;
+    const A64Block *bb;
+    u8 seen[8] = {0};
+    u32 i, ii, call_at = UINT32_MAX;
+    bool saw_align = false, saw_save = false;
+
+    T_ASSERT(t, cgf_target_select("arm64-macos"));
+    arena_init(&arena);
+    init_func(&f, &arena, 1);
+    for (i = 0; i < 5; i++) {
+        v[i] = a64_newv(&f, A64RC_GP);
+        put(&f, 0, A64_OP_MOVZ, 2, treg(v[i]), timm((i64)i + 1),
+            treg((A64Reg){0, 0}));
+    }
+    res = a64_newv(&f, A64RC_GP);
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_CALL;
+    in.sf = A64_SF64;
+    a64_block_append(&f, &f.blocks[0], in);
+    call = a64_call_info_new(&f, &f.blocks[0].insts[f.blocks[0].n - 1],
+                             FUNCREF_EXTERNAL, 0, (A64Reg){0, 0}, res, IRT_I64,
+                             IR_ABIRET_NONE, false, false);
+    a64_call_add_arg(&f, call, v[0], IRT_I64, IROPF_ANON, 0);
+    for (i = 1; i < 5; i++)
+        a64_call_add_arg(&f, call, v[i], IRT_I64, IROPF_ANON,
+                         i == 1 ? ir_abi_stack_align_annot(32) : 0);
+    put(&f, 0, A64_OP_RET, 1, treg(res), treg((A64Reg){0, 0}),
+        treg((A64Reg){0, 0}));
+
+    a64_regalloc(&f);
+
+    T_ASSERT_EQ_INT(t, (long long)f.out_args, 64);
+    bb = &f.blocks[0];
+    for (ii = 0; ii < bb->n; ii++) {
+        const A64Inst *cur = &bb->insts[ii];
+
+        if (cur->op == A64_OP_AND && cur->nops == 3 &&
+            cur->ops[0].kind == A64O_REG && cur->ops[0].reg.physical &&
+            cur->ops[0].reg.id != (u32)A64_SP + 1 &&
+            cur->ops[1].kind == A64O_REG && cur->ops[1].reg.physical &&
+            cur->ops[2].kind == A64O_IMM && cur->ops[2].imm == -32) {
+            aligned = cur->ops[0].reg;
+            saved = cur->ops[1].reg;
+            saw_align = true;
+        }
+        if (cur->op == A64_OP_CALL)
+            call_at = ii;
+        if ((cur->op == A64_OP_STORE && cur->ops[1].kind == A64O_MEM) ||
+            (cur->op == A64_OP_STP && cur->ops[2].kind == A64O_MEM)) {
+            const A64Mem *mem =
+                cur->op == A64_OP_STORE ? &cur->ops[1].mem : &cur->ops[2].mem;
+            u32 lanes = cur->op == A64_OP_STORE ? 1u : 2u;
+            u32 lane;
+
+            if (!mem->base.physical || mem->base.id != (u32)A64_SP + 1 ||
+                mem->offset < 0 || mem->offset >= 64)
+                continue;
+            for (lane = 0; lane < lanes; lane++) {
+                u32 off = (u32)mem->offset + lane * mem->size;
+
+                if (off < 64)
+                    seen[off / 8] = 1;
+            }
+        }
+    }
+    T_ASSERT(t, saw_align);
+    if (saw_align) {
+        T_ASSERT(t, a64_reg_is_callee_saved_gp((u8)(saved.id - 1)));
+        for (ii = 0; ii < call_at; ii++) {
+            const A64Inst *cur = &bb->insts[ii];
+
+            if (cur->op == A64_OP_ADD && cur->nops == 3 &&
+                cur->ops[0].kind == A64O_REG &&
+                cur->ops[0].reg.id == saved.id &&
+                cur->ops[1].kind == A64O_REG && cur->ops[1].reg.physical &&
+                cur->ops[1].reg.id == (u32)A64_SP + 1 &&
+                cur->ops[2].kind == A64O_IMM && cur->ops[2].imm == 0)
+                saw_save = true;
+        }
+        T_ASSERT(t, saw_save);
+        T_ASSERT(t, aligned.physical);
+        T_ASSERT(t, aligned.id != saved.id);
+        for (ii = 0; ii < call_at; ii++) {
+            const A64Inst *cur = &bb->insts[ii];
+
+            if (cur->op == A64_OP_ADD && cur->nops == 3 &&
+                cur->ops[0].kind == A64O_REG && cur->ops[0].reg.physical &&
+                cur->ops[0].reg.id == (u32)A64_SP + 1 &&
+                cur->ops[1].kind == A64O_REG &&
+                cur->ops[1].reg.id == aligned.id &&
+                cur->ops[2].kind == A64O_IMM && cur->ops[2].imm == 0)
+                break;
+        }
+        T_ASSERT(t, ii < call_at);
+    }
+    T_ASSERT(t, call_at != UINT32_MAX);
+    if (call_at != UINT32_MAX && call_at + 1 < bb->n && saw_align) {
+        const A64Inst *restore = &bb->insts[call_at + 1];
+
+        T_ASSERT_EQ_INT(t, restore->op, A64_OP_ADD);
+        T_ASSERT_EQ_INT(t, restore->nops, 3);
+        T_ASSERT(t, restore->ops[0].reg.physical);
+        T_ASSERT_EQ_INT(t, restore->ops[0].reg.id, (u32)A64_SP + 1);
+        T_ASSERT_EQ_INT(t, restore->ops[1].reg.id, saved.id);
+        T_ASSERT_EQ_INT(t, restore->ops[2].imm, 0);
+    }
+    T_ASSERT(t, seen[0]);
+    T_ASSERT(t, !seen[1] && !seen[2] && !seen[3]);
+    T_ASSERT(t, seen[4] && seen[5] && seen[6] && seen[7]);
+    arena_free_all(&arena);
+    T_ASSERT(t, cgf_target_select(cgf_target_name(previous)));
+}
+
 /* Linux AAPCS64 gives a stacked bare binary128 scalar a naturally aligned
  * 16-byte slot. A preceding stacked double therefore leaves an eight-byte
  * hole: the caller must store the scalar at sp+16, not sp+8. */

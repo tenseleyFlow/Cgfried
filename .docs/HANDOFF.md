@@ -342,11 +342,18 @@ target-complete publication, raising the ratchet to 32,110 PASS keys (32,113
 lines). Final post-publication standard, bootstrap, and exact-merge nightly CI
 were fully green; PR #155 merged green-only as
 `b04592e62d1ae701d0c5da4056a71a6bff5e1406`, and its actual merge tree is
-byte-identical to the tested final synthetic merge. The active
+byte-identical to the tested final synthetic merge. The
 `s56.61-gnu-int128-switch` tranche starts from that exact merge. It implements
 full-width signed and unsigned TI switch controls and GNU case ranges while
 keeping the controller address-backed and loading each limb exactly once. The
-broader `__SIZEOF_INT128__` promise remains withheld. Sprint 56's campaign
+broader `__SIZEOF_INT128__` promise remains withheld. Final standard,
+bootstrap, and exact-merge nightly CI were fully green; PR #156 merged
+green-only as `d2426812b1a142e8925c940adff66c46e0b71350`, and its actual
+merge tree is byte-identical to the tested synthetic merge. The active
+`s56.62-arm64-outgoing-stack-align` tranche starts from that exact merge. It
+repairs the Apple ARM64 absolute-alignment gap exposed by `pr92904.c`; this is
+an outgoing-stack-layout repair, not a TI-specific marshalling exception.
+Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -3298,8 +3305,8 @@ and green post-publication CI.
   support campaign. On Darwin ARM64, `make build/cgfried` produces a native
   Mach-O compiler reporting `arm64-macos`; a Cgfried-built hello-world links,
   signs, and runs. `make tools` builds both bundled Rust tools natively,
-  `tests/macos/run.sh` passes all 16 builds and eight programs with both system
-  and bundled linkers, and `scripts/macho_objdiff_lane.sh` reports all ten
+  `tests/macos/run.sh` passes all 18 builds and nine programs with both system
+  and bundled linkers, and `scripts/macho_objdiff_lane.sh` reports all eleven
   objects byte-identical to Apple `as`. One local developer-test gap is the
   x86 simulator helper in `tests/unit/x64sim.h`: it assumes an x86-host
   10-byte `long double`, while Darwin ARM64 uses eight bytes, so Apple Clang 21
@@ -8449,7 +8456,7 @@ and green post-publication CI.
   #154 `61ce732a` and tested publication head `d94a6ee8`, and its tree
   `7a1a2e9d7bcbb9f20028b153205016c45975e939` is byte-identical to the final
   tested synthetic merge.
-- The active `s56.61-gnu-int128-switch` tranche starts from exact merged #155.
+- The `s56.61-gnu-int128-switch` tranche starts from exact merged #155.
   It removes only the targeted TI switch-control refusal. Sema now carries
   case-label constants as two limbs, converts them to the promoted controlling
   precision, and detects full-width duplicates and GNU-range overlaps. Lowering
@@ -8480,10 +8487,62 @@ and green post-publication CI.
   (`pr122943.c`). Nine guarded sources parse under forced advertisement and
   40/45 native executions pass; the five runtime failures are all `pr92904.c`.
   Keep `__SIZEOF_INT128__` undefined until the remaining groups, including the
-  separately documented vector boundary, close. Recommended next order after
-  green-only merge: TI varargs, TI checked-overflow destinations, TI floating
-  conversions, then re-audit and advertise the macro only when the complete
-  guarded surface is honest.
+  separately documented vector boundary, close.
+
+  Final standard
+  [run 36305836200](https://github.com/tenseleyFlow/Cgfried/actions/runs/36305836200),
+  bootstrap runs
+  [36305836199](https://github.com/tenseleyFlow/Cgfried/actions/runs/36305836199)
+  and
+  [36305833083](https://github.com/tenseleyFlow/Cgfried/actions/runs/36305833083),
+  exact synthetic-merge nightly
+  [36306373160](https://github.com/tenseleyFlow/Cgfried/actions/runs/36306373160),
+  and exact synthetic-merge bootstrap
+  [36306373340](https://github.com/tenseleyFlow/Cgfried/actions/runs/36306373340)
+  were fully green. PR #156 merged green-only as
+  `d2426812b1a142e8925c940adff66c46e0b71350`; its exact parents are merged
+  #155 `b04592e6` and tested publication head `7665f252`, and its tree
+  `a7a31f848e34eafc1c1305696a9fc3719af364ba` is byte-identical to the final
+  tested synthetic merge.
+- The active `s56.62-arm64-outgoing-stack-align` tranche starts from exact
+  merged #156. Forced-advertisement `pr92904.c` initially appeared to be the
+  TI-varargs group, but its failing comparison is the aligned-32 `struct V`
+  path and the unforced source fails too. Apple's public ABI guarantees SP
+  alignment of 16 bytes while its variadic aggregate rule preserves the
+  source type's wider alignment. Rounding the relative NSAA offset therefore
+  fails whenever the caller's current SP is 16 modulo 32.
+
+  The ARM64 call marshaller now saves the exact current SP in an ordinary
+  virtual register, masks a short-lived GP value to the requested boundary,
+  installs that value as SP for the outgoing stores and call, and restores SP
+  immediately after `bl`. The allocator naturally assigns the live-across-call
+  value to a callee-saved register or spill home; no physical scratch is
+  reserved. x29 remains the unwind anchor, so fixed and dynamic frames share
+  the same path. The three-instruction alignment form is accepted by both
+  Apple's assembler and the bundled assembler.
+
+  Local native arm64-macos evidence is green. Baseline and forced-advertisement
+  `pr92904.c` pass O0/O1/O2/O3/Os normally and under `CGF_SPILL_ALL=1`. The
+  permanent mixed-link fixture uses dynamic frame sizes that differ by 16
+  modulo 32, so it exercises both possible incoming SP parities against a
+  clang-compiled `va_arg` callee; the pre-fix compiler fails all five levels
+  and the repaired compiler passes all five normally and spill-all. The full
+  hosted macOS lane passes 18 builds (nine programs through both linkers), and
+  the Mach-O object differential reports eleven objects identical between the
+  bundled and Apple assemblers. Focused ARM64 regalloc coverage passes 25
+  tests / 5,177 assertions. The complete unit baseline is now 981 tests /
+  4,330,273 assertions with exactly the same eight Darwin host-assumption
+  failures; the one new test accounts for nineteen new assertions. Source
+  bans, target seams, GNU tiers, deferrals, registry, POSIX shell, pinned
+  clang-format 22, and diff checks are green.
+
+  This tranche changes no torture ratchet cell because #85 already published
+  all ten Linux `pr92904.c` cells; it closes the Apple-native failure that the
+  target-complete Linux evidence could not exercise. After green-only merge,
+  the forced-advertisement order is TI checked-overflow destinations
+  (`pr84169.c`), TI floating conversion (`pr49218.c`), the separately named
+  vector boundary, and then a complete guarded-surface re-audit before
+  defining `__SIZEOF_INT128__`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -10006,10 +10065,10 @@ how it got there; the LIVE work is Sprint 55 — see §1b-1.
 
 - The Mach-O dialect, the whole seven-row Apple divergence table, SDK
   discovery, the ld64 link recipe, and afs-ld as the second link lane.
-- **The Mach-O object differential: 10 objects identical to Apple's
+- **The Mach-O object differential: 11 objects identical to Apple's
   assembler on section bytes, relocations AND symbols, nothing pinned.**
 - `codesign --verify` on both linkers' products — each ad-hoc signs.
-- `tests/macos/run.sh` (7 programs x 2 linkers, signatures checked) and
+- `tests/macos/run.sh` (9 programs x 2 linkers, signatures checked) and
   `scripts/macho_objdiff_lane.sh`, both run by a `macos-15` CI job that
   fails if either lane SKIPS.
 
