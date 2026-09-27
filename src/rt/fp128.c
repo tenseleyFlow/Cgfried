@@ -488,11 +488,16 @@ static cgf_ti fix_ti(Sf v, bool is_unsigned)
 {
     SfStatus st;
     cgf_ti r;
+    uint64_t hi;
+    uint64_t lo;
 
     memset(&st, 0, sizeof(st));
-    sf_to_int128(v, is_unsigned, &r.hi, &r.lo, &st);
-    if (!st.invalid)
+    sf_to_int128(v, is_unsigned, &hi, &lo, &st);
+    if (!st.invalid) {
+        r.lo = lo;
+        r.hi = hi;
         return r;
+    }
     if (v.sign && v.cls != SF_NAN)
         return is_unsigned ? ti_pair(0, 0) : ti_pair(0, 0x8000000000000000ull);
     return is_unsigned ? ti_pair(~0ull, ~0ull)
