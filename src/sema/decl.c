@@ -516,11 +516,12 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
             warn_at(s->lang->warnings, WARN_ATTRIBUTES, m->span,
                     "'scalar_storage_order' attribute ignored on a field");
 
-        /* This tranche implements reverse order for integral scalars and
-         * bit-fields. Floating representations wider than the IR's integer
-         * carriers need a distinct byte-preserving lowering; accepting them
-         * here would silently retain native order, so fail closed. Nested
-         * records own their own storage order and are deliberately exempt. */
+        /* Reverse order is implemented for integral scalars through 64 bits
+         * and for every integral bit-field, including address-backed TI.
+         * Floating representations and ordinary TI members/arrays need a
+         * distinct byte-preserving aggregate lowering; accepting them here
+         * would silently retain native order, so fail closed. Nested records
+         * own their own storage order and are deliberately exempt. */
         if (sema_scalar_storage_order_reversed(s, tag->scalar_storage_order) &&
             sso_has_floating_component(mt)) {
             s->nerrors++;
@@ -531,7 +532,7 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
             mt = type_basic(TY_ERROR);
         }
         if (sema_scalar_storage_order_reversed(s, tag->scalar_storage_order) &&
-            sso_has_int128_element(mt)) {
+            !m->is_bitfield && sso_has_int128_element(mt)) {
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, m->span,
                       "reverse scalar storage order for mode(TI) member or "
@@ -548,14 +549,6 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         mem->bitfield_width = m->bitfield_width;
         if (m->is_bitfield) {
             i64 wv = 0;
-
-            if (type_is_int128(mt)) {
-                s->nerrors++;
-                diag_emit(s->dc, DIAG_ERROR, m->span,
-                          "mode(TI) bit-fields are not yet supported "
-                          "(docs/gnu-extensions.md)");
-                mt = mem->type = type_basic(TY_ERROR);
-            }
 
             /* gcc's implementation-defined enum-bitfield representation is
              * unsigned when the enum has no negative enumerator. This is

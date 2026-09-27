@@ -1656,6 +1656,71 @@ void test_sema_gnu_mode_ti_static_initializer_images(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_gnu_int128_bitfield_initializer_images(TestCtx *t)
+{
+    SemaFix f;
+    AstNode *native = NULL;
+    AstNode *reverse = NULL;
+    u32 i;
+
+    run_sema(&f,
+             "typedef unsigned __int128 u128;\n"
+             "#define U ((u128)1)\n"
+             "#define B(n) (U << (n))\n"
+             "struct N { u128 value:128; }; "
+             "struct R { u128 value:124; u128 tail:4; } "
+             "__attribute__" /* check_bans allow: compiler input */
+             "((scalar_storage_order(\"big-endian\"))); "
+             "static struct N native = { B(117) | B(64) | 0x35 }; "
+             "static struct R reverse = { 1, 2 };\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    for (i = 0; i < f.tu->ndecls; i++) {
+        AstNode *d = f.tu->decls[i];
+
+        if (!d || !d->name)
+            continue;
+        if (strcmp(d->name, "native") == 0)
+            native = d;
+        else if (strcmp(d->name, "reverse") == 0)
+            reverse = d;
+    }
+    T_ASSERT(t, native != NULL);
+    T_ASSERT(t, reverse != NULL);
+    if (native) {
+        InitImage image;
+
+        T_ASSERT(t, constexpr_eval_initializer(&f.sema, native->sem_type,
+                                               native->init, &image));
+        T_ASSERT_EQ_INT(t, image.size, 16);
+        T_ASSERT_EQ_INT(t, image.bytes[0], 0x35);
+        T_ASSERT_EQ_INT(t, image.bytes[8], 0x01);
+        T_ASSERT_EQ_INT(t, image.bytes[14], 0x20);
+    }
+    if (reverse) {
+        InitImage image;
+
+        T_ASSERT(t, constexpr_eval_initializer(&f.sema, reverse->sem_type,
+                                               reverse->init, &image));
+        T_ASSERT_EQ_INT(t, image.size, 16);
+        for (i = 0; i < 15; i++)
+            T_ASSERT_EQ_INT(t, image.bytes[i], 0);
+        T_ASSERT_EQ_INT(t, image.bytes[15], 0x12);
+    }
+    sfix_free(&f);
+
+    /* The tranche closes reverse order for TI bit-fields only. Ordinary TI
+     * members and arrays retain their targeted diagnostic until their
+     * byte-preserving aggregate transform is implemented independently. */
+    run_sema(&f,
+             "struct R { unsigned __int128 value; } "
+             "__attribute__" /* check_bans allow: compiler input */
+             "((scalar_storage_order(\"big-endian\")));\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_mode_ti_constant_expressions(TestCtx *t)
 {
     SemaFix f;

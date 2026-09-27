@@ -104,8 +104,8 @@ corpus_count=$(wc -l <"$corpus_list" | tr -d ' ')
 # Keep this explicit count as a corpus-drift ratchet: adding or removing a
 # source must deliberately repin the ISA matrix after the new inventory passes
 # all six optimization levels. The GNU __int128 spelling fixture is the 130th
-# permanent execution case.
-expected_corpus_count=130
+# permanent execution case and its bit-field companion is the 131st.
+expected_corpus_count=131
 if [ "$corpus_count" -ne "$expected_corpus_count" ]; then
     echo "s36_isa_driver: expected $expected_corpus_count corpus C files, found $corpus_count" >&2
     exit 1

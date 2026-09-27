@@ -2734,15 +2734,22 @@ static void fill_activate_cursor_unions(InitCtx *c, const FillCursor *cursor)
 static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
 {
     Member *m = cursor->member;
-    i64 value;
+    ConstValue value;
     u32 b;
     bool reverse;
     u64 unit_byte;
     u64 start_bit;
 
-    if (!m || !m->is_bitfield ||
-        !sema_require_ice(c->s, item, &value, "a bit-field initializer"))
+    if (!m || !m->is_bitfield)
         return;
+    value = eval(c->s, item, CE_ICE, NULL, 0);
+    if (value.kind != CV_INT) {
+        if (value.kind != CV_ERROR)
+            ce_error(c->s, CE_ICE, item->span,
+                     "a bit-field initializer must be an integer constant "
+                     "expression");
+        return;
+    }
     reverse = sema_scalar_storage_order_reversed(c->s, m->scalar_storage_order);
     unit_byte = (m->offset / m->container_size) * m->container_size;
     start_bit =
@@ -2770,7 +2777,7 @@ static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
         if (byte >= c->img->size)
             break;
         c->img->bytes[byte] &= (u8)~mask;
-        if (((u64)value >> b) & 1)
+        if (((b < 64 ? value.i : value.i_hi) >> (b % 64)) & 1)
             c->img->bytes[byte] |= mask;
     }
 }

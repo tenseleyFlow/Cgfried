@@ -677,7 +677,8 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
             if (byte >= p->size)
                 break;
             p->img[byte] &= (u8)~mask;
-            if (value.kind == CV_INT && ((value.i >> bit) & 1))
+            if (value.kind == CV_INT &&
+                (((bit < 64 ? value.i : value.i_hi) >> (bit % 64)) & 1))
                 p->img[byte] |= mask;
         }
         if (value.kind != CV_INT)
@@ -983,6 +984,7 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
         memset(&lv, 0, sizeof(lv));
         lv.addr = off_addr(lo, base,
                            r->off + (i64)(m->packed ? m->offset : unit_byte));
+        lv.type = m->type;
         switch (m->container_size) {
         case 1:
             lv.unit = IRT_I8;

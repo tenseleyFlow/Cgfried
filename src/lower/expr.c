@@ -36,6 +36,8 @@ static IrOperand addr_plus(Lower *lo, IrOperand base, i64 off);
 static bool is_cmp_op(u16 op);
 static IrOperand wide_truth_ne(Lower *lo, IrOperand addr, Type *t,
                                u8 access_flags);
+static WideInt wide_load(Lower *lo, IrOperand addr, Type *t, u8 access_flags);
+static IrOperand wide_materialize(Lower *lo, Type *t, WideInt v);
 
 static ValueId build_source_arith(Lower *lo, IrOp op, IrType irty, IrOperand x,
                                   IrOperand y, Type *source_ty)
@@ -147,6 +149,204 @@ static IrOperand packed_byte_addr(Lower *lo, IrOperand base, u32 byte)
         return base;
     at = ir_build_ptradd(&lo->b, base, ir_op_iconst(IRT_I64, (i64)byte));
     return ir_op_value(lo->fn, at);
+}
+
+static WideInt wide_bitfield_fit(Lower *lo, WideInt value, u32 width,
+                                 bool is_signed)
+{
+    if (width >= 128)
+        return value;
+    if (width <= 64) {
+        ValueId high;
+
+        value.lo = bitfield_extract(lo, value.lo, IRT_I64, 0, width, is_signed);
+        if (!is_signed) {
+            value.hi = ir_op_iconst(IRT_I64, 0);
+            return value;
+        }
+        high = ir_build2(&lo->b, IR_ASHR, IRT_I64, value.lo,
+                         ir_op_iconst(IRT_I64, 63));
+        value.hi = ir_op_value(lo->fn, high);
+        return value;
+    }
+    value.hi =
+        bitfield_extract(lo, value.hi, IRT_I64, 0, width - 64, is_signed);
+    return value;
+}
+
+static void wide_bitfield_append(Lower *lo, WideInt *value, IrOperand piece,
+                                 u32 bit, u32 width)
+{
+    ValueId part;
+    ValueId joined;
+
+    if (bit < 64) {
+        IrOperand low = piece;
+
+        if (bit) {
+            part = ir_build2(&lo->b, IR_SHL, IRT_I64, low,
+                             ir_op_iconst(IRT_I64, bit));
+            low = ir_op_value(lo->fn, part);
+        }
+        joined = ir_build2(&lo->b, IR_OR, IRT_I64, value->lo, low);
+        value->lo = ir_op_value(lo->fn, joined);
+        if (bit + width > 64) {
+            part = ir_build2(&lo->b, IR_LSHR, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, 64 - bit));
+            joined = ir_build2(&lo->b, IR_OR, IRT_I64, value->hi,
+                               ir_op_value(lo->fn, part));
+            value->hi = ir_op_value(lo->fn, joined);
+        }
+        return;
+    }
+    if (bit > 64) {
+        part = ir_build2(&lo->b, IR_SHL, IRT_I64, piece,
+                         ir_op_iconst(IRT_I64, bit - 64));
+        piece = ir_op_value(lo->fn, part);
+    }
+    joined = ir_build2(&lo->b, IR_OR, IRT_I64, value->hi, piece);
+    value->hi = ir_op_value(lo->fn, joined);
+}
+
+static IrOperand wide_bitfield_piece(Lower *lo, WideInt value, u32 bit,
+                                     u32 width)
+{
+    IrOperand piece;
+    ValueId part;
+
+    if (bit < 64) {
+        piece = value.lo;
+        if (bit) {
+            part = ir_build2(&lo->b, IR_LSHR, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, bit));
+            piece = ir_op_value(lo->fn, part);
+        }
+        if (bit + width > 64) {
+            IrOperand high = value.hi;
+            ValueId joined;
+
+            part = ir_build2(&lo->b, IR_SHL, IRT_I64, high,
+                             ir_op_iconst(IRT_I64, 64 - bit));
+            joined = ir_build2(&lo->b, IR_OR, IRT_I64, piece,
+                               ir_op_value(lo->fn, part));
+            piece = ir_op_value(lo->fn, joined);
+        }
+    } else {
+        piece = value.hi;
+        if (bit > 64) {
+            part = ir_build2(&lo->b, IR_LSHR, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, bit - 64));
+            piece = ir_op_value(lo->fn, part);
+        }
+    }
+    part = ir_build2(&lo->b, IR_AND, IRT_I64, piece,
+                     ir_op_iconst(IRT_I64, (i64)((1u << width) - 1)));
+    return ir_op_value(lo->fn, part);
+}
+
+static WideInt wide_bitfield_gather(Lower *lo, const Lvalue *lv)
+{
+    WideInt value = {ir_op_iconst(IRT_I64, 0), ir_op_iconst(IRT_I64, 0)};
+    u32 remaining = lv->bit_width;
+    u32 source_pos = lv->bit_shift;
+    u32 result_pos = 0;
+
+    while (remaining) {
+        u32 within = source_pos % 8;
+        u32 take = 8 - within;
+        u32 source_shift;
+        u32 target_shift;
+        IrOperand addr;
+        ValueId raw;
+        ValueId extended;
+        IrOperand piece;
+        ValueId next;
+
+        if (take > remaining)
+            take = remaining;
+        source_shift = lv->reverse_storage_order ? 8 - within - take : within;
+        target_shift =
+            lv->reverse_storage_order ? remaining - take : result_pos;
+        addr = packed_byte_addr(lo, lv->addr, source_pos / 8);
+        raw = ir_build_load_typed(&lo->b, IRT_I8, addr, 1, lv_flags(lv),
+                                  lv->etype);
+        extended =
+            ir_build1(&lo->b, IR_ZEXT, IRT_I64, ir_op_value(lo->fn, raw));
+        piece = ir_op_value(lo->fn, extended);
+        if (source_shift) {
+            next = ir_build2(&lo->b, IR_LSHR, IRT_I64, piece,
+                             ir_op_iconst(IRT_I64, source_shift));
+            piece = ir_op_value(lo->fn, next);
+        }
+        next = ir_build2(&lo->b, IR_AND, IRT_I64, piece,
+                         ir_op_iconst(IRT_I64, (i64)((1u << take) - 1)));
+        wide_bitfield_append(lo, &value, ir_op_value(lo->fn, next),
+                             target_shift, take);
+        source_pos += take;
+        result_pos += take;
+        remaining -= take;
+    }
+    return wide_bitfield_fit(lo, value, lv->bit_width, lv->is_signed);
+}
+
+static IrOperand wide_bitfield_load(Lower *lo, const Lvalue *lv)
+{
+    return wide_materialize(lo, lv->type, wide_bitfield_gather(lo, lv));
+}
+
+static IrOperand wide_bitfield_store(Lower *lo, const Lvalue *lv,
+                                     IrOperand value_addr)
+{
+    WideInt value = wide_load(lo, value_addr, lv->type, 0);
+    WideInt result = wide_bitfield_fit(lo, value, lv->bit_width, lv->is_signed);
+    u32 remaining = lv->bit_width;
+    u32 dest_pos = lv->bit_shift;
+    u32 value_pos = 0;
+
+    while (remaining) {
+        u32 within = dest_pos % 8;
+        u32 take = 8 - within;
+        u32 source_shift;
+        u32 dest_shift;
+        u32 mask;
+        IrOperand addr;
+        IrOperand piece;
+        ValueId raw;
+        ValueId cleared;
+        ValueId shifted;
+        ValueId narrowed;
+        ValueId inserted;
+        ValueId joined;
+
+        if (take > remaining)
+            take = remaining;
+        source_shift = lv->reverse_storage_order ? remaining - take : value_pos;
+        dest_shift = lv->reverse_storage_order ? 8 - within - take : within;
+        mask = ((1u << take) - 1) << dest_shift;
+        addr = packed_byte_addr(lo, lv->addr, dest_pos / 8);
+        raw = ir_build_load_typed(&lo->b, IRT_I8, addr, 1, lv_flags(lv),
+                                  lv->etype);
+        cleared = ir_build2(&lo->b, IR_AND, IRT_I8, ir_op_value(lo->fn, raw),
+                            ir_op_iconst(IRT_I8, (i64)(u8)~mask));
+        piece = wide_bitfield_piece(lo, result, source_shift, take);
+        if (dest_shift) {
+            shifted = ir_build2(&lo->b, IR_SHL, IRT_I64, piece,
+                                ir_op_iconst(IRT_I64, dest_shift));
+            piece = ir_op_value(lo->fn, shifted);
+        }
+        narrowed = ir_build1(&lo->b, IR_TRUNC, IRT_I8, piece);
+        inserted =
+            ir_build2(&lo->b, IR_AND, IRT_I8, ir_op_value(lo->fn, narrowed),
+                      ir_op_iconst(IRT_I8, mask));
+        joined = ir_build2(&lo->b, IR_OR, IRT_I8, ir_op_value(lo->fn, cleared),
+                           ir_op_value(lo->fn, inserted));
+        ir_build_store_typed(&lo->b, ir_op_value(lo->fn, joined), addr, 1,
+                             lv_flags(lv), lv->etype);
+        dest_pos += take;
+        value_pos += take;
+        remaining -= take;
+    }
+    return wide_materialize(lo, lv->type, result);
 }
 
 static IrOperand packed_bitfield_result(Lower *lo, const Lvalue *lv,
@@ -424,6 +624,8 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
 {
     ValueId raw;
 
+    if (lv.is_bitfield && type_is_int128(lv.type))
+        return wide_bitfield_load(lo, &lv);
     if (lv.reverse_storage_order && lv.is_bitfield)
         return reverse_bitfield_load(lo, &lv);
     if (lv.packed_bitfield)
@@ -440,6 +642,8 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
 
 IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
 {
+    if (lv.is_bitfield && type_is_int128(lv.type))
+        return wide_bitfield_store(lo, &lv, v);
     if (lv.reverse_storage_order && lv.is_bitfield)
         return reverse_bitfield_store(lo, &lv, v);
     if (lv.packed_bitfield)
@@ -524,6 +728,18 @@ static IrOperand wide_materialize(Lower *lo, Type *t, WideInt v)
     return addr;
 }
 
+static IrOperand wide_precision_fit(Lower *lo, IrOperand addr, Type *t)
+{
+    u32 width = conv_int_bits(lo->sema, t);
+    WideInt value;
+
+    if (!t->integer_precision || width >= 128)
+        return addr;
+    value = wide_load(lo, addr, t, 0);
+    value = wide_bitfield_fit(lo, value, width, conv_is_signed(lo->sema, t));
+    return wide_materialize(lo, t, value);
+}
+
 static IrOperand wide_capture(Lower *lo, IrOperand src, Type *t,
                               u8 access_flags)
 {
@@ -574,7 +790,14 @@ static IrOperand wide_from_scalar(Lower *lo, IrOperand v, Type *from, Type *to)
             high = ir_op_value(lo->fn, sign);
         }
     }
-    return wide_materialize(lo, to, (WideInt){low, high});
+    {
+        WideInt result = {low, high};
+
+        if (to->integer_precision)
+            result = wide_bitfield_fit(lo, result, conv_int_bits(lo->sema, to),
+                                       conv_is_signed(lo->sema, to));
+        return wide_materialize(lo, to, result);
+    }
 }
 
 static IrOperand wide_to_scalar(Lower *lo, IrOperand addr, Type *from, Type *to,
@@ -612,7 +835,7 @@ static IrOperand wide_cast(Lower *lo, AstNode *e, Type *from, Type *to)
     }
     if (type_is_int128(from)) {
         if (type_is_int128(to))
-            return v;
+            return wide_precision_fit(lo, v, to);
         return wide_to_scalar(lo, v, from, to,
                               lower_aggregate_access_flags(e->lhs));
     }
@@ -635,7 +858,7 @@ static IrOperand wide_runtime_binary(Lower *lo, const char *name, Type *type,
     args[4] = b.hi;
     (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL, ir_sym(lo->m, name),
                         args, 5);
-    return ir_op_value(lo->fn, tmp);
+    return wide_precision_fit(lo, ir_op_value(lo->fn, tmp), type);
 }
 
 static IrOperand wide_runtime_shift(Lower *lo, const char *name, Type *type,
@@ -652,7 +875,7 @@ static IrOperand wide_runtime_shift(Lower *lo, const char *name, Type *type,
     args[3] = count;
     (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL, ir_sym(lo->m, name),
                         args, 4);
-    return ir_op_value(lo->fn, tmp);
+    return wide_precision_fit(lo, ir_op_value(lo->fn, tmp), type);
 }
 
 static IrOperand wide_compare(Lower *lo, u16 op, Type *type, WideInt a,
@@ -769,6 +992,9 @@ static IrOperand wide_inline_binary(Lower *lo, u16 op, Type *type,
     }
     r.lo = ir_op_value(lo->fn, first);
     r.hi = ir_op_value(lo->fn, second);
+    if (type->integer_precision)
+        r = wide_bitfield_fit(lo, r, conv_int_bits(lo->sema, type),
+                              conv_is_signed(lo->sema, type));
     return wide_materialize(lo, type, r);
 }
 
@@ -986,6 +1212,7 @@ static Lvalue lv_of(Lower *lo, IrOperand addr, Type *t)
 
     memset(&lv, 0, sizeof(lv));
     lv.addr = addr;
+    lv.type = t;
     lv.etype = lower_efftype(lo, t);
     if (t && (t->quals & CGF_QUAL_VOLATILE))
         lv.is_volatile = true;
@@ -1179,6 +1406,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
 
             memset(&lv, 0, sizeof(lv));
             lv.addr = addr_plus(lo, base, (i64)(outer + m->offset));
+            lv.type = m->type;
             switch (m->container_size) {
             case 1:
                 lv.unit = IRT_I8;
@@ -1218,6 +1446,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
 
             memset(&lv, 0, sizeof(lv));
             lv.addr = addr_plus(lo, base, (i64)(outer + unit_byte));
+            lv.type = m->type;
             switch (m->container_size) {
             case 1:
                 lv.unit = IRT_I8;
@@ -1787,7 +2016,7 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
 static IrOperand lower_assign(Lower *lo, AstNode *e)
 {
     if (e->op == PUNCT_ASSIGN) {
-        if (lower_is_aggregate(sem(e->lhs))) {
+        if (lower_is_aggregate(sem(e->lhs)) && !e->lhs->sem_is_bitfield) {
             /* ONE memcpy. Never memberwise: unions and padding both
              * observe the difference (the §8 law). */
             Lvalue lv = lower_lvalue(lo, e->lhs);
@@ -1834,34 +2063,58 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
 
         if (type_is_int128(lt)) {
             Type *common;
+            Type *left;
             IrOperand result;
-            TypeLayout l = layout_of(lo->sema, lt);
             u8 lhs_flags = lv.is_volatile ? IRF_VOLATILE : 0;
 
             rhs = lower_rvalue(lo, e->rhs);
+            left = lv.is_bitfield
+                       ? conv_promote_bitfield_type(lo->sema, lt, lv.bit_width,
+                                                    lv.is_signed)
+                       : lt;
+            common = e->op == PUNCT_SHL_ASSIGN || e->op == PUNCT_SHR_ASSIGN
+                         ? left
+                         : conv_uac_type(lo->sema, left, rt);
+            old = lv.is_bitfield ? lower_load(lo, lv)
+                                 : wide_capture(lo, lv.addr, lt, lhs_flags);
+            if (!type_is_int128(common)) {
+                IrOperand a = wide_to_scalar(lo, old, lt, common, 0);
+                IrOperand b = lower_scalar_convert_access(
+                    lo, rhs, rt, common, lower_aggregate_access_flags(e->rhs));
+                ValueId scalar_result =
+                    build_source_arith(lo, arith_op_for(lo, op, common),
+                                       lower_irtype(lo, common), a, b, common);
+
+                result = wide_from_scalar(
+                    lo, ir_op_value(lo->fn, scalar_result), common, lt);
+                return lower_store(lo, lv, result);
+            }
             if (e->op == PUNCT_SHL_ASSIGN || e->op == PUNCT_SHR_ASSIGN) {
                 const char *name =
                     op == PUNCT_SHL
                         ? "__ashlti3"
-                        : (conv_is_signed(lo->sema, lt) ? "__ashrti3"
-                                                        : "__lshrti3");
+                        : (conv_is_signed(lo->sema, left) ? "__ashrti3"
+                                                          : "__lshrti3");
 
                 rhs = lower_scalar_convert(lo, rhs, rt, type_basic(TY_INT));
-                old = wide_capture(lo, lv.addr, lt, lhs_flags);
-                result = wide_runtime_shift(lo, name, lt, old, rhs);
+                result = wide_runtime_shift(lo, name, left, old, rhs);
             } else {
-                common = conv_uac_type(lo->sema, lt, rt);
                 if (type_is_int128(rt))
                     rhs = wide_capture(lo, rhs, rt,
                                        lower_aggregate_access_flags(e->rhs));
                 else
                     rhs = wide_from_scalar(lo, rhs, rt, common);
-                old = wide_capture(lo, lv.addr, lt, lhs_flags);
                 result = wide_binary_values(lo, op, common, old, rhs);
             }
-            lower_memcpy_aggregate(lo, lv.addr, result, lt, (u32)l.align,
-                                   lhs_flags);
-            return lv.addr;
+            if (lv.is_bitfield)
+                return lower_store(lo, lv, result);
+            {
+                TypeLayout l = layout_of(lo->sema, lt);
+
+                lower_memcpy_aggregate(lo, lv.addr, result, lt, (u32)l.align,
+                                       lhs_flags);
+                return lv.addr;
+            }
         }
         if (lv.is_atomic) {
             rhs = lower_rvalue(lo, e->rhs);
@@ -4538,19 +4791,44 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
     IrOperand old;
 
     if (type_is_int128(t)) {
-        TypeLayout l = layout_of(lo->sema, t);
+        Type *arith = lv.is_bitfield ? conv_promote_bitfield_type(lo->sema, t,
+                                                                  lv.bit_width,
+                                                                  lv.is_signed)
+                                     : t;
         u8 flags = lv.is_volatile ? IRF_VOLATILE : 0;
-        IrOperand one = wide_materialize(
-            lo, t,
-            (WideInt){ir_op_iconst(IRT_I64, 1), ir_op_iconst(IRT_I64, 0)});
         IrOperand next;
 
-        old = wide_capture(lo, lv.addr, t, flags);
-        next = wide_inline_binary(
-            lo, e->op == PUNCT_PLUSPLUS ? PUNCT_PLUS : PUNCT_MINUS, t, old,
-            one);
-        lower_memcpy_aggregate(lo, lv.addr, next, t, (u32)l.align, flags);
-        return e->is_postfix ? old : lv.addr;
+        old = lv.is_bitfield ? lower_load(lo, lv)
+                             : wide_capture(lo, lv.addr, t, flags);
+        if (type_is_int128(arith)) {
+            IrOperand one = wide_materialize(
+                lo, arith,
+                (WideInt){ir_op_iconst(IRT_I64, 1), ir_op_iconst(IRT_I64, 0)});
+
+            next = wide_inline_binary(
+                lo, e->op == PUNCT_PLUSPLUS ? PUNCT_PLUS : PUNCT_MINUS, arith,
+                old, one);
+        } else {
+            IrOperand scalar_old = wide_to_scalar(lo, old, t, arith, 0);
+            ValueId scalar_next = build_source_arith(
+                lo, e->op == PUNCT_PLUSPLUS ? IR_IADD : IR_ISUB,
+                lower_irtype(lo, arith), scalar_old,
+                ir_op_iconst(lower_irtype(lo, arith), 1), arith);
+
+            next = wide_from_scalar(lo, ir_op_value(lo->fn, scalar_next), arith,
+                                    t);
+        }
+        if (lv.is_bitfield) {
+            IrOperand stored = lower_store(lo, lv, next);
+
+            return e->is_postfix ? old : stored;
+        }
+        {
+            TypeLayout l = layout_of(lo->sema, t);
+
+            lower_memcpy_aggregate(lo, lv.addr, next, t, (u32)l.align, flags);
+            return e->is_postfix ? old : lv.addr;
+        }
     }
 
     if (lv.is_atomic) {
@@ -4893,7 +5171,7 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
     case AST_EXPR_MEMBER: {
         Lvalue lv = lower_lvalue(lo, e);
 
-        if (lower_is_aggregate(sem(e)))
+        if (lower_is_aggregate(sem(e)) && !lv.is_bitfield)
             return lv.addr;
         return lower_load(lo, lv);
     }

@@ -330,8 +330,17 @@ remaining named refusals. It merged green-only through PR #153 as
 the already-supported canonical TI types through GNU `__int128` and the
 compiler-provided `__int128_t` / `__uint128_t` names. Exact target-complete
 evidence publishes all ten `pr84748.c` cells, raising the ratchet to 32,080
-PASS keys (32,083 lines); final post-publication CI remains before merge.
-Sprint 56's campaign machine and triage map remain complete while Sprint 58
+PASS keys (32,083 lines). Final post-publication standard, nightly, and
+bootstrap CI were fully green; PR #154 merged green-only as
+`61ce732acd31cf534aae62fbc28550b0142cb7a9`, and its actual merge tree is
+byte-identical to the tested final synthetic merge. The active
+`s56.60-gnu-int128-bitfields` tranche starts from that exact merge and owns the
+thirty target-complete cells across `bitfield-1.c`,
+`bitfield-endian-1.c`, and `bitfield-endian-2.c` that the newly enabled
+DejaGNU `int128` capability exposed. Those thirty cells now have exact
+target-complete publication, raising the ratchet to 32,110 PASS keys (32,113
+lines); final post-publication CI remains before merge. Sprint 56's campaign
+machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
@@ -8333,8 +8342,95 @@ and green post-publication CI.
   `9339f01db64c8b0aee49c17fc2141fad7568a668a5dd895d26c3b0dd1c2934ab`.
   The 30 newly exposed bit-field and reverse-storage-order failures have
   durable policy decisions for `s56.60-gnu-int128-bitfields`. Final
-  post-publication standard, nightly, and bootstrap CI must be green before
-  merge.
+  post-publication standard
+  [run 36295302200](https://github.com/tenseleyFlow/Cgfried/actions/runs/36295302200),
+  nightly
+  [run 36295327839](https://github.com/tenseleyFlow/Cgfried/actions/runs/36295327839),
+  and bootstrap
+  [run 36295328825](https://github.com/tenseleyFlow/Cgfried/actions/runs/36295328825)
+  were fully green. PR #154 merged green-only as
+  `61ce732acd31cf534aae62fbc28550b0142cb7a9`; its exact parents are merged
+  #153 `93b65b41` and tested publication head `e81e825d`, and its tree
+  `60db956775b2c50b6272c3bb1c67b48ac874fd04` is byte-identical to the final
+  tested synthetic merge.
+- The active `s56.60-gnu-int128-bitfields` tranche starts from exact merged
+  #154. It owns the thirty target-complete cells across `bitfield-1.c`,
+  `bitfield-endian-1.c`, and `bitfield-endian-2.c`: twenty currently carry
+  fingerprint
+  `b09c7293e7ca84fb3a57c1c51e6effdb9cd2e8afb9e525cb59e9f84fe99484bd`
+  for the explicit TI bit-field refusal, and ten carry fingerprint
+  `7bf6345f279ce3bb7ff2c13fd5843c51df8cb5dc86b689c38963e97c5180ddb6`
+  for the reverse-storage TI refusal. The implementation must preserve the
+  existing address-backed two-limb representation through layout, static and
+  runtime initialization, reads, writes, assignment results, and reverse
+  scalar storage order; merely removing either semantic diagnostic would
+  silently miscompile these fields.
+  The implementation now keeps those fields address-backed and gathers or
+  scatters exact byte fragments into two i64 limbs; no fictional i128 IR
+  scalar is introduced. It covers native and packed layout, static and
+  automatic initialization, signed fitting, narrowed assignment results,
+  scalar and anonymous-width promotions, compound updates, pre/post
+  increment, volatile access, and MSB-first reverse storage. Static image
+  construction also now selects `ConstValue.i_hi` above bit 63, fixing the
+  previously hidden high-limb duplication in TI bit-field initializers.
+  Ordinary reverse-order TI members and arrays remain a separate targeted
+  refusal, and `__SIZEOF_INT128__` remains withheld for the still-refused
+  vector and checked-overflow advertised surfaces.
+
+  Local Darwin ARM64 evidence is green: the dedicated runtime fixture passes
+  O0/O1/O2/O3/Os under normal and ASan+UBSan compiler builds; focused normal
+  and sanitized units pass three tests / 46 assertions; all 131 corpus files
+  produce the expected 125 PASS, five known Darwin host/toolchain failures,
+  and one expected TLS skip; normal and sanitized 2,000-case frontend fuzz
+  runs from seed 1 have zero findings, and the intentional 131st corpus input
+  repins the 5,000-iteration mutation-sequence digest to
+  `cebb46b5d008cbcf`. The complete normal and sanitized unit
+  suites each reach 978 tests / 4,330,244 assertions and retain only the same
+  eight Darwin host-assumption failures. Both
+  Linux backends emit the fixture and all three imported target files across
+  O0/O1/O2/O3/Os. The GNU-binutils ISA driver is intentionally unavailable
+  on this Apple-LLVM-only host and remains an authoritative Linux CI gate.
+
+  GitHub's exact prepublication synthetic merge is
+  `3ef477ee106ec3888479ce3c57e8552a46d04f5a`; its parents are exact merged
+  #154 `61ce732a` and behavior head `a91364f6`, and tree
+  `65e3431ae9a9234bd54ce10c0ee97a613a8e13c3` is byte-identical to the
+  behavior head. Prepublication standard
+  [run 36299519621](https://github.com/tenseleyFlow/Cgfried/actions/runs/36299519621)
+  passes all 23 ordinary jobs, intentionally skips the tag-only job, and
+  refuses only the intended fifteen unpublished x86 PASS cells. Bootstrap
+  [run 36299519640](https://github.com/tenseleyFlow/Cgfried/actions/runs/36299519640)
+  is fully green. Exact-merge nightly
+  [run 36299533839](https://github.com/tenseleyFlow/Cgfried/actions/runs/36299533839)
+  passes all fourteen non-torture jobs and refuses only the intended fifteen
+  unpublished ARM PASS cells.
+
+  The retained x86 and ARM streams each contain 20,325 unique cells: 16,055
+  PASS, 3,180 SKIP, 1,090 COMPILE_FAIL, and zero ICEs. Each target contributes
+  exactly fifteen PASS cells across the three named files with zero old-PASS
+  regression. Their SHA-256 values are respectively
+  `b3bffb745728c0c1ee45183444bfb5ae37f9e8053c2b269c86990eef0be7876c`
+  and
+  `6924a23d6f24d93877fd7609abcf9226b65ac52fef0a1a690cbd36eeba4e2262`.
+  Both name the exact synthetic merge and share compiler-source SHA-256
+  `c46054ee5de1aab6286e868a2a8cb9e8b27d09457da32fe0382de73356830e2f`,
+  harness SHA-256
+  `0aef44b3e354271e6b4907123dc68e3e2bae4dac381a0fbc136da678053fe222`,
+  and identical manifest hashes.
+
+  GNU Make atomic publication consumes those exact streams through
+  `gmake -o torture-run torture-baseline`; reversing their order regenerates
+  both outputs byte-identically, both streams pass the published ratchet, and
+  the complete torture metadata suite is green. The result is 32,110 PASS
+  keys (32,113 lines), 2,180 failed cells fully covered by 29 deterministic
+  buckets, 24 applied decisions, six deliberately retained stale decisions,
+  and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `4900404f3d4092d2d946323ac0a5530ea84d6456533e0cad859312f6a20ba59a`
+  and
+  `0d24b33b80983f6c726a80b8f66f305ecca9d9017af0b008d53b100a478e1216`.
+  Final post-publication standard, nightly, and bootstrap CI must be fully
+  green before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
