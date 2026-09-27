@@ -30,7 +30,7 @@ SYSAS=${CGF_MACHO_AS:-clang}
 # headers, which need the Sprint 55 attribute work. Naming ours explicitly
 # beats inferring it -- a partner TU that quietly started compiling would
 # otherwise join the differential without anyone deciding it should.
-OURS="gotlink rev23 rev_callee rows23 rows47 vaboth vacall
+OURS="align32_call gotlink rev23 rev_callee rows23 rows47 vaboth vacall
       gotlink_defs rows23_defs vadefs"
 
 # Fixtures blocked on afs-as INSTRUCTION coverage rather than on its Mach-O

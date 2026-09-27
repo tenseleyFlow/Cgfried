@@ -24,7 +24,7 @@ work=${CGF_MACOS_WORK:-build/macos-lane}
 case $(uname -s):$(uname -m) in
 Darwin:arm64) ;;
 *)
-    echo "HARNESS_SKIP suite=macos test=abi count=6 reason=\"not arm64 Darwin\""
+    echo "HARNESS_SKIP suite=macos test=abi count=9 reason=\"not arm64 Darwin\""
     exit 0
     ;;
 esac
@@ -88,6 +88,12 @@ avg3=3.5000
 mix=306
 many=1 2 3 4 5 6 7 8 9 10
 mixed=1 2.5 3 4.5 tail
+EOF
+
+# The outgoing variadic area may need stronger alignment than Apple's
+# 16-byte public SP guarantee. Two dynamic frame sizes exercise both possible
+# SP parities, against clang's independently compiled va_arg implementation.
+run varargs_align32 align32_call.c align32_defs.c <<'EOF'
 EOF
 
 # Row 1: our CALLEE reads them back with a plain cursor.

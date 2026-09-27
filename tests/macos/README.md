@@ -44,6 +44,7 @@ something is not installed.
 | pair | row | what it proves | expected |
 |---|---|---|---|
 | `vacall.c` + `vadefs.c` | 1 | our CALLER places anonymous arguments on the stack; also exercises system libc `printf` | `sum9=45`, `avg3=3.5000`, `mix=306`, then two `printf` lines |
+| `align32_call.c` + `align32_defs.c` | 1 | our CALLER absolutely aligns a 32-byte anonymous aggregate for both incoming SP parities; clang consumes it | exit 0 twice |
 | `rev_callee.c` + `rev_caller.c` | 1 | our CALLEE reads them from the stack with a plain cursor | `rsum=45`, `rmix=7.00` |
 | `vaboth.c` | 1 | both halves ours, at -O0/-O1/-O2 | `tally=55`, `dsum=4.00` |
 | `rows23.c` + `rows23_defs.c` | 2, 3 | our CALLER widens sub-32-bit arguments and packs the stack tail at natural size | `ext4=65280`, `pack5=4556199` |
