@@ -8193,9 +8193,11 @@ and green post-publication CI.
   supported fixture on the x86-64 Linux oracle, Apple clang accepts and
   executes it on arm64 macOS, and both oracles pass all five optimization
   levels; Cgfried x86 output does too. Normal and sanitized 2,000-case frontend
-  fuzz runs find zero failures, and the existing mode(TI)/strict-C11 arithmetic
-  and ABI differentials remain green. Full normal and sanitized unit runs each
-  report 972 tests, 4,330,152 assertions, and only the same eight Darwin
+  fuzz runs find zero failures. Adding the permanent fixture intentionally
+  changes the 5,000-case deterministic mutation stream, re-pinned at
+  `01049281d13b2eb3`. The existing mode(TI)/strict-C11 arithmetic and ABI
+  differentials remain green. Full normal and sanitized unit runs each report
+  972 tests, 4,330,152 assertions, and only the same eight Darwin
   host-assumption failures. No imported torture source spells `mode(TI)`, so
   this is a supported-feature closure tranche with no expected ratchet
   publication.
