@@ -318,10 +318,13 @@ execution promotes all ten `bcp-1.c` cells, raising the target-complete
 ratchet to 32,070 PASS keys (32,073 lines). Final post-publication standard,
 nightly, and bootstrap CI were fully green; PR #151 merged green-only as
 `28d635496a27e34d178e4b3abd83bce773157a2e`, and its actual merge tree is
-byte-identical to the tested final synthetic merge. The active
-`s56.57-mode-ti-static-initializers` tranche starts from that exact merge and
-closes the separately documented explicit-static-initializer boundary for
-GNU `mode(TI)` without enabling required 128-bit constant arithmetic.
+byte-identical to the tested final synthetic merge. The
+`s56.57-mode-ti-static-initializers` tranche closed that separately documented
+explicit-static-initializer boundary and merged green-only as
+`0f3594e9b5811d2be2aee4e39efd1f16bf1d2303`. The active
+`s56.58-mode-ti-constant-expressions` tranche starts from that exact merge and
+extends the same two-limb value into required GNU `mode(TI)` integer constant
+operators while retaining the remaining named refusals.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -8168,8 +8171,8 @@ and green post-publication CI.
   #150 `5ceb26c2` and publication head `7ef76ed2`, and tree
   `ca1dd5558c62b99ecdd152bdce99492483c98364` is byte-identical to final
   tested synthetic merge `ca8fa265ff43979dc0579622bf9e547126809abb`.
-- The active `s56.57-mode-ti-static-initializers` tranche starts from exact
-  merged #151. It extends integer `ConstValue` from one stored limb to two for
+- The `s56.57-mode-ti-static-initializers` tranche started from exact merged
+  #151. It extends integer `ConstValue` from one stored limb to two for
   conversions, allowing explicit static `mode(TI)` objects, arrays, and
   records to produce exact 16-byte initializer images. Signed narrow
   sources sign-extend through the high limb; unsigned
@@ -8200,7 +8203,37 @@ and green post-publication CI.
   972 tests, 4,330,152 assertions, and only the same eight Darwin
   host-assumption failures. No imported torture source spells `mode(TI)`, so
   this is a supported-feature closure tranche with no expected ratchet
-  publication.
+  publication. Final standard run 36284617634, nightly run 36284643167, and
+  bootstrap run 36284644745 were fully green. PR #152 merged green-only as
+  `0f3594e9b5811d2be2aee4e39efd1f16bf1d2303`; its tree is byte-identical to
+  the final tested synthetic merge.
+- The active `s56.58-mode-ti-constant-expressions` tranche starts from exact
+  merged #152. It implements strict-C11 two-limb unary, binary, comparison,
+  logical, and conditional folding for GNU `mode(TI)` values, including
+  carry/borrow, restoring division and remainder, exact low-128
+  multiplication, signed and unsigned comparisons, and arithmetic/logical
+  shifts. Required contexts diagnose signed overflow, division by zero, and
+  invalid shift counts; high-limb-only values now have correct truth semantics
+  for short-circuit and conditional selection. Checked-overflow builtins,
+  floating conversions, atomic operations, bit-fields, enums, switch controls,
+  pointer relocations wider than a pointer, and reverse scalar storage order
+  remain separate named boundaries. The permanent corpus fixture executes at
+  all optimization levels, while the consolidated boundary fixture pins the
+  undefined-operation diagnostics. Cgfried and Apple clang execute the fixture
+  natively on arm64-macos at O0/O1/O2/O3/Os; both Linux backends emit nonempty
+  assembly in all ten target/optimization cells. Focused normal and
+  ASan+UBSan runs pass two unit tests / 61 assertions and all three TI corpus,
+  boundary, and static-initializer fixtures. Full normal and sanitized unit
+  runs each report 973 tests / 4,330,154 assertions with only the same eight
+  Darwin host-assumption failures. Normal and sanitized 2,000-case frontend
+  fuzz runs find zero failures. The boundary-fixture edit intentionally moves
+  the deterministic 5,000-case mutation stream; normal and sanitized builds
+  reproduce its re-pinned digest `026cdc158bab48dc`. GNU-tier, source-ban,
+  unit-registry, format-matrix, warning-matrix, and whitespace gates are
+  green. The full native ARM64 corpus executes the new fixture successfully;
+  its six unrelated Apple-profile failures and one expected TLS skip are
+  unchanged local platform boundaries. No imported torture source spells
+  `mode(TI)`, so no ratchet publication is expected for this tranche.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

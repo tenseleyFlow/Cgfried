@@ -3,18 +3,25 @@
 // ERROR_EXPECTED: atomic mode(TI) objects are not yet supported
 // ERROR_EXPECTED: mode(TI) bit-fields are not yet supported
 // ERROR_EXPECTED: mode(TI) switch controlling expressions are not yet supported
-// ERROR_EXPECTED: 128-bit mode(TI) arithmetic is not yet supported in constant expressions
 // ERROR_EXPECTED: the cast to 'unsigned mode(TI) integer' is not pointer-width
 // ERROR_EXPECTED: mode(TI) enumerated types are not yet supported
 // ERROR_EXPECTED: reverse scalar storage order for mode(TI) member
 // ERROR_EXPECTED: mode(TI) operands to checked-overflow builtins are not yet supported
 // ERROR_EXPECTED: compound assignment between an atomic object and a mode(TI) operand
 // ERROR_EXPECTED: floating comparison builtin conversion from mode(TI) is not yet supported
+// ERROR_EXPECTED: overflow in constant expression
+// ERROR_EXPECTED: division by zero in a constant expression
+// ERROR_EXPECTED: shift count is out of range for a 128-bit type
 /* Every accepted mode(TI) operation has real two-limb lowering. These are
- * the remaining boundaries where wide constant arithmetic, scalar atomic IR
- * operation, or storage-order transform would otherwise silently produce the
- * wrong program. Keep them named until each separate facility lands. */
+ * the remaining boundaries where conversion, scalar atomic IR operation, or
+ * storage-order transform would otherwise silently produce the wrong
+ * program. Keep them named until each separate facility lands. */
 typedef unsigned int u128 __attribute__((mode(TI)));
+typedef int i128 __attribute__((mode(TI)));
+
+#define UONE ((u128)1)
+#define UBIT(N) (UONE << (N))
+#define IMAX ((i128)(UBIT(127) - UONE))
 
 static int anchor;
 static u128 address = (u128)&anchor;
@@ -39,6 +46,9 @@ int switch_control(u128 value)
 }
 
 _Static_assert(((u128)1 << 64) != 0, "wide constant expression");
+_Static_assert(IMAX + 1, "signed wide overflow must fail");
+_Static_assert(UBIT(100) / 0, "wide division by zero must fail");
+_Static_assert(UONE << 128, "wide shift count must fail");
 
 enum WideEnum { WIDE_ZERO } __attribute__((mode(TI)));
 
