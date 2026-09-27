@@ -3351,6 +3351,107 @@ static IrOperand lower_mul_overflow(Lower *lo, OverflowInteger left,
                                          ir_op_value(lo->fn, too_large)));
 }
 
+/* The generic checked-arithmetic operands remain at most 64 bits while a TI
+ * destination is two limbs.  Recover the infinite-precision result's sign
+ * from the operands: the modulo-2^128 result alone cannot distinguish a
+ * representable negative value from a wrapped positive one. */
+static IrOperand lower_overflow_result_negative(Lower *lo, OverflowInteger left,
+                                                OverflowInteger right, u16 op)
+{
+    IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
+
+    if (op == SEMA_BUILTIN_MUL_OVERFLOW) {
+        ValueId left_nonzero =
+            ir_build_icmp(&lo->b, ICMP_NE, left.magnitude, zero64);
+        ValueId right_nonzero =
+            ir_build_icmp(&lo->b, ICMP_NE, right.magnitude, zero64);
+        ValueId both_nonzero = ir_build2(&lo->b, IR_AND, IRT_I32,
+                                         ir_op_value(lo->fn, left_nonzero),
+                                         ir_op_value(lo->fn, right_nonzero));
+        ValueId signs_differ =
+            ir_build2(&lo->b, IR_XOR, IRT_I32, left.negative, right.negative);
+
+        return ir_op_value(lo->fn,
+                           ir_build2(&lo->b, IR_AND, IRT_I32,
+                                     ir_op_value(lo->fn, both_nonzero),
+                                     ir_op_value(lo->fn, signs_differ)));
+    }
+
+    if (op == SEMA_BUILTIN_SUB_OVERFLOW) {
+        ValueId right_nonzero =
+            ir_build_icmp(&lo->b, ICMP_NE, right.magnitude, zero64);
+        ValueId inverted = ir_build2(&lo->b, IR_XOR, IRT_I32, right.negative,
+                                     ir_op_iconst(IRT_I32, 1));
+
+        /* Negating zero must keep its mathematical sign nonnegative. */
+        right.negative =
+            ir_op_value(lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32,
+                                          ir_op_value(lo->fn, right_nonzero),
+                                          ir_op_value(lo->fn, inverted)));
+    }
+    {
+        ValueId same_sign =
+            ir_build_icmp(&lo->b, ICMP_EQ, left.negative, right.negative);
+        ValueId left_ge_right =
+            ir_build_icmp(&lo->b, ICMP_UGE, left.magnitude, right.magnitude);
+        ValueId magnitudes_differ =
+            ir_build_icmp(&lo->b, ICMP_NE, left.magnitude, right.magnitude);
+        ValueId difference_sign =
+            ir_build_select(&lo->b, ir_op_value(lo->fn, left_ge_right),
+                            left.negative, right.negative);
+        ValueId negative_difference = ir_build2(
+            &lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, magnitudes_differ),
+            ir_op_value(lo->fn, difference_sign));
+
+        return ir_op_value(
+            lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, same_sign),
+                                    left.negative,
+                                    ir_op_value(lo->fn, negative_difference)));
+    }
+}
+
+static IrOperand lower_checked_overflow_wide_result(
+    Lower *lo, AstNode *e, Type *left_type, Type *right_type, Type *result_type,
+    IrOperand left_value, IrOperand right_value, IrOperand result_address,
+    OverflowInteger left, OverflowInteger right)
+{
+    Type *arithmetic_type = conv_strip_quals(lo->sema, result_type);
+    IrOperand converted_left =
+        lower_scalar_convert(lo, left_value, left_type, arithmetic_type);
+    IrOperand converted_right =
+        lower_scalar_convert(lo, right_value, right_type, arithmetic_type);
+    u16 operation = e->op == SEMA_BUILTIN_ADD_OVERFLOW   ? PUNCT_PLUS
+                    : e->op == SEMA_BUILTIN_SUB_OVERFLOW ? PUNCT_MINUS
+                                                         : PUNCT_STAR;
+    IrOperand stored_result = wide_binary_values(
+        lo, operation, arithmetic_type, converted_left, converted_right);
+    IrOperand negative = lower_overflow_result_negative(lo, left, right, e->op);
+    IrOperand overflow = negative;
+    u8 flags = (result_type->quals & CGF_QUAL_VOLATILE) ? IRF_VOLATILE : 0;
+    ValueId bool_result;
+
+    if (conv_is_signed(lo->sema, result_type)) {
+        WideInt stored = wide_load(lo, stored_result, arithmetic_type, 0);
+        ValueId sign = ir_build_icmp(&lo->b, ICMP_SLT, stored.hi,
+                                     ir_op_iconst(IRT_I64, 0));
+
+        /* With two at-most-64-bit operands, the exact magnitude is strictly
+         * below 2^128.  A signed TI result therefore overflows exactly when
+         * its stored sign bit disagrees with the mathematical sign. */
+        overflow =
+            ir_op_value(lo->fn, ir_build2(&lo->b, IR_XOR, IRT_I32,
+                                          ir_op_value(lo->fn, sign), negative));
+    }
+
+    /* TI values are address-backed in IR.  Use the same conservative copy as
+     * ordinary TI assignment so under-alignment and volatile destinations
+     * retain their established access semantics. */
+    lower_memcpy_aggregate(lo, result_address, stored_result, result_type, 1,
+                           flags);
+    bool_result = ir_build1(&lo->b, IR_TRUNC, IRT_I8, overflow);
+    return ir_op_value(lo->fn, bool_result);
+}
+
 static IrOperand lower_checked_overflow(Lower *lo, AstNode *e)
 {
     Type *left_type = sem(e->args[0]);
@@ -3361,6 +3462,12 @@ static IrOperand lower_checked_overflow(Lower *lo, AstNode *e)
     IrOperand result_address = lower_rvalue(lo, e->args[2]);
     OverflowInteger left = lower_overflow_integer(lo, left_value, left_type);
     OverflowInteger right = lower_overflow_integer(lo, right_value, right_type);
+
+    if (type_is_int128(result_type))
+        return lower_checked_overflow_wide_result(
+            lo, e, left_type, right_type, result_type, left_value, right_value,
+            result_address, left, right);
+
     Type *arithmetic_type = type_basic(TY_ULLONG);
     IrOperand converted_left =
         lower_scalar_convert(lo, left_value, left_type, result_type);
@@ -3386,9 +3493,9 @@ static IrOperand lower_checked_overflow(Lower *lo, AstNode *e)
 
     /* The modular low bits equal the infinite-precision result converted to
      * the destination type, so this store remains correct even when the
-     * predicate reports overflow. Form them in the unsigned i64 carrier: that
-     * preserves every supported destination's low bits and avoids inventing
-     * unsupported byte-width target instructions. The arithmetic
+     * predicate reports overflow. Form them in the unsigned i64 carrier:
+     * that preserves every supported destination's low bits and avoids
+     * inventing unsupported byte-width target instructions. The arithmetic
      * intentionally carries no NSW flag: checked signed overflow is fully
      * defined. */
     (void)lower_store(lo, lv_of(lo, result_address, result_type),

@@ -1630,12 +1630,6 @@ static AstNode *expr_call(Sema *s, AstNode *e)
 
                     if (quiet(e->args[2], NULL)) {
                         valid = false;
-                    } else if (type_is_int128(result_type)) {
-                        err(s, e->args[2]->span,
-                            "mode(TI) results from checked-overflow builtins "
-                            "are not yet supported "
-                            "(docs/gnu-extensions.md)");
-                        valid = false;
                     } else if (!result_type || !type_is_integer(result_type) ||
                                result_type->kind == TY_BOOL ||
                                result_type->kind == TY_ENUM) {

@@ -8504,7 +8504,7 @@ and green post-publication CI.
   #155 `b04592e6` and tested publication head `7665f252`, and its tree
   `a7a31f848e34eafc1c1305696a9fc3719af364ba` is byte-identical to the final
   tested synthetic merge.
-- The active `s56.62-arm64-outgoing-stack-align` tranche starts from exact
+- The `s56.62-arm64-outgoing-stack-align` tranche starts from exact
   merged #156. Forced-advertisement `pr92904.c` initially appeared to be the
   TI-varargs group, but its failing comparison is the aligned-32 `struct V`
   path and the unforced source fails too. Apple's public ABI guarantees SP
@@ -8543,6 +8543,59 @@ and green post-publication CI.
   (`pr84169.c`), TI floating conversion (`pr49218.c`), the separately named
   vector boundary, and then a complete guarded-surface re-audit before
   defining `__SIZEOF_INT128__`.
+
+  Final standard
+  [run 36308997693](https://github.com/tenseleyFlow/Cgfried/actions/runs/36308997693),
+  bootstrap runs
+  [36308997672](https://github.com/tenseleyFlow/Cgfried/actions/runs/36308997672)
+  and
+  [36308983861](https://github.com/tenseleyFlow/Cgfried/actions/runs/36308983861),
+  exact synthetic-merge nightly
+  [36311056008](https://github.com/tenseleyFlow/Cgfried/actions/runs/36311056008),
+  and exact synthetic-merge bootstrap
+  [36311056444](https://github.com/tenseleyFlow/Cgfried/actions/runs/36311056444)
+  were fully green. PR #157 merged green-only as
+  `9bc26d36efe71523eff9ad3e56bd3aa93860d727`; its exact parents are merged
+  #156 `d2426812` and tested publication head `0e48de61`, and its tree
+  `d3a3ce3311671525fba438f5046a2da5dfb1cf75` is byte-identical to the final
+  tested synthetic merge.
+- The active `s56.63-ti-checked-overflow-destinations` tranche starts from
+  exact merged #157. It removes only the TI result-pointer refusal from the
+  type-generic storing builtins; TI operands and TI predicate selectors remain
+  targeted fail-closed boundaries. At-most-64-bit operands are converted to
+  the existing address-backed two-limb representation and add/subtract use
+  inline limb arithmetic while multiply uses the existing `__multi3` ABI.
+  The infinite-precision mathematical sign is recovered independently from
+  operand sign/magnitudes. Unsigned TI overflows exactly for a negative
+  mathematical result; signed TI overflows when the mathematical sign differs
+  from the stored high-limb sign. The exact modulo-2^128 result is copied
+  through the ordinary TI assignment path, preserving aliasing, under-
+  alignment, and volatile access semantics.
+
+  The exact #157 compiler rejects the permanent fixture at nineteen TI-result
+  sites. The repaired compiler agrees with Apple Clang and passes that fixture
+  plus forced-advertisement `pr84169.c` at O0/O1/O2/O3/Os on native
+  arm64-macos, normally and under `CGF_SPILL_ALL=1`; both Linux backends emit
+  both sources at all five levels. Signed and unsigned destinations, full
+  64-by-64 multiplication, mixed signs, zero-sign normalization, result
+  aliasing, one-time evaluation, and volatile stores are pinned. The forced
+  guarded-source inventory now parses eleven of twelve sources on both Linux
+  targets and all 55 accepted native executions pass; only TI floating
+  conversion `pr49218.c` remains a guarded parse failure.
+
+  Focused normal and sanitized units pass. The complete normal and sanitized
+  baselines report 982 tests / 4,330,305 assertions with exactly the same
+  eight Darwin host-assumption failures; the one new test accounts for 32 new
+  assertions. Normal and sanitized 2,000-case frontend fuzz runs find zero
+  failures, and repeated 5,000-case hashes deterministically produce the new
+  corpus digest `ae796827f6af569a`. Source bans, warning/preprocessor/sema/
+  target seams, GNU tiers, deferrals, verifier coverage, no-host-FPU, unit
+  registry, POSIX shell, pinned clang-format 22, and diff checks are green.
+  This tranche changes no torture ratchet cell because `pr84169.c` already
+  passed and was published through its truthful non-TI fallback. After merge,
+  take TI floating conversion (`pr49218.c`), then the separately documented
+  vector boundary, and finally re-audit the guarded and selector surfaces
+  before defining `__SIZEOF_INT128__`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

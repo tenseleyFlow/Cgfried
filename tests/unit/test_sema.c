@@ -2318,7 +2318,12 @@ void test_sema_builtin_checked_overflow_store_family(TestCtx *t)
     run_sema_opts(
         &f,
         "enum input_enum { INPUT_ZERO }; "
+        "typedef unsigned int u128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "typedef int i128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
         "int result; volatile unsigned short volatile_result; "
+        "u128 wide_unsigned; volatile i128 wide_signed; "
         "enum input_enum e; _Bool b; "
         "_Static_assert(_Generic(__builtin_add_overflow(1, 2, &result), "
         "_Bool: 1, default: 0), \"add type\"); "
@@ -2327,7 +2332,9 @@ void test_sema_builtin_checked_overflow_store_family(TestCtx *t)
         "_Static_assert(_Generic(__builtin_mul_overflow(1, 2, &result), "
         "_Bool: 1, default: 0), \"mul type\"); "
         "int use(void) { return __builtin_add_overflow(e, b, &result) + "
-        "__builtin_sub_overflow(0, 1, &volatile_result); }\n",
+        "__builtin_sub_overflow(0, 1, &volatile_result) + "
+        "__builtin_mul_overflow(4U, -16, &wide_unsigned) + "
+        "__builtin_add_overflow(~0ULL, ~0ULL, &wide_signed); }\n",
         STD_C17, true);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     T_ASSERT_EQ_INT(t, f.warnings, 0);
