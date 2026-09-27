@@ -558,6 +558,333 @@ static bool multiply_overflows(Sema *s, Type *t, u64 a, u64 b)
     return b_mag != 0 && a_mag > limit / b_mag;
 }
 
+/* Required mode(TI) constants use the same strict-C11 two-limb arithmetic as
+ * the runtime helpers.  Keeping this representation local to constexpr
+ * prevents the compiler from depending on a host __int128 spelling (and from
+ * accidentally lowering its own arithmetic through libcgf_rt). */
+typedef struct {
+    u64 lo;
+    u64 hi;
+} CeWide;
+
+static CeWide ce_wide(u64 lo, u64 hi)
+{
+    CeWide v;
+
+    v.lo = lo;
+    v.hi = hi;
+    return v;
+}
+
+static CeWide ce_wide_value(ConstValue v)
+{
+    return ce_wide(v.i, v.i_hi);
+}
+
+static bool ce_wide_is_zero(CeWide v)
+{
+    return v.lo == 0 && v.hi == 0;
+}
+
+static bool ce_int_truth(ConstValue v)
+{
+    return v.i != 0 || v.i_hi != 0;
+}
+
+static int ce_wide_cmp_unsigned(CeWide a, CeWide b)
+{
+    if (a.hi != b.hi)
+        return a.hi < b.hi ? -1 : 1;
+    if (a.lo != b.lo)
+        return a.lo < b.lo ? -1 : 1;
+    return 0;
+}
+
+static int ce_wide_cmp_signed(CeWide a, CeWide b)
+{
+    bool a_negative = (a.hi >> 63) != 0;
+    bool b_negative = (b.hi >> 63) != 0;
+
+    if (a_negative != b_negative)
+        return a_negative ? -1 : 1;
+    return ce_wide_cmp_unsigned(a, b);
+}
+
+static CeWide ce_wide_add(CeWide a, CeWide b)
+{
+    CeWide r;
+
+    r.lo = a.lo + b.lo;
+    r.hi = a.hi + b.hi + (r.lo < a.lo);
+    return r;
+}
+
+static CeWide ce_wide_sub(CeWide a, CeWide b)
+{
+    CeWide r;
+
+    r.lo = a.lo - b.lo;
+    r.hi = a.hi - b.hi - (a.lo < b.lo);
+    return r;
+}
+
+static CeWide ce_wide_neg(CeWide v)
+{
+    CeWide r;
+
+    r.lo = ~v.lo + 1;
+    r.hi = ~v.hi + (r.lo == 0);
+    return r;
+}
+
+static CeWide ce_wide_shl1(CeWide v)
+{
+    return ce_wide(v.lo << 1, (v.hi << 1) | (v.lo >> 63));
+}
+
+static unsigned ce_wide_bit(CeWide v, int bit)
+{
+    if (bit >= 64)
+        return (unsigned)((v.hi >> (bit - 64)) & 1);
+    return (unsigned)((v.lo >> bit) & 1);
+}
+
+static void ce_wide_set_bit(CeWide *v, int bit)
+{
+    if (bit >= 64)
+        v->hi |= 1ull << (bit - 64);
+    else
+        v->lo |= 1ull << bit;
+}
+
+static CeWide ce_wide_udiv(CeWide numerator, CeWide denominator, CeWide *rem)
+{
+    CeWide quotient = {0, 0};
+    CeWide remainder = {0, 0};
+    int bit;
+
+    if (denominator.hi == 0 && numerator.hi == 0) {
+        if (rem)
+            *rem = ce_wide(numerator.lo % denominator.lo, 0);
+        return ce_wide(numerator.lo / denominator.lo, 0);
+    }
+    for (bit = 127; bit >= 0; bit--) {
+        unsigned carry = (unsigned)(remainder.hi >> 63);
+
+        remainder = ce_wide_shl1(remainder);
+        remainder.lo |= ce_wide_bit(numerator, bit);
+        if (carry || ce_wide_cmp_unsigned(remainder, denominator) >= 0) {
+            remainder = ce_wide_sub(remainder, denominator);
+            ce_wide_set_bit(&quotient, bit);
+        }
+    }
+    if (rem)
+        *rem = remainder;
+    return quotient;
+}
+
+/* Exact 64x64 -> 128 multiplication using four 32-bit partial products. */
+static CeWide ce_wide_mul64(u64 a, u64 b)
+{
+    const u64 mask = 0xffffffffull;
+    u64 a0 = (u32)a;
+    u64 a1 = a >> 32;
+    u64 b0 = (u32)b;
+    u64 b1 = b >> 32;
+    u64 partial = a0 * b0;
+    u64 word0 = partial & mask;
+    u64 carry = partial >> 32;
+    u64 word1, word2;
+
+    partial = a1 * b0 + carry;
+    word1 = partial & mask;
+    word2 = partial >> 32;
+    partial = a0 * b1 + word1;
+    carry = partial >> 32;
+    return ce_wide((partial << 32) + word0, a1 * b1 + word2 + carry);
+}
+
+static CeWide ce_wide_mul(CeWide a, CeWide b)
+{
+    CeWide r = ce_wide_mul64(a.lo, b.lo);
+
+    r.hi += a.hi * b.lo + a.lo * b.hi;
+    return r;
+}
+
+static CeWide ce_wide_shl(CeWide v, unsigned count)
+{
+    if (count == 0)
+        return v;
+    if (count < 64)
+        return ce_wide(v.lo << count, (v.hi << count) | (v.lo >> (64 - count)));
+    return ce_wide(0, v.lo << (count - 64));
+}
+
+static CeWide ce_wide_shr(CeWide v, unsigned count, bool arithmetic)
+{
+    u64 fill = arithmetic && (v.hi >> 63) ? UINT64_MAX : 0;
+
+    if (count == 0)
+        return v;
+    if (count < 64)
+        return ce_wide((v.lo >> count) | (v.hi << (64 - count)),
+                       (v.hi >> count) | (fill << (64 - count)));
+    if (count == 64)
+        return ce_wide(v.hi, fill);
+    return ce_wide((v.hi >> (count - 64)) | (fill << (128 - count)), fill);
+}
+
+static bool ce_wide_signed_minimum(CeWide v)
+{
+    return v.lo == 0 && v.hi == (1ull << 63);
+}
+
+static bool ce_wide_add_overflows(CeWide a, CeWide b, CeWide r)
+{
+    u64 sign = 1ull << 63;
+
+    return ((a.hi ^ r.hi) & (b.hi ^ r.hi) & sign) != 0;
+}
+
+static bool ce_wide_sub_overflows(CeWide a, CeWide b, CeWide r)
+{
+    u64 sign = 1ull << 63;
+
+    return ((a.hi ^ b.hi) & (a.hi ^ r.hi) & sign) != 0;
+}
+
+static bool ce_wide_mul_overflows(CeWide a, CeWide b)
+{
+    bool a_negative = (a.hi >> 63) != 0;
+    bool b_negative = (b.hi >> 63) != 0;
+    bool negative = a_negative != b_negative;
+    CeWide a_magnitude = a_negative ? ce_wide_neg(a) : a;
+    CeWide b_magnitude = b_negative ? ce_wide_neg(b) : b;
+    CeWide limit = negative ? ce_wide(0, 1ull << 63)
+                            : ce_wide(UINT64_MAX, UINT64_MAX >> 1);
+    CeWide quotient;
+
+    if (ce_wide_is_zero(b_magnitude))
+        return false;
+    quotient = ce_wide_udiv(limit, b_magnitude, NULL);
+    return ce_wide_cmp_unsigned(a_magnitude, quotient) > 0;
+}
+
+static ConstValue eval_binary_wide(Sema *s, AstNode *e, CeMode m,
+                                   ConstValue left, ConstValue right)
+{
+    CeWide l = ce_wide_value(left);
+    CeWide r = ce_wide_value(right);
+    CeWide result = {0, 0};
+    bool is_signed = conv_is_signed(s, e->lhs->sem_type);
+
+    switch (e->op) {
+    case PUNCT_PLUS:
+        result = ce_wide_add(l, r);
+        if (is_signed && ce_wide_add_overflows(l, r, result))
+            goto overflow;
+        break;
+    case PUNCT_MINUS:
+        result = ce_wide_sub(l, r);
+        if (is_signed && ce_wide_sub_overflows(l, r, result))
+            goto overflow;
+        break;
+    case PUNCT_STAR:
+        if (is_signed && ce_wide_mul_overflows(l, r))
+            goto overflow;
+        result = ce_wide_mul(l, r);
+        break;
+    case PUNCT_SLASH:
+    case PUNCT_PERCENT: {
+        CeWide remainder;
+
+        if (ce_wide_is_zero(r)) {
+            ce_error(s, m, e->span,
+                     "division by zero in a constant expression");
+            return cv_error();
+        }
+        if (is_signed) {
+            bool l_negative = (l.hi >> 63) != 0;
+            bool r_negative = (r.hi >> 63) != 0;
+            CeWide l_magnitude = l_negative ? ce_wide_neg(l) : l;
+            CeWide r_magnitude = r_negative ? ce_wide_neg(r) : r;
+
+            if (ce_wide_signed_minimum(l) && r.lo == UINT64_MAX &&
+                r.hi == UINT64_MAX)
+                goto overflow;
+            result = ce_wide_udiv(l_magnitude, r_magnitude, &remainder);
+            if (e->op == PUNCT_PERCENT)
+                result = l_negative ? ce_wide_neg(remainder) : remainder;
+            else if (l_negative != r_negative)
+                result = ce_wide_neg(result);
+        } else {
+            result = ce_wide_udiv(l, r, &remainder);
+            if (e->op == PUNCT_PERCENT)
+                result = remainder;
+        }
+        break;
+    }
+    case PUNCT_SHL:
+    case PUNCT_SHR:
+        if ((conv_is_signed(s, right.type) && (r.hi >> 63)) || r.hi != 0 ||
+            r.lo >= 128) {
+            ce_error(s, m, e->span,
+                     "shift count is out of range for a 128-bit type");
+            return cv_error();
+        }
+        result = e->op == PUNCT_SHL ? ce_wide_shl(l, (unsigned)r.lo)
+                                    : ce_wide_shr(l, (unsigned)r.lo, is_signed);
+        break;
+    case PUNCT_AMP:
+        result = ce_wide(l.lo & r.lo, l.hi & r.hi);
+        break;
+    case PUNCT_PIPE:
+        result = ce_wide(l.lo | r.lo, l.hi | r.hi);
+        break;
+    case PUNCT_CARET:
+        result = ce_wide(l.lo ^ r.lo, l.hi ^ r.hi);
+        break;
+    case PUNCT_LT:
+    case PUNCT_GT:
+    case PUNCT_LE:
+    case PUNCT_GE: {
+        int comparison =
+            is_signed ? ce_wide_cmp_signed(l, r) : ce_wide_cmp_unsigned(l, r);
+        bool truth = e->op == PUNCT_LT   ? comparison < 0
+                     : e->op == PUNCT_GT ? comparison > 0
+                     : e->op == PUNCT_LE ? comparison <= 0
+                                         : comparison >= 0;
+
+        return cv_int(s, type_basic(TY_INT), (u64)truth);
+    }
+    case PUNCT_EQEQ:
+        return cv_int(s, type_basic(TY_INT), l.lo == r.lo && l.hi == r.hi);
+    case PUNCT_NOTEQ:
+        return cv_int(s, type_basic(TY_INT), l.lo != r.lo || l.hi != r.hi);
+    case PUNCT_AMPAMP:
+        return cv_int(s, type_basic(TY_INT),
+                      !ce_wide_is_zero(l) && !ce_wide_is_zero(r));
+    case PUNCT_PIPEPIPE:
+        return cv_int(s, type_basic(TY_INT),
+                      !ce_wide_is_zero(l) || !ce_wide_is_zero(r));
+    case PUNCT_COMMA:
+        ce_error(s, m, e->span,
+                 "the comma operator is not allowed in a constant "
+                 "expression");
+        return cv_error();
+    default:
+        ce_error(s, m, e->span,
+                 "this operator is not allowed in a constant expression");
+        return cv_error();
+    }
+    return cv_int_wide(e->sem_type, result.lo, result.hi);
+
+overflow:
+    ce_error(s, m, e->span, "overflow in constant expression");
+    return cv_error();
+}
+
 typedef struct {
     u64 magnitude;
     bool negative;
@@ -579,10 +906,10 @@ static u64 ce_overflow_limit(Sema *s, Type *result_type, bool negative)
 {
     u32 width = conv_int_bits(s, result_type);
 
-    /* The checked-overflow folder still reasons through one-limb magnitudes.
-     * Wide constant arithmetic is refused by eval_binary below; returning the
-     * u64 ceiling here keeps opportunistic builtin folds conservative and,
-     * critically, avoids shifting the compiler's own integer by 127. */
+    /* The checked-overflow folder still reasons through one-limb magnitudes,
+     * and expression sema separately refuses its mode(TI) operands. Returning
+     * the u64 ceiling here keeps any opportunistic recovery fold conservative
+     * and, critically, avoids shifting the compiler's own integer by 127. */
     if (width > 64)
         return UINT64_MAX;
 
@@ -641,22 +968,14 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m,
         return l;
     /* && and || SHORT-CIRCUIT even here: `0 && (1/0)` is a valid constant
      * expression precisely because the right side is never evaluated. */
-    if (e->op == PUNCT_AMPAMP && l.kind == CV_INT && l.i == 0)
+    if (e->op == PUNCT_AMPAMP && l.kind == CV_INT && !ce_int_truth(l))
         return cv_int(s, type_basic(TY_INT), 0);
-    if (e->op == PUNCT_PIPEPIPE && l.kind == CV_INT && l.i != 0)
+    if (e->op == PUNCT_PIPEPIPE && l.kind == CV_INT && ce_int_truth(l))
         return cv_int(s, type_basic(TY_INT), 1);
 
     r = eval(s, e->rhs, operand_mode, bindings, nbindings);
     if (r.kind == CV_ERROR)
         return r;
-
-    if (type_is_int128(e->lhs->sem_type) || type_is_int128(e->rhs->sem_type) ||
-        type_is_int128(t)) {
-        ce_error(s, m, e->span,
-                 "128-bit mode(TI) arithmetic is not yet supported in "
-                 "constant expressions");
-        return cv_error();
-    }
 
     /* Fold pointer subtraction when both operands name the same object.  The
      * null/null case is the traditional offsetof macro; ordinary same-symbol
@@ -795,6 +1114,10 @@ static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m,
 
     if (l.kind != CV_INT || r.kind != CV_INT)
         return cv_error();
+
+    if (type_is_int128(e->lhs->sem_type) || type_is_int128(e->rhs->sem_type) ||
+        type_is_int128(t))
+        return eval_binary_wide(s, e, m, l, r);
 
     switch (e->op) {
     case PUNCT_PLUS:
@@ -1292,10 +1615,29 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m,
             return cv_error();
         if (type_is_int128(e->lhs ? e->lhs->sem_type : NULL) ||
             type_is_int128(e->sem_type)) {
-            ce_error(s, m, e->span,
-                     "128-bit mode(TI) arithmetic is not yet supported in "
-                     "constant expressions");
-            return cv_error();
+            CeWide value = ce_wide_value(o);
+
+            switch (e->op) {
+            case PUNCT_PLUS:
+                return cv_int_wide(e->sem_type, value.lo, value.hi);
+            case PUNCT_MINUS:
+                if (conv_is_signed(s, e->sem_type) &&
+                    ce_wide_signed_minimum(value)) {
+                    ce_error(s, m, e->span, "overflow in constant expression");
+                    return cv_error();
+                }
+                value = ce_wide_neg(value);
+                return cv_int_wide(e->sem_type, value.lo, value.hi);
+            case PUNCT_TILDE:
+                return cv_int_wide(e->sem_type, ~value.lo, ~value.hi);
+            case PUNCT_BANG:
+                return cv_int(s, type_basic(TY_INT), ce_wide_is_zero(value));
+            default:
+                ce_error(s, m, e->span,
+                         "'%s' is not allowed in a constant expression",
+                         ast_punct_name(e->op));
+                return cv_error();
+            }
         }
         switch (e->op) {
         case PUNCT_PLUS:
@@ -1341,7 +1683,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m,
                        : (e->cond_omits_mid
                               ? c
                               : eval(s, e->mid, m, bindings, nbindings));
-        if (!c.i)
+        if (!ce_int_truth(c))
             return eval(s, e->rhs, m, bindings, nbindings);
         return e->cond_omits_mid ? c : eval(s, e->mid, m, bindings, nbindings);
     }

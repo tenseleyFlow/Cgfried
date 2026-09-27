@@ -1613,6 +1613,7 @@ void test_sema_gnu_mode_ti_static_initializer_images(TestCtx *t)
                 T_ASSERT_EQ_INT(t, image.bytes[byte], 0);
         }
     }
+
     sfix_free(&f);
 
     run_sema(&f,
@@ -1622,6 +1623,58 @@ void test_sema_gnu_mode_ti_static_initializer_images(TestCtx *t)
              "static u128 address = (u128)&anchor;\n",
              STD_GNU17);
     T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
+void test_sema_gnu_mode_ti_constant_expressions(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "typedef unsigned int u128 __attribute__" /* check_bans allow:
+                                                            compiler input */
+             "((mode(TI))); "
+             "typedef int i128 __attribute__" /* check_bans allow: compiler
+                                                  input */
+             "((mode(TI)));\n"
+             "#define U ((u128)1)\n"
+             "#define B(n) (U << (n))\n"
+             "_Static_assert((B(64)-1)+1 == B(64), \"carry\"); "
+             "_Static_assert(B(70)*(B(40)+3) == B(110)+B(70)*3, "
+             "\"multiply\"); "
+             "_Static_assert((B(100)+123)/B(60) == B(40), "
+             "\"divide\"); "
+             "_Static_assert((B(100)+123)%B(60) == 123, "
+             "\"remainder\"); "
+             "_Static_assert(((i128)-9 >> 2) == -3, \"signed shift\"); "
+             "_Static_assert(B(100) && (B(100) ? 1 : 1/0), \"truth\");\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "typedef unsigned int u128 __attribute__" /* check_bans allow:
+                                                            compiler input */
+             "((mode(TI))); "
+             "typedef int i128 __attribute__" /* check_bans allow: compiler
+                                                  input */
+             "((mode(TI)));\n"
+             "#define U ((u128)1)\n"
+             "#define B(n) (U << (n))\n"
+             "#define MIN ((i128)B(127))\n"
+             "#define MAX ((i128)(B(127)-1))\n"
+             "_Static_assert(MAX + 1, \"add overflow\"); "
+             "_Static_assert(MIN - 1, \"sub overflow\"); "
+             "_Static_assert(-MIN, \"neg overflow\"); "
+             "_Static_assert((i128)B(126) * 2, \"mul overflow\"); "
+             "_Static_assert((i128)B(70) * (i128)B(70), "
+             "\"high mul overflow\"); "
+             "_Static_assert(MIN / -1, \"div overflow\"); "
+             "_Static_assert(B(100) / 0, \"divide zero\"); "
+             "_Static_assert(U << -1, \"negative shift\"); "
+             "_Static_assert(U << 128, \"large shift\");\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 9);
     sfix_free(&f);
 }
 

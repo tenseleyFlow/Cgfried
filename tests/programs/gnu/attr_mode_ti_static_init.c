@@ -1,7 +1,5 @@
 // FLAGS: -std=gnu17
-/* Explicit static mode(TI) initialization uses an exact two-limb image.
- * Keep required wide arithmetic in its separate fail-closed tranche: all
- * full-width patterns below arise from ordinary integer conversions. */
+/* Explicit static mode(TI) initialization uses an exact two-limb image. */
 typedef unsigned int u128 __attribute__((mode(TI)));
 typedef int i128 __attribute__((mode(TI)));
 
