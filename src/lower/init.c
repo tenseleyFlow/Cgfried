@@ -200,12 +200,16 @@ static void plan_rt(InitPlan *p, i64 off, Type *t, AstNode *e, const Member *bf)
     p->rt_tail = r;
 }
 
-static void plan_put_int(InitPlan *p, u64 off, u64 v, u64 width)
+static void plan_put_int(InitPlan *p, u64 off, u64 lo, u64 hi, u64 width)
 {
     u64 i;
 
-    for (i = 0; i < width && off + i < p->size; i++)
-        p->img[off + i] = (u8)(v >> (i * 8));
+    for (i = 0; i < width && off + i < p->size; i++) {
+        u64 limb = i < 8 ? lo : hi;
+        u64 shift = (i % 8) * 8;
+
+        p->img[off + i] = (u8)(limb >> shift);
+    }
 }
 
 static void plan_reverse_integer(InitPlan *p, Type *t, u64 off)
@@ -316,7 +320,7 @@ static void plan_scalar(InitPlan *p, Type *t, AstNode *e, i64 off)
     v = constexpr_eval(s, e, CE_FOLD); /* silent on failure by design */
     switch (v.kind) {
     case CV_INT:
-        plan_put_int(p, (u64)off, v.i, l.size);
+        plan_put_int(p, (u64)off, v.i, v.i_hi, l.size);
         return;
     case CV_FLOAT: {
         uint8_t b[16];

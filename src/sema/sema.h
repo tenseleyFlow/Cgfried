@@ -526,7 +526,8 @@ typedef enum { CV_INT, CV_FLOAT, CV_ADDR, CV_ERROR } CvKind;
 typedef struct {
     CvKind kind;
     Type *type;
-    u64 i;       /* CV_INT: the two's-complement bit pattern, target width */
+    u64 i;       /* CV_INT: low 64 bits of the two's-complement bit pattern */
+    u64 i_hi;    /* CV_INT: high 64 bits (zero/sign extension below 128 bits) */
     Sf f;        /* CV_FLOAT: in the format its type calls for */
     Symbol *sym; /* CV_ADDR: the symbol, for Sprint 19's relocation */
     i64 addend;

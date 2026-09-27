@@ -298,7 +298,7 @@ imported sources, and advances `20030518-1.c` to its separate
 `__builtin_mempcpy` gap. Its final standard, bootstrap, and exact-merge nightly
 CI were fully green before the green-only merge, and the actual merge has the
 exact tested parents and tree. Compiler-gap and large-FOSS tranches through
-PR #150 are now integrated; the detailed ledger below is authoritative. PR
+PR #151 are now integrated; the detailed ledger below is authoritative. PR
 #150 implements the exact glibc fortify seam isolated by the GNU89-inline
 campaign: `__builtin___snprintf_chk`, `__builtin_strdup`, and expansion of a
 final `__builtin_va_arg_pack()` through the checked formatted-output path. Its
@@ -306,7 +306,7 @@ exact x86-64 and native ARM64 Linux evidence promotes all ten `pr37669.c`
 cells and raises the target-complete ratchet to 32,060 PASS keys (32,063
 lines). It merged green-only as
 `5ceb26c22db13bdf0c4b8da09064cdb342960ed3`. The active
-`s56.56-constant-p-expression-folding` tranche addresses the ten remaining
+`s56.56-constant-p-expression-folding` tranche addressed the ten remaining
 `bcp-1.c` cells: string literals are known without treating general addresses
 as constants; optimized literal indexing and caller-value substitution
 through a bounded single-return inline query are implemented; and O0,
@@ -315,8 +315,13 @@ cases retain their prior answers. Native arm64-macos execution is green at
 O0/O1/O2/O3/Os, focused unit coverage is green, and both Linux backends emit
 all ten target/level combinations. Exact Linux x86-64 and native ARM64
 execution promotes all ten `bcp-1.c` cells, raising the target-complete
-ratchet to 32,070 PASS keys (32,073 lines). Final post-publication CI remains
-before merge.
+ratchet to 32,070 PASS keys (32,073 lines). Final post-publication standard,
+nightly, and bootstrap CI were fully green; PR #151 merged green-only as
+`28d635496a27e34d178e4b3abd83bce773157a2e`, and its actual merge tree is
+byte-identical to the tested final synthetic merge. The active
+`s56.57-mode-ti-static-initializers` tranche starts from that exact merge and
+closes the separately documented explicit-static-initializer boundary for
+GNU `mode(TI)` without enabling required 128-bit constant arithmetic.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -8152,7 +8157,48 @@ and green post-publication CI.
   `75330c4e9acd30feedad7efc154050e862c594f027312a648832036e520ab151`
   and
   `ca1bb58b1808aebbedcb04cb240c72f64721c8d4aa2ae5b19a46f411561b7325`.
-  Final post-publication CI remains before merge.
+  Final post-publication standard
+  [run 36280203325](https://github.com/tenseleyFlow/Cgfried/actions/runs/36280203325),
+  nightly
+  [run 36280231916](https://github.com/tenseleyFlow/Cgfried/actions/runs/36280231916),
+  and bootstrap
+  [run 36280233139](https://github.com/tenseleyFlow/Cgfried/actions/runs/36280233139)
+  are fully green. PR #151 merged green-only as
+  `28d635496a27e34d178e4b3abd83bce773157a2e`; its parents are exact merged
+  #150 `5ceb26c2` and publication head `7ef76ed2`, and tree
+  `ca1dd5558c62b99ecdd152bdce99492483c98364` is byte-identical to final
+  tested synthetic merge `ca8fa265ff43979dc0579622bf9e547126809abb`.
+- The active `s56.57-mode-ti-static-initializers` tranche starts from exact
+  merged #151. It extends integer `ConstValue` from one stored limb to two for
+  conversions, allowing explicit static `mode(TI)` objects, arrays, and
+  records to produce exact 16-byte initializer images. Signed narrow
+  sources sign-extend through the high limb; unsigned
+  sources zero-extend. The automatic aggregate initializer planner consumes
+  the same two-limb value, removing its prior undefined shift for byte widths
+  above eight. Static pointer-to-integer relocations are now correctly limited
+  to exactly pointer-width objects, matching GCC rather than widening one
+  relocation into a TI image. Required 128-bit arithmetic remains a named
+  refusal, so this tranche does not silently grow into the separate constexpr
+  campaign.
+
+  The permanent runtime fixture passes natively on arm64-macos at
+  O0/O1/O2/O3/Os. Both Linux backends emit nonempty assembly in all ten
+  target/optimization cells. Exact initializer dumps are identical across
+  x86-64 Linux, ARM64 Linux, and ARM64 macOS at SHA-256
+  `077f0c4531796950bcdda551b094ecee41bb878aa8a702c9ae4c81c0deba0015`.
+  Focused normal and ASan+UBSan unit runs each pass one test and 59 assertions;
+  the runtime passes all five optimization levels in both builds, and the
+  remaining fail-closed TI boundary fixture produces eleven expected
+  diagnostics and passes in both builds. GCC 13.3 accepts and executes the
+  supported fixture on the x86-64 Linux oracle, Apple clang accepts and
+  executes it on arm64 macOS, and both oracles pass all five optimization
+  levels; Cgfried x86 output does too. Normal and sanitized 2,000-case frontend
+  fuzz runs find zero failures, and the existing mode(TI)/strict-C11 arithmetic
+  and ABI differentials remain green. Full normal and sanitized unit runs each
+  report 972 tests, 4,330,152 assertions, and only the same eight Darwin
+  host-assumption failures. No imported torture source spells `mode(TI)`, so
+  this is a supported-feature closure tranche with no expected ratchet
+  publication.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

@@ -203,12 +203,28 @@ static ConstValue cv_error(void)
 static ConstValue cv_int(Sema *s, Type *t, u64 bits)
 {
     ConstValue v;
+    u32 width;
 
     memset(&v, 0, sizeof(v));
     v.kind = CV_INT;
     v.type = t ? t : type_basic(TY_INT);
     v.i = bits;
-    (void)s;
+    width = conv_int_bits(s, v.type);
+    if (conv_is_signed(s, v.type) && width > 0 && width <= 64 &&
+        ((bits >> (width - 1)) & 1) != 0)
+        v.i_hi = UINT64_MAX;
+    return v;
+}
+
+static ConstValue cv_int_wide(Type *t, u64 lo, u64 hi)
+{
+    ConstValue v;
+
+    memset(&v, 0, sizeof(v));
+    v.kind = CV_INT;
+    v.type = t;
+    v.i = lo;
+    v.i_hi = hi;
     return v;
 }
 
@@ -563,10 +579,10 @@ static u64 ce_overflow_limit(Sema *s, Type *result_type, bool negative)
 {
     u32 width = conv_int_bits(s, result_type);
 
-    /* ConstValue intentionally carries one u64 limb.  Wide constant
-     * arithmetic is refused by eval_binary below; returning the u64 ceiling
-     * here keeps opportunistic builtin folds conservative and, critically,
-     * avoids shifting the compiler's own integer by 127. */
+    /* The checked-overflow folder still reasons through one-limb magnitudes.
+     * Wide constant arithmetic is refused by eval_binary below; returning the
+     * u64 ceiling here keeps opportunistic builtin folds conservative and,
+     * critically, avoids shifting the compiler's own integer by 127. */
     if (width > 64)
         return UINT64_MAX;
 
@@ -1355,14 +1371,14 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m,
             return o;
         if (o.kind == CV_ADDR) {
             /* A pointer-to-integer cast in a static initializer is
-             * accepted only at exactly pointer width; a truncating one
-             * cannot be relocated at load time. */
+             * accepted only at exactly pointer width. A narrower or wider
+             * destination cannot be represented by one pointer relocation. */
             if (type_is_integer(to) &&
-                conv_int_bits(s, to) <
+                conv_int_bits(s, to) !=
                     cgf_target_layout(s->target).ptr_size * 8) {
                 ce_error(s, m, e->span,
                          "initializer element is not computable at load "
-                         "time: the cast to '%s' truncates an address",
+                         "time: the cast to '%s' is not pointer-width",
                          type_to_str(s->arena, to));
                 return cv_error();
             }
@@ -1394,6 +1410,8 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m,
                 }
                 return cv_int(s, to, fit(s, to, iv));
             }
+            if (type_is_int128(to))
+                return cv_int_wide(to, o.i, o.i_hi);
             return cv_int(s, to, fit(s, to, o.i));
         }
         if (type_is_arithmetic(to)) {
@@ -1922,17 +1940,21 @@ static void img_zero(InitCtx *c, u64 off, u64 len)
         memset(c->img->bytes + off, 0, (size_t)len);
 }
 
-static void img_put_int(InitCtx *c, u64 off, u64 value, u64 width)
+static void img_put_int(InitCtx *c, u64 off, u64 lo, u64 hi, u64 width)
 {
     u64 i;
 
-    if (width > sizeof(value)) {
+    if (width > 16) {
         c->ok = false;
         return;
     }
     /* Little-endian: all five targets are. */
-    for (i = 0; i < width && off + i < c->img->size; i++)
-        c->img->bytes[off + i] = (u8)(value >> (i * 8));
+    for (i = 0; i < width && off + i < c->img->size; i++) {
+        u64 limb = i < 8 ? lo : hi;
+        u64 shift = (i % 8) * 8;
+
+        c->img->bytes[off + i] = (u8)(limb >> shift);
+    }
 }
 
 static void img_reverse_integer(InitCtx *c, Type *t, u64 off)
@@ -2030,7 +2052,7 @@ static void fill_scalar(InitCtx *c, Type *t, AstNode *init, u64 off)
                 c->img->bytes[off + i] = b[i];
             return;
         }
-        img_put_int(c, off, v.i, l.size);
+        img_put_int(c, off, v.i, v.i_hi, l.size);
         return;
     case CV_FLOAT: {
         uint8_t b[16];
@@ -2048,7 +2070,7 @@ static void fill_scalar(InitCtx *c, Type *t, AstNode *init, u64 off)
                 c->ok = false;
                 return;
             }
-            img_put_int(c, off, iv, l.size);
+            img_put_int(c, off, iv, 0, l.size);
             return;
         }
         f = constexpr_format_of(s, t);

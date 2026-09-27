@@ -94,7 +94,7 @@ predefine.
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
 | `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
-| integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c` |
+| integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c`, `tests/programs/gnu/attr_mode_ti_static_init.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c` |
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
 | `gnu_inline` | `tests/programs/gnu/attr_gnu_inline.c` | glibc's `__extern_always_inline`; selects GNU89 symbol-emission rules under C99-or-newer modes |
 | `-fgnu89-inline` / `-fno-gnu89-inline` | `tests/torture/compile/20000120-2.c` | translation-unit-wide selection of GNU89 versus ISO inline emission, including replacement of an `extern inline` body by the real ordinary or static definition |
@@ -123,9 +123,11 @@ the separate `__int128` source spelling. Runtime arithmetic, comparisons,
 casts to and from integer/pointer types, shifts, assignments, and SysV/AAPCS64
 parameter and return conventions are implemented through address-backed
 two-limb values and the existing libgcc-compatible runtime helpers. The
-constant evaluator and checked-overflow builtins are still one-limb, so
-explicit static initialization, required 128-bit constant arithmetic, and TI
-checked-overflow operations fail closed; zero-initialized static objects work.
+constant evaluator now retains two limbs for integer conversions, so explicit
+static initialization, including aggregate objects, produces exact 128-bit
+images. Pointer relocations remain limited to pointer-width
+integer objects, matching GCC; a TI object is wider. Required 128-bit constant
+arithmetic and TI checked-overflow operations still fail closed.
 Floating conversions, atomic TI objects and atomic/TI compound operations, TI
 bit-fields and enums, TI switch controls, and reverse scalar storage order
 likewise receive targeted errors.
