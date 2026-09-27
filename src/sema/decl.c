@@ -2273,24 +2273,6 @@ static void remember_foldable_const_init(Sema *s, Type *target, AstNode *d)
         d->sym->foldable_const_init = init;
 }
 
-static bool type_contains_int128_object(const Type *t)
-{
-    Member *m;
-
-    if (!t)
-        return false;
-    if (type_is_int128(t))
-        return true;
-    if (t->kind == TY_ARRAY)
-        return type_contains_int128_object(t->base);
-    if ((t->kind != TY_STRUCT && t->kind != TY_UNION) || !t->tag)
-        return false;
-    for (m = t->tag->members; m; m = m->next)
-        if (type_contains_int128_object(m->type))
-            return true;
-    return false;
-}
-
 /* Types an initializer and checks each scalar element against its current
  * object. Materializing these conversions is load-bearing for both static
  * initializer bytes and the Sprint 38 conversion-warning postpass. */
@@ -2308,19 +2290,6 @@ static void sema_init_expr(Sema *s, Type *target, AstNode *d,
     sema_type_initializer(s, target, &d->init);
     if (is_static_init)
         s->static_init_depth--;
-
-    /* The constant evaluator currently carries one u64 integer limb.  Zero
-     * initialization is already exact for TI objects, but accepting an
-     * explicit static initializer would either truncate the high limb or
-     * silently fall back to BSS.  Refuse that boundary until the constant
-     * image path grows a genuine two-limb value. */
-    if (is_static_init && type_contains_int128_object(target)) {
-        s->nerrors++;
-        diag_emit(s->dc, DIAG_ERROR, d->init->span,
-                  "static initialization of a mode(TI) object is not yet "
-                  "supported (docs/gnu-extensions.md)");
-        return;
-    }
 
     has_nested_fam = target && target->kind != TY_ERROR &&
                      type_contains_fam(target) &&
