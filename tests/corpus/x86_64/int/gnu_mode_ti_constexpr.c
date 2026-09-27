@@ -54,8 +54,9 @@ _Static_assert(IMIN + 1 < (i128)0 && IMAX - 1 > (i128)0,
 _Static_assert(UBIT(100) != UBIT(99) && UBIT(100) == UBIT(100),
                "wide equality");
 _Static_assert(UBIT(100) && 1, "wide logical and");
-_Static_assert(UBIT(100) || (1 / 0), "wide short circuit");
-_Static_assert((UBIT(100) ? 7 : (1 / 0)) == 7, "wide condition");
+_Static_assert(UBIT(100) || (1 / (sizeof(char) - 1)), "wide short circuit");
+_Static_assert((UBIT(100) ? 7 : (1 / (sizeof(char) - 1))) == 7,
+               "wide condition");
 _Static_assert((UBIT(100) ?: 3) == UBIT(100), "GNU omitted condition");
 
 _Static_assert(-((i128)(UBIT(100) + 9)) / (i128)UBIT(50) ==
