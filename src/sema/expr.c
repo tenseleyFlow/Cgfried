@@ -778,12 +778,6 @@ bool sema_require_switch_integer(Sema *s, const AstNode *e)
 
     if (!t || e->poisoned)
         return true;
-    if (type_is_int128(t)) {
-        err(s, e->span,
-            "mode(TI) switch controlling expressions are not yet supported "
-            "(docs/gnu-extensions.md)");
-        return false;
-    }
     if (type_is_integer(t))
         return true;
     err(s, e->span, "switch quantity not an integer");

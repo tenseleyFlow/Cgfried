@@ -1,7 +1,6 @@
 // FLAGS: -std=gnu17 -fsyntax-only -fmax-errors=0
 // ERROR_EXPECTED: conversion between mode(TI) and floating types is not yet supported
 // ERROR_EXPECTED: atomic mode(TI) objects are not yet supported
-// ERROR_EXPECTED: mode(TI) switch controlling expressions are not yet supported
 // ERROR_EXPECTED: the cast to 'unsigned mode(TI) integer' is not pointer-width
 // ERROR_EXPECTED: mode(TI) enumerated types are not yet supported
 // ERROR_EXPECTED: reverse scalar storage order for mode(TI) member
@@ -14,8 +13,8 @@
 /* Every accepted mode(TI) operation has real two-limb lowering. These are
  * the remaining boundaries where conversion, scalar atomic IR operation, or
  * storage-order transform would otherwise silently produce the wrong
- * program. TI bit-fields are implemented; keep these remaining boundaries
- * named until each separate facility lands. */
+ * program. TI bit-fields and switch controls are implemented; keep these
+ * remaining boundaries named until each separate facility lands. */
 typedef unsigned int u128 __attribute__((mode(TI)));
 typedef int i128 __attribute__((mode(TI)));
 

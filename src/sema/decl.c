@@ -4235,8 +4235,13 @@ static void sema_mark_discarded_update(AstNode *e)
  * detail -- `case -1:` under `switch (unsigned x)` is UINT_MAX, and must
  * collide with `case 0xFFFFFFFF:` and not with anything near zero. */
 
+typedef struct SwitchValue {
+    u64 lo;
+    u64 hi;
+} SwitchValue;
+
 typedef struct SwitchLabel {
-    u64 lo, hi; /* inclusive, already converted; sign-extended if signed */
+    SwitchValue lo, hi; /* inclusive, converted to the control type */
     Span span;
     struct SwitchLabel *next;
     struct SwitchLabel *range_next;
@@ -4259,31 +4264,55 @@ static u64 sw_low_mask(u32 bits)
 }
 
 /* 6.8.4.2p5's conversion, as a bit pattern. Signed targets are
- * sign-extended so a plain (i64) comparison is correct for them. */
-static u64 sw_convert(const SwitchLabels *sw, u64 v)
+ * sign-extended through both limbs so lexicographic high/low comparison is
+ * correct for every precision from 1 through 128. */
+static SwitchValue sw_convert(const SwitchLabels *sw, SwitchValue v)
 {
-    u64 m = sw_low_mask(sw->bits);
-    u64 x = v & m;
+    SwitchValue x = v;
+    u64 m;
 
-    if (!sw->is_unsigned && sw->bits && sw->bits < 64 &&
-        (x & (1ull << (sw->bits - 1))))
-        x |= ~m;
+    if (sw->bits >= 128)
+        return x;
+    if (sw->bits > 64) {
+        u32 high_bits = sw->bits - 64;
+
+        m = sw_low_mask(high_bits);
+        x.hi &= m;
+        if (!sw->is_unsigned && (x.hi & (1ull << (high_bits - 1))))
+            x.hi |= ~m;
+        return x;
+    }
+    m = sw_low_mask(sw->bits);
+    x.lo &= m;
+    x.hi = 0;
+    if (!sw->is_unsigned && sw->bits && (x.lo & (1ull << (sw->bits - 1)))) {
+        x.lo |= ~m;
+        x.hi = UINT64_MAX;
+    }
     return x;
 }
 
-static bool sw_le(const SwitchLabels *sw, u64 a, u64 b)
+static bool sw_eq(SwitchValue a, SwitchValue b)
 {
-    return sw->is_unsigned ? a <= b : (i64)a <= (i64)b;
+    return a.lo == b.lo && a.hi == b.hi;
+}
+
+static bool sw_le(const SwitchLabels *sw, SwitchValue a, SwitchValue b)
+{
+    if (a.hi != b.hi)
+        return sw->is_unsigned ? a.hi < b.hi : (i64)a.hi < (i64)b.hi;
+    return a.lo <= b.lo;
 }
 
 /* Register one case label -- a plain one arrives as the degenerate range
  * [v, v] -- after checking it against every label already seen. */
-static void sema_switch_add_case(Sema *s, AstNode *st, u64 raw_lo, u64 raw_hi)
+static void sema_switch_add_case(Sema *s, AstNode *st, SwitchValue raw_lo,
+                                 SwitchValue raw_hi)
 {
     SwitchLabels *sw = s->switch_labels;
     SwitchLabel *e = NULL, *n;
-    u64 lo = sw_convert(sw, raw_lo);
-    u64 hi = sw_convert(sw, raw_hi);
+    SwitchValue lo = sw_convert(sw, raw_lo);
+    SwitchValue hi = sw_convert(sw, raw_hi);
 
     /* A reversed range matches nothing. gcc warns and drops it, which is
      * the only coherent reading -- registering it would make a later label
@@ -4294,7 +4323,7 @@ static void sema_switch_add_case(Sema *s, AstNode *st, u64 raw_lo, u64 raw_hi)
                        "empty range specified");
         return;
     }
-    if (lo == hi) {
+    if (sw_eq(lo, hi)) {
         e = strmap_get(&sw->singles, (const char *)&lo, sizeof(lo));
         if (!e)
             for (e = sw->ranges; e; e = e->range_next)
@@ -4311,7 +4340,7 @@ static void sema_switch_add_case(Sema *s, AstNode *st, u64 raw_lo, u64 raw_hi)
          * the pair -- measured, because the obvious reading is the pair.
          * `case 3 ... 3:` colliding with a wide range gets the SINGLE
          * wording, because after folding it spans one value. */
-        if (lo != hi) {
+        if (!sw_eq(lo, hi)) {
             diag_emit(s->dc, DIAG_ERROR, st->span,
                       "duplicate (or overlapping) case value");
             diag_emit(s->dc, DIAG_NOTE, e->span,
@@ -4329,7 +4358,7 @@ static void sema_switch_add_case(Sema *s, AstNode *st, u64 raw_lo, u64 raw_hi)
     n->next = sw->labels;
     n->range_next = NULL;
     sw->labels = n;
-    if (lo == hi)
+    if (sw_eq(lo, hi))
         (void)strmap_put(&sw->singles, (const char *)&lo, sizeof(lo), n);
     else {
         n->range_next = sw->ranges;
@@ -4544,22 +4573,22 @@ static void sema_stmt(Sema *s, AstNode *st)
     case AST_STMT_CASE:
     case AST_STMT_DEFAULT:
         if (st->kind == AST_STMT_CASE && st->lhs) {
-            i64 cv, cv_hi = 0;
+            SwitchValue cv = {0, 0}, cv_hi = {0, 0};
             bool ok;
 
             st->lhs = sema_expr(s, st->lhs);
             /* Case labels are integer constant expressions; Sprint 15
              * gave us the evaluator, so duplicate checking is possible
              * now — and 6.8.4.2p3 makes it a REQUIRED diagnostic. */
-            ok = sema_require_ice(s, st->lhs, &cv, "a case label");
+            ok = sema_require_ice_wide(s, st->lhs, &cv.lo, &cv.hi,
+                                       "a case label");
             if (st->rhs) {
                 st->rhs = sema_expr(s, st->rhs);
-                ok &= sema_require_ice(s, st->rhs, &cv_hi,
-                                       "the end of a case range");
+                ok &= sema_require_ice_wide(s, st->rhs, &cv_hi.lo, &cv_hi.hi,
+                                            "the end of a case range");
             }
             if (ok && s->switch_labels)
-                sema_switch_add_case(s, st, (u64)cv,
-                                     st->rhs ? (u64)cv_hi : (u64)cv);
+                sema_switch_add_case(s, st, cv, st->rhs ? cv_hi : cv);
         } else if (st->kind == AST_STMT_DEFAULT && s->switch_labels) {
             SwitchLabels *sw = s->switch_labels;
 
