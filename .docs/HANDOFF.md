@@ -8380,7 +8380,9 @@ and green post-publication CI.
   and sanitized units pass three tests / 46 assertions; all 131 corpus files
   produce the expected 125 PASS, five known Darwin host/toolchain failures,
   and one expected TLS skip; normal and sanitized 2,000-case frontend fuzz
-  runs from seed 1 have zero findings. The complete normal and sanitized unit
+  runs from seed 1 have zero findings, and the intentional 131st corpus input
+  repins the 5,000-iteration mutation-sequence digest to
+  `cebb46b5d008cbcf`. The complete normal and sanitized unit
   suites each reach 978 tests / 4,330,244 assertions and retain only the same
   eight Darwin host-assumption failures. Both
   Linux backends emit the fixture and all three imported target files across
