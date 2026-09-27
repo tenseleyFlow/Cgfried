@@ -151,9 +151,8 @@ typedef struct VaPackContext {
     Symbol *wrapper;
     VaPackArg *args;
     u32 nargs;
-    Symbol **params;
-    bool *param_constant;
-    u32 nparams;
+    ConstexprBinding *bindings;
+    u32 nbindings;
     LexScope *scope_mark;
     BlockId return_target;
     ValueId return_slot;

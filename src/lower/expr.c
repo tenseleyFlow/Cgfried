@@ -3712,27 +3712,11 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
          * from the constant engine at THIS point in compilation, so a
          * value that only becomes constant after inlining reads 0 —
          * documented, and the same answer gcc gives at -O0. */
-        {
-            const AstNode *core = e->args[0];
-            ConstValue cv = constexpr_eval(lo->sema, e->args[0], CE_FOLD);
-            u32 i;
-
-            while (core && (core->kind == AST_EXPR_PAREN ||
-                            (core->kind == AST_EXPR_CAST && core->implicit)))
-                core = core->lhs;
-            if (lo->va_pack && core && core->kind == AST_EXPR_IDENT &&
-                core->sym) {
-                for (i = 0; i < lo->va_pack->nparams; i++)
-                    if (lo->va_pack->params[i] == core->sym) {
-                        *out = ir_op_iconst(
-                            IRT_I32, lo->va_pack->param_constant[i] ? 1 : 0);
-                        return true;
-                    }
-            }
-
-            *out = ir_op_iconst(
-                IRT_I32, (cv.kind == CV_INT || cv.kind == CV_FLOAT) ? 1 : 0);
-        }
+        *out = ir_op_iconst(IRT_I32,
+                            constexpr_builtin_constant_p(
+                                lo->sema, e->args[0],
+                                lo->va_pack ? lo->va_pack->bindings : NULL,
+                                lo->va_pack ? lo->va_pack->nbindings : 0));
         return true;
     case SEMA_BUILTIN_OBJECT_SIZE: {
         ConstValue mode = constexpr_eval(lo->sema, e->args[1], CE_FOLD);
@@ -4136,7 +4120,7 @@ static IrOperand lower_va_pack_wrapper_call(Lower *lo, AstNode *call,
     u32 nfixed = fty && fty->has_proto ? fty->nparams : 0;
     IrOperand *values;
     u8 *access_flags;
-    bool *constant;
+    ConstexprBinding *bindings;
     VaPackArg *pack;
     VaPackContext ctx;
     TypeLayout rl = {0};
@@ -4167,9 +4151,9 @@ static IrOperand lower_va_pack_wrapper_call(Lower *lo, AstNode *call,
     access_flags = arena_alloc(
         lo->arena, (call->nargs ? call->nargs : 1) * sizeof(*access_flags),
         _Alignof(u8));
-    constant = arena_alloc(lo->arena, (nfixed ? nfixed : 1) * sizeof(*constant),
-                           _Alignof(bool));
-    memset(constant, 0, (nfixed ? nfixed : 1) * sizeof(*constant));
+    bindings = arena_alloc(lo->arena, (nfixed ? nfixed : 1) * sizeof(*bindings),
+                           _Alignof(ConstexprBinding));
+    memset(bindings, 0, (nfixed ? nfixed : 1) * sizeof(*bindings));
     pack = arena_alloc(lo->arena,
                        (call->nargs > nfixed ? call->nargs - nfixed : 1) *
                            sizeof(*pack),
@@ -4182,9 +4166,10 @@ static IrOperand lower_va_pack_wrapper_call(Lower *lo, AstNode *call,
 
         values[i] = lower_rvalue(lo, call->args[i]);
         access_flags[i] = lower_aggregate_access_flags(call->args[i]);
-        if (i < nfixed)
-            constant[i] = cv.kind == CV_INT || cv.kind == CV_FLOAT;
-        else {
+        if (i < nfixed) {
+            bindings[i].sym = i < def->nparam_syms ? def->param_syms[i] : NULL;
+            bindings[i].value = cv;
+        } else {
             Type *arg_type = sem(call->args[i]);
 
             pack[i - nfixed].value = values[i];
@@ -4209,9 +4194,8 @@ static IrOperand lower_va_pack_wrapper_call(Lower *lo, AstNode *call,
     ctx.wrapper = wrapper;
     ctx.args = pack;
     ctx.nargs = call->nargs - nfixed;
-    ctx.params = def->param_syms;
-    ctx.param_constant = constant;
-    ctx.nparams = def->nparam_syms;
+    ctx.bindings = bindings;
+    ctx.nbindings = nfixed < def->nparam_syms ? nfixed : def->nparam_syms;
     ctx.scope_mark = lo->scopes;
     ctx.return_target = lower_new_block(lo, "vapack.ret");
     ctx.return_type = ret;
@@ -4245,6 +4229,72 @@ static IrOperand lower_va_pack_wrapper_call(Lower *lo, AstNode *call,
         lv.align = (u32)(rl.align ? rl.align : 1);
         return lower_load(lo, lv);
     }
+}
+
+/* At -O1 and above GCC answers __builtin_constant_p after substituting
+ * caller-known values into an inline function. Keep the source transform
+ * deliberately bounded: a single-return inline body has no labels, locals,
+ * cleanups, VLA entry work, or hidden control flow to reproduce. The call's
+ * scalar arguments are nevertheless evaluated once in Cgfried's documented
+ * left-to-right order before the folded result is used. */
+static bool lower_inline_constant_p_call(Lower *lo, AstNode *call,
+                                         Symbol *callee, IrOperand *out)
+{
+    AstNode *def;
+    AstNode *body;
+    AstNode *ret;
+    AstNode *query;
+    Type *fty;
+    ConstexprBinding *bindings;
+    u32 i;
+    bool known;
+
+    if (!lo->sema->lang->optimize || !callee ||
+        !callee->uses_builtin_constant_p || !callee->func_def_inline ||
+        callee->uses_va_arg_pack || callee->cgf_attrs || callee->gnu.noreturn ||
+        callee->gnu.returns_twice ||
+        (callee->func_specs & AST_FS_NORETURN) != 0)
+        return false;
+    def = callee->func_def;
+    fty = callee->type;
+    if (!def || !fty || fty->kind != TY_FUNC || !fty->has_proto ||
+        fty->variadic || call->nargs != fty->nparams ||
+        def->nparam_syms != fty->nparams || !type_is_integer(sem(call)))
+        return false;
+    for (i = 0; i < fty->nparams; i++)
+        if (!fty->params[i] || lower_is_aggregate(fty->params[i]) ||
+            type_is_runtime_sized(fty->params[i]))
+            return false;
+
+    body = def->body;
+    if (!body || body->kind != AST_STMT_COMPOUND || body->nitems != 1)
+        return false;
+    ret = body->items[0];
+    if (!ret || ret->kind != AST_STMT_RETURN || !ret->lhs)
+        return false;
+    query = ret->lhs;
+    while (query &&
+           (query->kind == AST_EXPR_PAREN ||
+            (query->kind == AST_EXPR_CAST && query->implicit && query->lhs)))
+        query = query->lhs;
+    if (!query || query->kind != AST_EXPR_CALL ||
+        query->op != SEMA_BUILTIN_CONSTANT_P || query->nargs != 1)
+        return false;
+
+    bindings = arena_alloc(
+        lo->arena, (fty->nparams ? fty->nparams : 1) * sizeof(*bindings),
+        _Alignof(ConstexprBinding));
+    memset(bindings, 0, (fty->nparams ? fty->nparams : 1) * sizeof(*bindings));
+    for (i = 0; i < fty->nparams; i++) {
+        bindings[i].sym = def->param_syms[i];
+        bindings[i].value = constexpr_eval(lo->sema, call->args[i], CE_FOLD);
+    }
+    known = constexpr_builtin_constant_p(lo->sema, query->args[0], bindings,
+                                         fty->nparams);
+    for (i = 0; i < call->nargs; i++)
+        lower_discard_expr(lo, call->args[i]);
+    *out = ir_op_iconst(lower_irtype(lo, sem(call)), known ? 1 : 0);
+    return true;
 }
 
 static IrOperand lower_call(Lower *lo, AstNode *e)
@@ -4297,6 +4347,12 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             ir_name_is_returns_twice(lower_ir_link_name(lo, callee));
     if (callee && callee->uses_va_arg_pack)
         return lower_va_pack_wrapper_call(lo, e, callee);
+    {
+        IrOperand folded;
+
+        if (lower_inline_constant_p_call(lo, e, callee, &folded))
+            return folded;
+    }
     /* Lowering runs after whole-translation-unit sema, so a definition that
      * appears later is already visible here.  A declaration-only
      * always_inline call has no body the mandatory IR pass could possibly

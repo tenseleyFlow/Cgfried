@@ -24431,6 +24431,16 @@ torture-execute/ashrdi-1.c@O3@arm64-linux
 torture-execute/ashrdi-1.c@O3@x86_64-linux-gnu
 torture-execute/ashrdi-1.c@Os@arm64-linux
 torture-execute/ashrdi-1.c@Os@x86_64-linux-gnu
+torture-execute/bcp-1.c@O0@arm64-linux
+torture-execute/bcp-1.c@O0@x86_64-linux-gnu
+torture-execute/bcp-1.c@O1@arm64-linux
+torture-execute/bcp-1.c@O1@x86_64-linux-gnu
+torture-execute/bcp-1.c@O2@arm64-linux
+torture-execute/bcp-1.c@O2@x86_64-linux-gnu
+torture-execute/bcp-1.c@O3@arm64-linux
+torture-execute/bcp-1.c@O3@x86_64-linux-gnu
+torture-execute/bcp-1.c@Os@arm64-linux
+torture-execute/bcp-1.c@Os@x86_64-linux-gnu
 torture-execute/bf-layout-1.c@O0@arm64-linux
 torture-execute/bf-layout-1.c@O0@x86_64-linux-gnu
 torture-execute/bf-layout-1.c@O1@arm64-linux

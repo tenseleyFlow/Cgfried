@@ -323,6 +323,7 @@ struct Symbol {
      * precede the definition work after whole-TU sema has completed. */
     AstNode *func_def;
     bool uses_va_arg_pack;
+    bool uses_builtin_constant_p;
     u8 inline_kind; /* InlineKind, valid after sema_finish */
     u8 def_kind;    /* DefKind, valid after sema_finish */
     i64 enum_value; /* SYM_ENUM_CONST */
@@ -536,7 +537,19 @@ typedef struct {
     const AstNode *anon;
 } ConstValue;
 
+/* A source-inline constant query evaluates the callee's expression tree with
+ * the caller's already-converted constant arguments substituted for formal
+ * parameter symbols. The binding is deliberately a value, not an AST node:
+ * this prevents caller side effects from being re-evaluated while folding. */
+typedef struct ConstexprBinding {
+    const Symbol *sym;
+    ConstValue value;
+} ConstexprBinding;
+
 ConstValue constexpr_eval(Sema *s, AstNode *e, CeMode mode);
+bool constexpr_builtin_constant_p(Sema *s, AstNode *e,
+                                  const ConstexprBinding *bindings,
+                                  u32 nbindings);
 /* The ICE entry point every constraint context uses. `what` names the
  * context in the diagnostic ("array bound", "case label", ...). */
 bool sema_require_ice(Sema *s, AstNode *e, i64 *out, const char *what);
