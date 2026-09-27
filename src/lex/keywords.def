@@ -85,6 +85,13 @@ CGF_KEYWORD(KW_ALT_VOLATILE2, "__volatile", KWG_ALT)
 CGF_KEYWORD(KW_ALT_CONST, "__const__", KWG_ALT)
 CGF_KEYWORD(KW_ALT_CONST2, "__const", KWG_ALT)
 CGF_KEYWORD(KW_ALT_SIGNED, "__signed__", KWG_ALT)
+/* GNU's scalar 128-bit integer spelling plus Clang/GCC's builtin typedef
+ * names.  The bare spelling is a specifier and may combine with signed or
+ * unsigned; the `_t` names are complete type names and combine with nothing,
+ * just like ordinary typedef names. */
+CGF_KEYWORD(KW_ALT_INT128, "__int128", KWG_ALT)
+CGF_KEYWORD(KW_ALT_INT128_T, "__int128_t", KWG_ALT)
+CGF_KEYWORD(KW_ALT_UINT128_T, "__uint128_t", KWG_ALT)
 CGF_KEYWORD(KW_ATTRIBUTE, "__attribute__", KWG_ALT)
 CGF_KEYWORD(KW_ATTRIBUTE2, "__attribute", KWG_ALT)
 CGF_KEYWORD(KW_EXTENSION, "__extension__", KWG_ALT)

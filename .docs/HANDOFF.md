@@ -322,9 +322,13 @@ byte-identical to the tested final synthetic merge. The
 `s56.57-mode-ti-static-initializers` tranche closed that separately documented
 explicit-static-initializer boundary and merged green-only as
 `0f3594e9b5811d2be2aee4e39efd1f16bf1d2303`. The active
-`s56.58-mode-ti-constant-expressions` tranche starts from that exact merge and
-extends the same two-limb value into required GNU `mode(TI)` integer constant
-operators while retaining the remaining named refusals.
+`s56.58-mode-ti-constant-expressions` tranche extended the same two-limb value
+into required GNU `mode(TI)` integer constant operators while retaining the
+remaining named refusals. It merged green-only through PR #153 as
+`93b65b417d12aac6b4f22e74ee75d3dad0f61214`. The active
+`s56.59-gnu-int128-spelling` tranche starts from that exact merge and exposes
+the already-supported canonical TI types through GNU `__int128` and the
+compiler-provided `__int128_t` / `__uint128_t` names.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -8235,7 +8239,57 @@ and green post-publication CI.
   The full native ARM64 corpus executes the new fixture successfully; its six
   unrelated Apple-profile failures and one expected TLS skip are unchanged
   local platform boundaries. No imported torture source spells `mode(TI)`, so
-  no torture-ratchet publication is expected for this tranche.
+  no torture-ratchet publication is expected for this tranche. Final standard
+  [run 36288595566](https://github.com/tenseleyFlow/Cgfried/actions/runs/36288595566),
+  nightly
+  [run 36288869528](https://github.com/tenseleyFlow/Cgfried/actions/runs/36288869528),
+  and full bootstrap
+  [run 36288871117](https://github.com/tenseleyFlow/Cgfried/actions/runs/36288871117)
+  are fully green. PR #153 merged green-only as
+  `93b65b417d12aac6b4f22e74ee75d3dad0f61214`; its exact parents are merged
+  #152 `0f3594e9` and tested head `478be479`, and its tree
+  `414e0929d43ad51a6f1ca1bba0434db2ff70caa8` is byte-identical to that tested
+  head.
+- The active `s56.59-gnu-int128-spelling` tranche starts from exact merged
+  #153. It accepts GNU `__int128`, `signed __int128`, `unsigned __int128`, and
+  the compiler-provided `__int128_t` / `__uint128_t` names in strict C17 as
+  extensions. All spellings resolve to the canonical signed or unsigned
+  `mode(TI)` type, so they reuse the completed two-limb layout, initializer,
+  constant-expression, runtime, and ABI machinery rather than introducing a
+  parallel integer type. Invalid duplicate or contradictory signedness and
+  base-type combinations remain diagnosed.
+
+  The permanent fixture passes natively on arm64-macos at O0/O1/O2/O3/Os in
+  normal and ASan+UBSan builds, and Apple clang independently accepts and
+  executes it at the same five levels. Both Linux backends emit nonempty
+  assembly for the fixture and imported `pr84748.c` in all ten
+  target/optimization cells; Cgfried also executes `pr84748.c` natively on
+  arm64-macos at every optimization level. The actual Apple SDK
+  `<mach/arm/_structs.h>` now parses without the benchmark harness's former
+  layout-only `__uint128_t` substitute, which has been removed. Full
+  `<mach/mach.h>` remains outside this claim because it reaches the separately
+  known OSByteOrder and XNU port-layout boundaries. Focused normal and
+  sanitized unit runs each pass two tests / 39 assertions. Normal and
+  sanitized 2,000-case frontend fuzz runs find zero failures. Full normal and
+  sanitized unit runs each report 975 tests and only the same eight Darwin
+  host-assumption failures. GNU-tier, benchmark-script, source-ban,
+  unit-registry, format-matrix, warning-matrix, and cross-target checks are
+  green; the permanent ISA corpus inventory advances from 129 to 130 sources.
+  The complete local arm64-macos corpus reports 124 pass, five fail, and one
+  expected skip. The new fixture passes; the five unchanged local failures are
+  Apple Clang's missing TF runtime, an ELF `.rodata` inline-asm spelling,
+  Mach-O destructor refusal, ELF TLS section emission, and the Apple SDK
+  `va_list` collision. The skipped case is the explicitly non-Mach-O external
+  ELF TLS model.
+
+  Do not predefine `__SIZEOF_INT128__` yet. Imported `pr93335.c`,
+  `bitfield-1.c`, and `pr105613.c` still reach the separately named TI
+  checked-overflow-selector, bit-field, and `vector_size` boundaries. The
+  macro remains deliberately absent until those advertised-surface gaps are
+  closed. `pr84748.c` is the sole target-complete torture promotion in this
+  tranche: publish its ten x86-64/ARM64 Linux cells only from
+  provenance-matched execution evidence, then require final standard,
+  nightly, and bootstrap CI to be green before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

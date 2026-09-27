@@ -151,6 +151,8 @@ typedef enum AstBaseType {
     ABT_ULONG,
     ABT_LLONG,
     ABT_ULLONG,
+    ABT_INT128,
+    ABT_UINT128,
     ABT_FLOAT,
     ABT_DOUBLE,
     ABT_LDOUBLE,

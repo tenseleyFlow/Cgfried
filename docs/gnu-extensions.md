@@ -95,6 +95,7 @@ predefine.
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
 | `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
 | integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c`, static-image coverage in `tests/programs/gnu/attr_mode_ti_static_init.c`, and required-constant coverage in `tests/corpus/x86_64/int/gnu_mode_ti_constexpr.c` |
+| GNU 128-bit integer names — `__int128`, `__int128_t`, `__uint128_t` | `tests/corpus/x86_64/int/gnu_int128_spelling.c` | Apple's ARM thread-state headers use `__uint128_t` directly; the GNU spelling shares the implemented `mode(TI)` arithmetic, layout, constant-expression, and ABI contract and unlocks GCC torture `pr84748.c` |
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
 | `gnu_inline` | `tests/programs/gnu/attr_gnu_inline.c` | glibc's `__extern_always_inline`; selects GNU89 symbol-emission rules under C99-or-newer modes |
 | `-fgnu89-inline` / `-fno-gnu89-inline` | `tests/torture/compile/20000120-2.c` | translation-unit-wide selection of GNU89 versus ISO inline emission, including replacement of an `extern inline` body by the real ordinary or static definition |
@@ -118,11 +119,13 @@ predefine.
 | static whole-array initialization from compatible array compound literals | `tests/programs/gnu/compound_literal_array_initializer.c` | GCC torture PR48517 and static aggregate images copied from compound literals |
 | records containing variably sized members | `tests/corpus/x86_64/int/vla_record_copy.c` | historical GNU C code that assigns, passes, and retrieves runtime-sized records |
 
-`mode(TI)` provides signed and unsigned 128-bit integers without yet exposing
-the separate `__int128` source spelling. Runtime arithmetic, comparisons,
-casts to and from integer/pointer types, shifts, assignments, and SysV/AAPCS64
-parameter and return conventions are implemented through address-backed
-two-limb values and the existing libgcc-compatible runtime helpers. The
+`mode(TI)`, `__int128`, `signed __int128`, and `__int128_t` name the same
+signed 128-bit type; `unsigned __int128` and `__uint128_t` name its unsigned
+counterpart. The reserved spellings are accepted in strict and GNU dialects,
+matching GCC and Clang. Runtime arithmetic, comparisons, casts to and from
+integer/pointer types, shifts, assignments, and SysV/AAPCS64 parameter and
+return conventions are implemented through address-backed two-limb values and
+the existing libgcc-compatible runtime helpers. The
 constant evaluator retains two limbs for integer conversions and exact unary,
 binary, comparison, logical, and conditional folding, so required constant
 expressions and explicit static initialization (including aggregate objects)
@@ -133,6 +136,12 @@ wider. TI checked-overflow operations still fail closed.
 Floating conversions, atomic TI objects and atomic/TI compound operations, TI
 bit-fields and enums, TI switch controls, and reverse scalar storage order
 likewise receive targeted errors.
+
+`__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
+that macro as an effective-target promise for bodies that also exercise the
+still-refused 128-bit bit-field, vector, and checked-overflow surfaces. Source
+may use the implemented types directly; the broader feature advertisement
+lands only when those guarded boundaries close.
 
 `__builtin_classify_type` is an integer constant expression and never
 evaluates an expression operand. Expression operands undergo GCC's ordinary
