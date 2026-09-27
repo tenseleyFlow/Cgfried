@@ -38,15 +38,16 @@
  * memberwise copy: unions would lose the notion of the live member and
  * padding bytes would diverge from gcc's images. */
 
-/* An lvalue: an address plus how to access the object there. Ordinary
- * bitfields carry (unit, shift, width). A packed bitfield is byte-addressed:
- * it may straddle its declared unit and a 64-bit field beginning at bit 7
- * occupies nine bytes, so no single scalar load can represent it. Everything
- * else loads/stores the unit directly. The address is an OPERAND, not a
- * ValueId: a global's address is an IROP_SYMBOL and never becomes an
- * instruction. */
+/* An lvalue: an address plus how to access the object there. Ordinary scalar
+ * bitfields carry (unit, shift, width). Packed fields are byte-addressed
+ * because they may straddle their declared unit; address-backed TI fields use
+ * the same byte-fragment contract to assemble two i64 limbs without inventing
+ * an i128 IR scalar. Everything else loads/stores the unit directly. The
+ * address is an OPERAND, not a ValueId: a global's address is an IROP_SYMBOL
+ * and never becomes an instruction. */
 typedef struct Lvalue {
     IrOperand addr;  /* always ptr-typed */
+    Type *type;      /* source type; required by address-backed TI fields */
     IrType unit;     /* type of the underlying load/store unit */
     EffTypeId etype; /* C effective type for alias analysis */
     u8 bit_shift;    /* bitfield only: bit position within the unit */

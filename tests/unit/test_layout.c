@@ -421,6 +421,31 @@ void test_layout_bitfields(TestCtx *t)
     rec_is(t, "struct S { char c; char a:4; };", 2, 1);
 }
 
+void test_layout_gnu_int128_bitfields(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,      CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,
+    };
+    u32 i;
+
+    /* GCC and Clang allocate the adjacent 124/4-bit fields in one aligned
+     * 128-bit container. Packed fields may begin at bit seven and therefore
+     * touch seventeen bytes even though their declared unit is sixteen. */
+    for (i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+        rec_target_is(t,
+                      "struct S { unsigned __int128 t:124; "
+                      "unsigned __int128 t1:4; };",
+                      targets[i], 16, 16);
+        rec_target_is(t,
+                      "struct S { unsigned char lead:7; "
+                      "unsigned __int128 value:124; unsigned char tail:5; } "
+                      "__attribute__((packed));", /* check_bans allow */
+                      targets[i], 17, 1);
+    }
+}
+
 void test_layout_zero_width_bitfields_per_target(TestCtx *t)
 {
     struct {
