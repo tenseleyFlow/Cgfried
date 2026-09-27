@@ -950,6 +950,23 @@ static A64Inst mk_move(bool fp, A64Sf sf, A64Reg dst, A64Reg src)
     return in;
 }
 
+static A64Inst mk_add_imm(A64Reg dst, A64Reg base, i64 imm)
+{
+    A64Inst in;
+
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_ADD;
+    in.sf = A64_SF64;
+    in.nops = 3;
+    in.ops[0].kind = A64O_REG;
+    in.ops[0].reg = dst;
+    in.ops[1].kind = A64O_REG;
+    in.ops[1].reg = base;
+    in.ops[2].kind = A64O_IMM;
+    in.ops[2].imm = imm;
+    return in;
+}
+
 /* Apple row 2: widen a sub-32-bit argument into its argument register.
  * Unsigned is one AND with a byte/halfword mask; signed is the LSL/ASR pair
  * the selector already uses for IR_SEXT, through a scratch so neither
@@ -1012,6 +1029,59 @@ static A64Inst mk_out_arg_store(A64Reg value, A64Sf sf, u32 offset, u32 bytes)
     return in;
 }
 
+/* Apple's public interface promises only 16-byte SP alignment, but an
+ * anonymous aggregate retains a wider source alignment in the variadic
+ * stack area.  Rounding NSAA cannot provide (say) 32-byte absolute alignment
+ * when the incoming SP is 16 mod 32.  Save the exact current SP in an
+ * ordinary virtual register, align SP down for this call, and restore it
+ * immediately after `bl`.  Because the saved value is live across the call,
+ * the normal allocator places it in a callee-saved register and frame
+ * collection preserves that register without any hard-coded scratch.
+ *
+ * x29 remains fixed throughout, so both ordinary and dynamic-stack frames
+ * retain their existing unwind anchor. */
+static A64Reg begin_outgoing_sp_realign(A64Func *f, Rb *rb, u32 align)
+{
+    A64Reg saved = {0, 0};
+    A64Reg aligned;
+    A64Inst in;
+
+    if (align <= 16)
+        return saved;
+    if (align & (align - 1u))
+        CGF_ICE("arm64 regalloc: outgoing stack alignment %u is not a power "
+                "of two",
+                align);
+    saved = a64_newv_width(f, A64RC_GP, A64_SF64);
+    aligned = a64_newv_width(f, A64RC_GP, A64_SF64);
+    in = mk_add_imm(saved, phys_reg(A64_SP), 0);
+    rb_put(rb, &in);
+    memset(&in, 0, sizeof(in));
+    in.op = A64_OP_AND;
+    in.sf = A64_SF64;
+    in.nops = 3;
+    in.ops[0].kind = A64O_REG;
+    in.ops[0].reg = aligned;
+    in.ops[1].kind = A64O_REG;
+    in.ops[1].reg = saved;
+    in.ops[2].kind = A64O_IMM;
+    in.ops[2].imm = -(i64)align;
+    rb_put(rb, &in);
+    in = mk_add_imm(phys_reg(A64_SP), aligned, 0);
+    rb_put(rb, &in);
+    return saved;
+}
+
+static void put_call_and_restore_sp(Rb *rb, A64Inst *call, A64Reg saved_sp)
+{
+    rb_put(rb, call);
+    if (saved_sp.id) {
+        A64Inst restore = mk_add_imm(phys_reg(A64_SP), saved_sp, 0);
+
+        rb_put(rb, &restore);
+    }
+}
+
 static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
 {
     A64CallInfo *call = in->call;
@@ -1024,6 +1094,8 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
      * alike; Apple stops at the last named one. Sprint 51 replaces the host
      * sniff with the driver's selected target. */
     bool apple = cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS;
+    A64Reg saved_sp = {0, 0};
+    u32 outgoing_align = 16;
     u32 nkept = 0, i;
 
     if (!call)
@@ -1032,6 +1104,15 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
     kept =
         arena_alloc(f->arena, (call->nargs ? call->nargs : 1) * sizeof(*kept),
                     _Alignof(A64CallArg));
+
+    if (apple)
+        for (i = 0; i < call->nargs; i++) {
+            u32 align = ir_abi_stack_align(call->args[i].abi_annot);
+
+            if (align > outgoing_align)
+                outgoing_align = align;
+        }
+    saved_sp = begin_outgoing_sp_realign(f, rb, outgoing_align);
 
     for (i = 0; i < call->nargs; i++) {
         A64CallArg *arg = &call->args[i];
@@ -1175,7 +1256,7 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
         A64Sf lsf = width == 4 ? A64_SF32 : width == 16 ? A64_SF128 : A64_SF64;
         u32 k;
 
-        rb_put(rb, in);
+        put_call_and_restore_sp(rb, in, saved_sp);
         for (k = 0; k < n; k++) {
             A64Inst st;
 
@@ -1203,11 +1284,11 @@ static void marshal_call(A64Func *f, Rb *rb, A64Inst *in, u32 *out_args)
         A64Inst copy = mk_move(fp, sf, original, ret);
 
         call->result = ret;
-        rb_put(rb, in);
+        put_call_and_restore_sp(rb, in, saved_sp);
         rb_put(rb, &copy);
         return;
     }
-    rb_put(rb, in);
+    put_call_and_restore_sp(rb, in, saved_sp);
 }
 
 static void marshal_calls(A64Func *f)
@@ -1479,23 +1560,6 @@ static u64 frame_assign_allocas(A64Func *f, const CgSpillSlots *slots)
         }
     }
     return top;
-}
-
-static A64Inst mk_add_imm(A64Reg dst, A64Reg base, i64 imm)
-{
-    A64Inst in;
-
-    memset(&in, 0, sizeof(in));
-    in.op = A64_OP_ADD;
-    in.sf = A64_SF64;
-    in.nops = 3;
-    in.ops[0].kind = A64O_REG;
-    in.ops[0].reg = dst;
-    in.ops[1].kind = A64O_REG;
-    in.ops[1].reg = base;
-    in.ops[2].kind = A64O_IMM;
-    in.ops[2].imm = imm;
-    return in;
 }
 
 static void emit_add_imm_split(Rb *rb, A64Reg dst, A64Reg base, i64 imm,
