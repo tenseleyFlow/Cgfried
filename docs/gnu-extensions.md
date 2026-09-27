@@ -137,16 +137,19 @@ address-backed two-limb value contract through static/runtime initialization,
 reads, writes, narrowed assignment results, compound updates, packed fields,
 and reverse scalar storage order. TI switch controls compare the full
 two-limb value, including signed and unsigned labels and GNU ranges that cross
-the limb boundary. TI checked-overflow operations still fail closed. Floating
-conversions, atomic TI objects and atomic/TI compound operations, TI enums,
-and reverse storage order for ordinary TI members or arrays likewise receive
-targeted errors.
+the limb boundary. Type-generic checked arithmetic accepts a TI result
+destination when both operands are at most 64 bits, stores the exact
+modulo-2^128 result, and reports overflow against the destination's signed or
+unsigned range. TI operands and TI checked-overflow predicate selectors remain
+fail-closed boundaries. Floating conversions, atomic TI objects and atomic/TI
+compound operations, TI enums, and reverse storage order for ordinary TI
+members or arrays likewise receive targeted errors.
 
 `__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
 that macro as an effective-target promise for bodies that also exercise the
-still-refused floating-conversion, vector, checked-overflow, and variadic TI
-surfaces. Source may use the implemented types directly; the broader feature
-advertisement lands only when those guarded boundaries close.
+still-refused floating-conversion, vector, checked-overflow operand/selector,
+and variadic TI surfaces. Source may use the implemented types directly; the
+broader feature advertisement lands only when those guarded boundaries close.
 
 The torture harness's narrower DejaGNU `int128` capability is enabled: that
 effective-target test asks whether the source type exists. It therefore runs
