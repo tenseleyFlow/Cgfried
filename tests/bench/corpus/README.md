@@ -14,10 +14,12 @@ The benchmark verifies the exact vendored bytes with the portable POSIX
 
 On `arm64-macos`, the syntax-only lane force-includes
 `tests/bench/compat/arm64-macos-syntax.h`. The current Apple SDK exposes
-Clang-only builtins, `_Float16`, fixed-underlying enums, and `__uint128_t` in
-headers reached by SQLite. The compatibility header takes SQLite's documented
-non-zone allocator path and supplies parse-only declarations for the remaining
-SDK boundary; it does not claim those extensions as compiler features. Results
+Clang-only builtins, `_Float16`, and fixed-underlying enums in headers reached
+by SQLite. Cgfried's native `__uint128_t` now handles the ARM thread-state
+fields without a compatibility substitution. The compatibility header takes
+SQLite's documented non-zone allocator path and supplies parse-only
+declarations for the remaining SDK boundary; it does not claim those
+extensions as compiler features. Results
 record the suffix `arm64-macos-sdk-syntax-v1`, so this target-specific corpus
 environment cannot be confused with an unmodified SDK parse.
 

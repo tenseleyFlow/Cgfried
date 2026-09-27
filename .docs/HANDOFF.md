@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-26): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-27): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -322,9 +322,15 @@ byte-identical to the tested final synthetic merge. The
 `s56.57-mode-ti-static-initializers` tranche closed that separately documented
 explicit-static-initializer boundary and merged green-only as
 `0f3594e9b5811d2be2aee4e39efd1f16bf1d2303`. The active
-`s56.58-mode-ti-constant-expressions` tranche starts from that exact merge and
-extends the same two-limb value into required GNU `mode(TI)` integer constant
-operators while retaining the remaining named refusals.
+`s56.58-mode-ti-constant-expressions` tranche extended the same two-limb value
+into required GNU `mode(TI)` integer constant operators while retaining the
+remaining named refusals. It merged green-only through PR #153 as
+`93b65b417d12aac6b4f22e74ee75d3dad0f61214`. The active
+`s56.59-gnu-int128-spelling` tranche starts from that exact merge and exposes
+the already-supported canonical TI types through GNU `__int128` and the
+compiler-provided `__int128_t` / `__uint128_t` names. Exact target-complete
+evidence publishes all ten `pr84748.c` cells, raising the ratchet to 32,080
+PASS keys (32,083 lines); final post-publication CI remains before merge.
 Sprint 56's campaign machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -8235,7 +8241,100 @@ and green post-publication CI.
   The full native ARM64 corpus executes the new fixture successfully; its six
   unrelated Apple-profile failures and one expected TLS skip are unchanged
   local platform boundaries. No imported torture source spells `mode(TI)`, so
-  no torture-ratchet publication is expected for this tranche.
+  no torture-ratchet publication is expected for this tranche. Final standard
+  [run 36288595566](https://github.com/tenseleyFlow/Cgfried/actions/runs/36288595566),
+  nightly
+  [run 36288869528](https://github.com/tenseleyFlow/Cgfried/actions/runs/36288869528),
+  and full bootstrap
+  [run 36288871117](https://github.com/tenseleyFlow/Cgfried/actions/runs/36288871117)
+  are fully green. PR #153 merged green-only as
+  `93b65b417d12aac6b4f22e74ee75d3dad0f61214`; its exact parents are merged
+  #152 `0f3594e9` and tested head `478be479`, and its tree
+  `414e0929d43ad51a6f1ca1bba0434db2ff70caa8` is byte-identical to that tested
+  head.
+- The active `s56.59-gnu-int128-spelling` tranche starts from exact merged
+  #153. It accepts GNU `__int128`, `signed __int128`, `unsigned __int128`, and
+  the compiler-provided `__int128_t` / `__uint128_t` names in strict C17 as
+  extensions. All spellings resolve to the canonical signed or unsigned
+  `mode(TI)` type, so they reuse the completed two-limb layout, initializer,
+  constant-expression, runtime, and ABI machinery rather than introducing a
+  parallel integer type. Invalid duplicate or contradictory signedness and
+  base-type combinations remain diagnosed.
+
+  The permanent fixture passes natively on arm64-macos at O0/O1/O2/O3/Os in
+  normal and ASan+UBSan builds, and Apple clang independently accepts and
+  executes it at the same five levels. Both Linux backends emit nonempty
+  assembly for the fixture and imported `pr84748.c` in all ten
+  target/optimization cells; Cgfried also executes `pr84748.c` natively on
+  arm64-macos at every optimization level. The actual Apple SDK
+  `<mach/arm/_structs.h>` now parses without the benchmark harness's former
+  layout-only `__uint128_t` substitute, which has been removed. Full
+  `<mach/mach.h>` remains outside this claim because it reaches the separately
+  known OSByteOrder and XNU port-layout boundaries. Focused normal and
+  sanitized unit runs each pass two tests / 39 assertions. Normal and
+  sanitized 2,000-case frontend fuzz runs find zero failures. Full normal and
+  sanitized unit runs each report 975 tests and only the same eight Darwin
+  host-assumption failures. GNU-tier, benchmark-script, source-ban,
+  unit-registry, format-matrix, warning-matrix, and cross-target checks are
+  green; the permanent ISA corpus inventory advances from 129 to 130 sources.
+  The complete local arm64-macos corpus reports 124 pass, five fail, and one
+  expected skip. The new fixture passes; the five unchanged local failures are
+  Apple Clang's missing TF runtime, an ELF `.rodata` inline-asm spelling,
+  Mach-O destructor refusal, ELF TLS section emission, and the Apple SDK
+  `va_list` collision. The skipped case is the explicitly non-Mach-O external
+  ELF TLS model.
+
+  Do not predefine `__SIZEOF_INT128__` yet. Imported `pr93335.c`,
+  `bitfield-1.c`, and `pr105613.c` still reach the separately named TI
+  checked-overflow-selector, bit-field, and `vector_size` boundaries. The
+  macro remains deliberately absent until those advertised-surface gaps are
+  closed. The narrower DejaGNU `int128` effective-target capability is enabled
+  because it asks whether the source type exists; this exposes rather than
+  hides the separately named bit-field and reverse-storage-order failures.
+  `pr84748.c` is the sole target-complete torture promotion in this tranche.
+
+  GitHub's exact prepublication synthetic merge is
+  `7805de8979f0d18f0866010c64391913c3f1d6b3`; its parents are exact merged
+  #153 `93b65b41` and behavior head `216ac2fa`, and tree
+  `51f4987e953826a2659b945b4b5c3b268f4e6511` is byte-identical to the behavior
+  head. Prepublication standard
+  [run 36293893645](https://github.com/tenseleyFlow/Cgfried/actions/runs/36293893645)
+  passes all 23 ordinary jobs, intentionally skips the tag-only job, and
+  refuses only the intended five x86 `pr84748.c` PASS cells. Exact-merge nightly
+  [run 36293925375](https://github.com/tenseleyFlow/Cgfried/actions/runs/36293925375)
+  passes all fourteen non-torture jobs and refuses only the intended five ARM
+  `pr84748.c` PASS cells. Exact-merge bootstrap
+  [run 36293926466](https://github.com/tenseleyFlow/Cgfried/actions/runs/36293926466)
+  passes all seven jobs.
+
+  The retained x86 and ARM streams each contain 20,325 unique cells: 16,040
+  PASS, 3,180 SKIP, and 1,105 COMPILE_FAIL. Each target contributes exactly
+  five `pr84748.c` PASS cells with zero old-PASS regression. Their SHA-256
+  values are respectively
+  `c2d363ebb1304e9a06e4ee606dbaf4de7663cb405cc12500de06a4d1556c0758`
+  and
+  `df3f1202ce7ab11d789643ed3adbb6d396c0140c3cc102f734f90a3220c5dfbe`.
+  Both name the exact synthetic merge and share compiler-source SHA-256
+  `8660d7cc6bd3c36265f7fd5644e2884ba13e18524a3f622f94c4e5d0958d52ac`,
+  harness SHA-256
+  `0aef44b3e354271e6b4907123dc68e3e2bae4dac381a0fbc136da678053fe222`,
+  and identical manifest hashes.
+
+  GNU Make atomic publication consumes those exact streams through
+  `gmake -o torture-run torture-baseline`; reversing their order regenerates
+  both outputs byte-identically, both streams pass the published ratchet, and
+  the complete torture metadata suite is green. The result is 32,080 PASS
+  keys (32,083 lines), 2,210 failed cells fully covered by 31 deterministic
+  buckets, 26 applied decisions, four deliberately retained stale decisions,
+  and zero unbucketed or unresolved cells. PASS and triage SHA-256 values are
+  respectively
+  `f17d9dfe6f0d95f0b4ba5c682492b5a9f17debaf3d9f9f90126e7afe23bf6103`
+  and
+  `9339f01db64c8b0aee49c17fc2141fad7568a668a5dd895d26c3b0dd1c2934ab`.
+  The 30 newly exposed bit-field and reverse-storage-order failures have
+  durable policy decisions for `s56.60-gnu-int128-bitfields`. Final
+  post-publication standard, nightly, and bootstrap CI must be green before
+  merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

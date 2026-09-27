@@ -216,7 +216,7 @@ static void scope_declare_tag(Parser *p, const char *name)
 
 typedef struct {
     int n_void, n_char, n_short, n_int, n_long, n_float, n_double;
-    int n_signed, n_unsigned, n_bool;
+    int n_signed, n_unsigned, n_bool, n_int128;
     int n_other;      /* struct/union/enum/typedef-name/_Atomic(T) */
     u32 floatn_specs; /* exact `_FloatN`/`__float128` keyword identity */
     u32 storage;
@@ -356,7 +356,7 @@ static bool is_system_float_compat_typedef(Parser *p, const SpecSoup *s,
     if (!(at->span.origin & SPAN_ORIGIN_SYSTEM_SPELLING) ||
         s->storage != AST_SC_TYPEDEF || s->n_void || s->n_char || s->n_short ||
         s->n_int || s->n_signed || s->n_unsigned || s->n_bool || s->quals ||
-        s->func_specs || s->has_alignas || p->pos == 0 ||
+        s->n_int128 || s->func_specs || s->has_alignas || p->pos == 0 ||
         p->toks[p->pos - 1].kind != TOK_KEYWORD ||
         !parse_at_punct(p, PUNCT_SEMI))
         return false;
@@ -410,7 +410,7 @@ static AstBaseType soup_resolve(Parser *p, SpecSoup *s, const Token *at)
     if (s->n_other) {
         if (s->n_other > 1 || s->n_void || s->n_char || s->n_short ||
             s->n_int || s->n_long || s->n_float || s->n_double || s->n_signed ||
-            s->n_unsigned || s->n_bool) {
+            s->n_unsigned || s->n_bool || s->n_int128) {
             parse_error(p, at,
                         "cannot combine '%s' with another type "
                         "specifier",
@@ -429,6 +429,13 @@ static AstBaseType soup_resolve(Parser *p, SpecSoup *s, const Token *at)
         parse_error(p, at, "'long long long' is too long for cgfried");
         s->bad = true;
         return ABT_LLONG;
+    }
+    if (s->n_int128) {
+        if (s->n_int128 > 1 || s->n_void || s->n_char || s->n_short ||
+            s->n_int || s->n_long || s->n_float || s->n_double || s->n_bool ||
+            s->n_signed > 1 || s->n_unsigned > 1)
+            goto conflict;
+        return s->n_unsigned ? ABT_UINT128 : ABT_INT128;
     }
     if (s->n_void) {
         if (s->n_void > 1 || s->n_char || s->n_short || s->n_int || s->n_long ||
@@ -623,6 +630,15 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                 goto consumed;
             case KW_UNSIGNED:
                 s->n_unsigned++;
+                goto consumed;
+            case KW_ALT_INT128:
+                s->n_int128++;
+                goto consumed;
+            case KW_ALT_INT128_T:
+            case KW_ALT_UINT128_T:
+                s->n_other++;
+                s->other_base =
+                    kw == KW_ALT_INT128_T ? ABT_INT128 : ABT_UINT128;
                 goto consumed;
             case KW_BOOL:
                 s->n_bool++;
@@ -835,7 +851,7 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
              * DECLARATOR name, not a specifier. */
             if (s->n_other || s->n_void || s->n_char || s->n_short ||
                 s->n_int || s->n_long || s->n_float || s->n_double ||
-                s->n_signed || s->n_unsigned || s->n_bool)
+                s->n_signed || s->n_unsigned || s->n_bool || s->n_int128)
                 goto done;
             if (!parse_is_typedef_name(p, t->spelling)) {
                 /* `__builtin_va_list` and friends are compiler-provided
@@ -967,6 +983,9 @@ bool parse_at_decl_specs(Parser *p)
     case KW_SIGNED:
     case KW_ALT_SIGNED:
     case KW_UNSIGNED:
+    case KW_ALT_INT128:
+    case KW_ALT_INT128_T:
+    case KW_ALT_UINT128_T:
     case KW_BOOL:
     case KW_STRUCT:
     case KW_UNION:
