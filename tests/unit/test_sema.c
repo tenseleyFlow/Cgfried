@@ -1773,6 +1773,55 @@ void test_sema_gnu_mode_ti_constant_expressions(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_gnu_mode_ti_switch_labels(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "typedef unsigned int u128 __attribute__" /* check_bans allow:
+                                                            compiler input */
+             "((mode(TI))); "
+             "typedef int i128 __attribute__" /* check_bans allow: compiler
+                                                  input */
+             "((mode(TI)));\n"
+             "#define U ((u128)1)\n"
+             "#define B(n) (U << (n))\n"
+             "int good(u128 x) { switch (x) { "
+             "case B(100): return 1; "
+             "case B(64) + 7: return 2; "
+             "case B(64) - 2 ... B(64) + 2: return 3; "
+             "default: return 0; } }\n"
+             "int signed_good(i128 x) { switch (x) { "
+             "case -B(100): return 1; case -1: return 2; "
+             "default: return 0; } }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    /* The full two-limb value participates in duplicate and overlap checks.
+     * Values with the same low limb but different high limbs stay distinct;
+     * an exact duplicate and a range overlap each receive one diagnostic. */
+    run_sema(&f,
+             "typedef unsigned int u128 __attribute__" /* check_bans allow:
+                                                            compiler input */
+             "((mode(TI)));\n"
+             "#define U ((u128)1)\n"
+             "#define B(n) (U << (n))\n"
+             "void f(u128 x) { switch (x) { "
+             "case 5: break; case B(64) + 5: break; "
+             "case B(100): break; case B(100): break; "
+             "case B(80) ... B(80) + 4: break; "
+             "case B(80) + 2: break; } }\n"
+             "void converted(u128 x) { switch (x) { "
+             "case -1: break; case (u128)-1: break; } }\n"
+             "struct N { u128 value : 65; }; "
+             "void precision(struct N *n) { switch (n->value) { "
+             "case 0: break; case B(65): break; } }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 4);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_alloca_alias(TestCtx *t)
 {
     SemaFix f;

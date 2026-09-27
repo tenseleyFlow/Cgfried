@@ -554,6 +554,10 @@ bool constexpr_builtin_constant_p(Sema *s, AstNode *e,
 /* The ICE entry point every constraint context uses. `what` names the
  * context in the diagnostic ("array bound", "case label", ...). */
 bool sema_require_ice(Sema *s, AstNode *e, i64 *out, const char *what);
+/* Switch labels can inhabit the full GNU TI domain.  Other ICE consumers are
+ * deliberately still pointer/size-width and use the narrow entry point. */
+bool sema_require_ice_wide(Sema *s, AstNode *e, u64 *out_lo, u64 *out_hi,
+                           const char *what);
 
 /* --- static initializer images (consumed by Sprint 19) ------------------- */
 

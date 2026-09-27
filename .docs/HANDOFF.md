@@ -333,13 +333,20 @@ evidence publishes all ten `pr84748.c` cells, raising the ratchet to 32,080
 PASS keys (32,083 lines). Final post-publication standard, nightly, and
 bootstrap CI were fully green; PR #154 merged green-only as
 `61ce732acd31cf534aae62fbc28550b0142cb7a9`, and its actual merge tree is
-byte-identical to the tested final synthetic merge. The active
+byte-identical to the tested final synthetic merge. The
 `s56.60-gnu-int128-bitfields` tranche starts from that exact merge and owns the
 thirty target-complete cells across `bitfield-1.c`,
 `bitfield-endian-1.c`, and `bitfield-endian-2.c` that the newly enabled
 DejaGNU `int128` capability exposed. Those thirty cells now have exact
 target-complete publication, raising the ratchet to 32,110 PASS keys (32,113
-lines); final post-publication CI remains before merge. Sprint 56's campaign
+lines). Final post-publication standard, bootstrap, and exact-merge nightly CI
+were fully green; PR #155 merged green-only as
+`b04592e62d1ae701d0c5da4056a71a6bff5e1406`, and its actual merge tree is
+byte-identical to the tested final synthetic merge. The active
+`s56.61-gnu-int128-switch` tranche starts from that exact merge. It implements
+full-width signed and unsigned TI switch controls and GNU case ranges while
+keeping the controller address-backed and loading each limb exactly once. The
+broader `__SIZEOF_INT128__` promise remains withheld. Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
 Sprint 57's pinned compile-the-world campaigns, truthful
@@ -8353,7 +8360,7 @@ and green post-publication CI.
   #153 `93b65b41` and tested publication head `e81e825d`, and its tree
   `60db956775b2c50b6272c3bb1c67b48ac874fd04` is byte-identical to the final
   tested synthetic merge.
-- The active `s56.60-gnu-int128-bitfields` tranche starts from exact merged
+- The `s56.60-gnu-int128-bitfields` tranche starts from exact merged
   #154. It owns the thirty target-complete cells across `bitfield-1.c`,
   `bitfield-endian-1.c`, and `bitfield-endian-2.c`: twenty currently carry
   fingerprint
@@ -8429,8 +8436,54 @@ and green post-publication CI.
   `4900404f3d4092d2d946323ac0a5530ea84d6456533e0cad859312f6a20ba59a`
   and
   `0d24b33b80983f6c726a80b8f66f305ecca9d9017af0b008d53b100a478e1216`.
-  Final post-publication standard, nightly, and bootstrap CI must be fully
-  green before merge.
+  Final post-publication standard
+  [run 36301752914](https://github.com/tenseleyFlow/Cgfried/actions/runs/36301752914),
+  exact synthetic-merge nightly
+  [run 36301849698](https://github.com/tenseleyFlow/Cgfried/actions/runs/36301849698),
+  and bootstrap runs
+  [36301752901](https://github.com/tenseleyFlow/Cgfried/actions/runs/36301752901)
+  and
+  [36301750957](https://github.com/tenseleyFlow/Cgfried/actions/runs/36301750957)
+  were fully green. PR #155 merged green-only as
+  `b04592e62d1ae701d0c5da4056a71a6bff5e1406`; its exact parents are merged
+  #154 `61ce732a` and tested publication head `d94a6ee8`, and its tree
+  `7a1a2e9d7bcbb9f20028b153205016c45975e939` is byte-identical to the final
+  tested synthetic merge.
+- The active `s56.61-gnu-int128-switch` tranche starts from exact merged #155.
+  It removes only the targeted TI switch-control refusal. Sema now carries
+  case-label constants as two limbs, converts them to the promoted controlling
+  precision, and detects full-width duplicates and GNU-range overlaps. Lowering
+  loads the address-backed controller's two limbs once and emits explicit
+  equality or signed/unsigned lexicographic bounds chains; it does not add an
+  i128 IR scalar or truncate through the ordinary switch terminator. GNU ranges
+  that cross the low-limb boundary, signed extrema, volatile controls, and
+  65-bit TI bit-field controls are pinned.
+
+  Local native arm64-macos evidence is green. The dedicated runtime fixture and
+  forced-advertisement `pr122943.c` pass O0/O1/O2/O3/Os; both Linux backends
+  emit both sources at all five levels. The complete 132-source native corpus
+  reports 127 pass, four known Darwin platform failures, and one expected
+  Mach-O TLS skip. The complete 821-program native run reports 749 pass, 70
+  platform-specific failures, and two expected TLS skips; the TI boundary and
+  switch fixtures pass. Focused normal and sanitized units pass, deterministic
+  5,000-case frontend fuzz repeats digest `5ca03094f0d2d6dd`, and normal and
+  sanitized 2,000-case runs find zero failures. The final full normal unit run
+  reports 980 tests / 4,330,254 assertions with only the same eight Darwin
+  host-assumption failures. Warning/format matrices, format, source bans,
+  GNU-tier, deferral, unit-registry, and diff checks are green.
+
+  This tranche changes no torture ratchet cell: `pr122943.c` already passes its
+  fallback when `__SIZEOF_INT128__` is truthfully absent. A forced inventory of
+  all twelve guarded torture sources now leaves four honest advertised-surface
+  groups: TI floating conversion (`pr49218.c`), TI checked-overflow destinations
+  (`pr84169.c`), TI varargs (`pr92904.c`), and this now-closed TI switch body
+  (`pr122943.c`). Nine guarded sources parse under forced advertisement and
+  40/45 native executions pass; the five runtime failures are all `pr92904.c`.
+  Keep `__SIZEOF_INT128__` undefined until the remaining groups, including the
+  separately documented vector boundary, close. Recommended next order after
+  green-only merge: TI varargs, TI checked-overflow destinations, TI floating
+  conversions, then re-audit and advertise the macro only when the complete
+  guarded surface is honest.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
