@@ -143,6 +143,12 @@ still-refused 128-bit bit-field, vector, and checked-overflow surfaces. Source
 may use the implemented types directly; the broader feature advertisement
 lands only when those guarded boundaries close.
 
+The torture harness's narrower DejaGNU `int128` capability is enabled: that
+effective-target test asks whether the source type exists. It therefore runs
+direct `__int128` cases such as `pr84748.c` while continuing to record the
+separate bit-field and reverse-storage-order refusals instead of hiding them as
+unsupported-type skips.
+
 `__builtin_classify_type` is an integer constant expression and never
 evaluates an expression operand. Expression operands undergo GCC's ordinary
 lvalue, array, and function conversions before classification, so `_Bool` and

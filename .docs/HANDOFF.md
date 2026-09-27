@@ -8286,8 +8286,11 @@ and green post-publication CI.
   `bitfield-1.c`, and `pr105613.c` still reach the separately named TI
   checked-overflow-selector, bit-field, and `vector_size` boundaries. The
   macro remains deliberately absent until those advertised-surface gaps are
-  closed. `pr84748.c` is the sole target-complete torture promotion in this
-  tranche: publish its ten x86-64/ARM64 Linux cells only from
+  closed. The narrower DejaGNU `int128` effective-target capability is enabled
+  because it asks whether the source type exists; this exposes rather than
+  hides the separately named bit-field and reverse-storage-order failures.
+  `pr84748.c` is the sole target-complete torture promotion in this tranche:
+  publish its ten x86-64/ARM64 Linux cells only from
   provenance-matched execution evidence, then require final standard,
   nightly, and bootstrap CI to be green before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
