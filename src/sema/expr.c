@@ -477,13 +477,6 @@ static AstNode *expr_assign(Sema *s, AstNode *e)
 
         e->rhs = conv_decay(s, e->rhs);
         rt = e->rhs->sem_type;
-        if ((type_is_int128(lt) && type_is_floating(rt)) ||
-            (type_is_floating(lt) && type_is_int128(rt))) {
-            err(s, e->span,
-                "conversion between mode(TI) and floating types is not yet "
-                "supported (docs/gnu-extensions.md)");
-            return poison(s, e);
-        }
         if ((lt->quals & CGF_QUAL_ATOMIC) && type_is_int128(rt)) {
             err(s, e->span,
                 "compound assignment between an atomic object and a "
@@ -685,13 +678,6 @@ static AstNode *expr_binary(Sema *s, AstNode *e)
             type_to_str(s->arena, rt));
         return poison(s, e);
     }
-    if ((type_is_int128(lt) && type_is_floating(rt)) ||
-        (type_is_floating(lt) && type_is_int128(rt))) {
-        err(s, e->span,
-            "conversion between mode(TI) and floating types is not yet "
-            "supported (docs/gnu-extensions.md)");
-        return poison(s, e);
-    }
     if ((e->op == PUNCT_PERCENT || e->op == PUNCT_AMP || e->op == PUNCT_PIPE ||
          e->op == PUNCT_CARET) &&
         (!type_is_integer(lt) || !type_is_integer(rt))) {
@@ -819,13 +805,6 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
     e->is_lvalue = false;
 
     if (type_is_arithmetic(at) && type_is_arithmetic(bt)) {
-        if ((type_is_int128(at) && type_is_floating(bt)) ||
-            (type_is_floating(at) && type_is_int128(bt))) {
-            err(s, e->span,
-                "conversion between mode(TI) and floating types is not yet "
-                "supported (docs/gnu-extensions.md)");
-            return poison(s, e);
-        }
         e->sem_type = conv_uac(s, midp, &e->rhs);
         return e;
     }
@@ -2529,13 +2508,6 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->is_lvalue = false;
         if (quiet(op, NULL))
             return poison(s, e);
-        if ((type_is_int128(to) && type_is_floating(op->sem_type)) ||
-            (type_is_floating(to) && type_is_int128(op->sem_type))) {
-            err(s, e->span,
-                "conversion between mode(TI) and floating types is not yet "
-                "supported (docs/gnu-extensions.md)");
-            return poison(s, e);
-        }
         /* GNU C permits a struct or union value to be explicitly cast to
          * its own compatible type.  This is an aggregate identity
          * conversion: lowering already represents aggregate rvalues by

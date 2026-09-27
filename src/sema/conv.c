@@ -648,15 +648,6 @@ bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx)
         return true;
     }
 
-    if ((type_is_int128(lhs) && type_is_floating(rt)) ||
-        (type_is_floating(lhs) && type_is_int128(rt))) {
-        assign_diag(s, DIAG_ERROR, rhs->span, ctx,
-                    "conversion between mode(TI) and floating types is not "
-                    "yet supported",
-                    lhs, rt);
-        return false;
-    }
-
     if (type_is_arithmetic(lhs) && type_is_arithmetic(rt)) {
         *rhs_slot = conv_cast(s, rhs, conv_strip_quals(s, lhs));
         return true;

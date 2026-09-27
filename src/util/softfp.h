@@ -64,6 +64,10 @@ Sf sf_from_decimal(const char *digits, size_t n, int32_t dec_exp, SfFormat f,
 Sf sf_from_hex(const char *hexdigits, size_t n, int32_t bin_exp, SfFormat f,
                SfStatus *st);
 Sf sf_from_int(uint64_t v, bool neg, SfFormat f, SfStatus *st);
+/* The same conversion at GNU TI width.  The magnitude is supplied as a
+ * portable two-limb integer so neither the compiler nor libcgf_rt needs a
+ * host-specific 128-bit integer spelling. */
+Sf sf_from_int128(uint64_t hi, uint64_t lo, bool neg, SfFormat f, SfStatus *st);
 
 Sf sf_add(Sf a, Sf b, SfFormat f, SfStatus *st);
 Sf sf_sub(Sf a, Sf b, SfFormat f, SfStatus *st);
@@ -75,6 +79,8 @@ int sf_cmp(Sf a, Sf b, bool *unordered);
 bool sf_is_zero(Sf a);
 /* C's conversion to integer truncates toward zero (6.3.1.4). */
 uint64_t sf_to_int(Sf a, int width, bool is_unsigned, SfStatus *st);
+void sf_to_int128(Sf a, bool is_unsigned, uint64_t *hi, uint64_t *lo,
+                  SfStatus *st);
 
 /* The target-endian byte image, for Sprint 19's .data emission. All five
  * targets are little-endian. */

@@ -41,6 +41,11 @@ typedef _Float128 cgf_tf;
 typedef float cgf_tf __attribute__((mode(TF))); /* check_bans allow */
 #endif
 
+typedef struct {
+    unsigned long long lo;
+    unsigned long long hi;
+} cgf_ti;
+
 _Static_assert(sizeof(cgf_tf) == 16, "TF carrier must be IEEE binary128");
 _Static_assert(_Alignof(cgf_tf) == 16, "TF carrier must retain ABI alignment");
 
@@ -94,6 +99,46 @@ static Sf sf_in(float a)
     memcpy(bits, &a, sizeof(a));
     return sf_from_bits(bits, SF_BINARY32);
 }
+
+static float sf_out(Sf v)
+{
+    unsigned char bits[16];
+    float z;
+
+    sf_to_bits(v, SF_BINARY32, bits);
+    memcpy(&z, bits, sizeof(z));
+    return z;
+}
+
+static double df_out(Sf v)
+{
+    unsigned char bits[16];
+    double z;
+
+    sf_to_bits(v, SF_BINARY64, bits);
+    memcpy(&z, bits, sizeof(z));
+    return z;
+}
+
+#if defined(__x86_64__)
+static Sf xf_in(long double a)
+{
+    unsigned char bits[16];
+
+    memcpy(bits, &a, sizeof(bits));
+    return sf_from_bits(bits, SF_X87_80);
+}
+
+static long double xf_out(Sf v)
+{
+    unsigned char bits[16];
+    long double z;
+
+    sf_to_bits(v, SF_X87_80, bits);
+    memcpy(&z, bits, sizeof(z));
+    return z;
+}
+#endif
 
 /* --- NaN discipline --------------------------------------------------------
  *
@@ -413,6 +458,138 @@ unsigned long long __fixunstfdi(cgf_tf a)
 {
     return (unsigned long long)fix_saturating(a, 64, true);
 }
+
+/* --- GNU TI conversions --------------------------------------------------
+ *
+ * The public names and signatures are libgcc's.  cgf_ti is intentionally a
+ * two-u64 aggregate: on each supported little-endian psABI it occupies the
+ * same low/high register pair as scalar TI, while the implementation remains
+ * strict C11 and cannot recursively require its own helpers. */
+
+static cgf_ti ti_pair(unsigned long long lo, unsigned long long hi)
+{
+    cgf_ti r;
+
+    r.lo = lo;
+    r.hi = hi;
+    return r;
+}
+
+static cgf_ti ti_neg(cgf_ti a)
+{
+    cgf_ti r;
+
+    r.lo = ~a.lo + 1;
+    r.hi = ~a.hi + (r.lo == 0);
+    return r;
+}
+
+static cgf_ti fix_ti(Sf v, bool is_unsigned)
+{
+    SfStatus st;
+    cgf_ti r;
+
+    memset(&st, 0, sizeof(st));
+    sf_to_int128(v, is_unsigned, &r.hi, &r.lo, &st);
+    if (!st.invalid)
+        return r;
+    if (v.sign && v.cls != SF_NAN)
+        return is_unsigned ? ti_pair(0, 0) : ti_pair(0, 0x8000000000000000ull);
+    return is_unsigned ? ti_pair(~0ull, ~0ull)
+                       : ti_pair(~0ull, 0x7fffffffffffffffull);
+}
+
+static Sf from_ti(cgf_ti a, bool is_unsigned, SfFormat f)
+{
+    SfStatus st;
+    bool negative = !is_unsigned && (a.hi >> 63) != 0;
+    cgf_ti magnitude = negative ? ti_neg(a) : a;
+
+    memset(&st, 0, sizeof(st));
+    return sf_from_int128(magnitude.hi, magnitude.lo, negative, f, &st);
+}
+
+cgf_ti __fixsfti(float a)
+{
+    return fix_ti(sf_in(a), false);
+}
+
+cgf_ti __fixdfti(double a)
+{
+    return fix_ti(df_in(a), false);
+}
+
+cgf_ti __fixtfti(cgf_tf a)
+{
+    return fix_ti(tf_in(a), false);
+}
+
+cgf_ti __fixunssfti(float a)
+{
+    return fix_ti(sf_in(a), true);
+}
+
+cgf_ti __fixunsdfti(double a)
+{
+    return fix_ti(df_in(a), true);
+}
+
+cgf_ti __fixunstfti(cgf_tf a)
+{
+    return fix_ti(tf_in(a), true);
+}
+
+float __floattisf(cgf_ti a)
+{
+    return sf_out(from_ti(a, false, SF_BINARY32));
+}
+
+double __floattidf(cgf_ti a)
+{
+    return df_out(from_ti(a, false, SF_BINARY64));
+}
+
+cgf_tf __floattitf(cgf_ti a)
+{
+    return tf_out(from_ti(a, false, SF_BINARY128));
+}
+
+float __floatuntisf(cgf_ti a)
+{
+    return sf_out(from_ti(a, true, SF_BINARY32));
+}
+
+double __floatuntidf(cgf_ti a)
+{
+    return df_out(from_ti(a, true, SF_BINARY64));
+}
+
+cgf_tf __floatuntitf(cgf_ti a)
+{
+    return tf_out(from_ti(a, true, SF_BINARY128));
+}
+
+#if defined(__x86_64__)
+cgf_ti __fixxfti(long double a)
+{
+    return fix_ti(xf_in(a), false);
+}
+
+cgf_ti __fixunsxfti(long double a)
+{
+    return fix_ti(xf_in(a), true);
+}
+
+long double __floattixf(cgf_ti a)
+{
+    return xf_out(from_ti(a, false, SF_X87_80));
+}
+
+long double __floatuntixf(cgf_ti a)
+{
+    return xf_out(from_ti(a, true, SF_X87_80));
+}
+#endif
 
 /* sf_from_int takes a magnitude plus a sign, so a negative input is negated
  * in UNSIGNED arithmetic: -(long long)LLONG_MIN overflows in signed. */

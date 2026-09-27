@@ -586,6 +586,53 @@ void test_softfp_int_conversion_ranges(TestCtx *t)
     }
 }
 
+void test_softfp_int128_conversions(TestCtx *t)
+{
+    SfStatus st;
+    Sf v;
+    uint64_t hi;
+    uint64_t lo;
+
+    /* binary128 has 113 bits of precision, so this nontrivial two-limb
+     * value is exact in both directions. */
+    memset(&st, 0, sizeof(st));
+    v = sf_from_int128(UINT64_C(1) << 36, 17, false, SF_BINARY128, &st);
+    T_ASSERT(t, !st.inexact && !st.invalid);
+    memset(&st, 0, sizeof(st));
+    sf_to_int128(v, false, &hi, &lo, &st);
+    T_ASSERT(t, !st.inexact && !st.invalid);
+    T_ASSERT(t, hi == (UINT64_C(1) << 36));
+    T_ASSERT(t, lo == 17);
+
+    /* The signed minimum is representable; the positive value with the same
+     * magnitude is not.  Negation is done in two-limb unsigned arithmetic. */
+    memset(&st, 0, sizeof(st));
+    v = sf_from_int128(UINT64_C(1) << 63, 0, true, SF_BINARY128, &st);
+    memset(&st, 0, sizeof(st));
+    sf_to_int128(v, false, &hi, &lo, &st);
+    T_ASSERT(t, !st.invalid);
+    T_ASSERT(t, hi == (UINT64_C(1) << 63));
+    T_ASSERT(t, lo == 0);
+    v.sign = 0;
+    memset(&st, 0, sizeof(st));
+    sf_to_int128(v, false, &hi, &lo, &st);
+    T_ASSERT(t, st.invalid);
+
+    /* Unsigned accepts that same positive magnitude, and fractional
+     * truncation still precedes the sign/range check. */
+    memset(&st, 0, sizeof(st));
+    sf_to_int128(v, true, &hi, &lo, &st);
+    T_ASSERT(t, !st.invalid);
+    T_ASSERT(t, hi == (UINT64_C(1) << 63));
+    T_ASSERT(t, lo == 0);
+    memset(&st, 0, sizeof(st));
+    sf_to_int128(sf_neg(d64("5", -1)), true, &hi, &lo, &st);
+    T_ASSERT(t, !st.invalid && hi == 0 && lo == 0);
+    memset(&st, 0, sizeof(st));
+    sf_to_int128(sf_neg(d64("15", -1)), true, &hi, &lo, &st);
+    T_ASSERT(t, st.invalid);
+}
+
 /* Converting between formats must round ONCE. Widening is exact;
  * narrowing rounds, and narrowing a value that was already narrow is the
  * identity — which is the property double rounding breaks. */

@@ -773,11 +773,75 @@ static IrOperand wide_truth_ne(Lower *lo, IrOperand addr, Type *t,
     return ir_op_value(lo->fn, nz);
 }
 
+static const char *wide_fix_name(Lower *lo, Type *from, Type *to)
+{
+    bool uns = !conv_is_signed(lo->sema, to);
+
+    switch (lower_irtype(lo, from)) {
+    case IRT_F32:
+        return uns ? "__fixunssfti" : "__fixsfti";
+    case IRT_F64:
+        return uns ? "__fixunsdfti" : "__fixdfti";
+    case IRT_F80:
+        return uns ? "__fixunsxfti" : "__fixxfti";
+    case IRT_F128:
+        return uns ? "__fixunstfti" : "__fixtfti";
+    default:
+        CGF_ICE("TI conversion has non-floating source");
+    }
+}
+
+static const char *wide_float_name(Lower *lo, Type *from, Type *to)
+{
+    bool uns = !conv_is_signed(lo->sema, from);
+
+    switch (lower_irtype(lo, to)) {
+    case IRT_F32:
+        return uns ? "__floatuntisf" : "__floattisf";
+    case IRT_F64:
+        return uns ? "__floatuntidf" : "__floattidf";
+    case IRT_F80:
+        return uns ? "__floatuntixf" : "__floattixf";
+    case IRT_F128:
+        return uns ? "__floatuntitf" : "__floattitf";
+    default:
+        CGF_ICE("TI conversion has non-floating destination");
+    }
+}
+
+static IrOperand wide_from_float(Lower *lo, IrOperand v, Type *from, Type *to)
+{
+    ValueId tmp = lower_temp(lo, to);
+    IrOperand args[2];
+
+    args[0] = ir_op_value(lo->fn, tmp);
+    args[0].b = ir_arg_annot(IR_ARG_PAIR_II, 16);
+    args[1] = v;
+    (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL,
+                        ir_sym(lo->m, wide_fix_name(lo, from, to)), args, 2);
+    return wide_precision_fit(lo, ir_op_value(lo->fn, tmp), to);
+}
+
+static IrOperand wide_to_float(Lower *lo, IrOperand addr, Type *from, Type *to,
+                               u8 access_flags)
+{
+    WideInt v = wide_load(lo, addr, from, access_flags);
+    IrOperand args[2] = {v.lo, v.hi};
+    ValueId result =
+        ir_build_call(&lo->b, lower_irtype(lo, to), FUNCREF_EXTERNAL,
+                      ir_sym(lo->m, wide_float_name(lo, from, to)), args, 2);
+
+    return ir_op_value(lo->fn, result);
+}
+
 static IrOperand wide_from_scalar(Lower *lo, IrOperand v, Type *from, Type *to)
 {
     IrOperand low = v;
     IrOperand high = ir_op_iconst(IRT_I64, 0);
     IrType ft;
+
+    if (type_is_floating(from))
+        return wide_from_float(lo, v, from, to);
 
     if (from->kind == TY_PTR) {
         ValueId bits = ir_build1(&lo->b, IR_BITCAST, IRT_I64, v);
@@ -812,7 +876,11 @@ static IrOperand wide_from_scalar(Lower *lo, IrOperand v, Type *from, Type *to)
 static IrOperand wide_to_scalar(Lower *lo, IrOperand addr, Type *from, Type *to,
                                 u8 access_flags)
 {
-    WideInt v = wide_load(lo, addr, from, access_flags);
+    WideInt v;
+
+    if (type_is_floating(to))
+        return wide_to_float(lo, addr, from, to, access_flags);
+    v = wide_load(lo, addr, from, access_flags);
 
     if (to->kind == TY_BOOL) {
         ValueId bits = ir_build2(&lo->b, IR_OR, IRT_I64, v.lo, v.hi);
@@ -2096,7 +2164,15 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
 
                 result = wide_from_scalar(
                     lo, ir_op_value(lo->fn, scalar_result), common, lt);
-                return lower_store(lo, lv, result);
+                if (lv.is_bitfield)
+                    return lower_store(lo, lv, result);
+                {
+                    TypeLayout l = layout_of(lo->sema, lt);
+
+                    lower_memcpy_aggregate(lo, lv.addr, result, lt,
+                                           (u32)l.align, lhs_flags);
+                    return lv.addr;
+                }
             }
             if (e->op == PUNCT_SHL_ASSIGN || e->op == PUNCT_SHR_ASSIGN) {
                 const char *name =
