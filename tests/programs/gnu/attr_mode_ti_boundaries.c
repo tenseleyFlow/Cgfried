@@ -3,18 +3,21 @@
 // ERROR_EXPECTED: atomic mode(TI) objects are not yet supported
 // ERROR_EXPECTED: mode(TI) bit-fields are not yet supported
 // ERROR_EXPECTED: mode(TI) switch controlling expressions are not yet supported
-// ERROR_EXPECTED: static initialization of a mode(TI) object is not yet supported
 // ERROR_EXPECTED: 128-bit mode(TI) arithmetic is not yet supported in constant expressions
+// ERROR_EXPECTED: the cast to 'unsigned mode(TI) integer' is not pointer-width
 // ERROR_EXPECTED: mode(TI) enumerated types are not yet supported
 // ERROR_EXPECTED: reverse scalar storage order for mode(TI) member
 // ERROR_EXPECTED: mode(TI) operands to checked-overflow builtins are not yet supported
 // ERROR_EXPECTED: compound assignment between an atomic object and a mode(TI) operand
 // ERROR_EXPECTED: floating comparison builtin conversion from mode(TI) is not yet supported
 /* Every accepted mode(TI) operation has real two-limb lowering. These are
- * the remaining boundaries where a one-limb constant image, scalar atomic
- * IR operation, or storage-order transform would otherwise silently produce
- * the wrong program. Keep them named until each separate facility lands. */
+ * the remaining boundaries where wide constant arithmetic, scalar atomic IR
+ * operation, or storage-order transform would otherwise silently produce the
+ * wrong program. Keep them named until each separate facility lands. */
 typedef unsigned int u128 __attribute__((mode(TI)));
+
+static int anchor;
+static u128 address = (u128)&anchor;
 
 double float_conversion(u128 value)
 {
@@ -34,8 +37,6 @@ int switch_control(u128 value)
         return 0;
     }
 }
-
-static u128 initialized = 1;
 
 _Static_assert(((u128)1 << 64) != 0, "wide constant expression");
 

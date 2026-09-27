@@ -18,6 +18,7 @@ typedef struct {
     Parser ps;
     Sema sema;
     DiagCtx *dc;
+    AstNode *tu;
     int errors;
     int warnings;
 } SemaFix;
@@ -76,6 +77,7 @@ static void run_sema_opts(SemaFix *f, const char *src, CStd std, bool pedantic)
 
     parse_init(&f->ps, &tl, &f->pp, f->dc, &f->arena, &lang);
     tu = parse_translation_unit(&f->ps);
+    f->tu = tu;
     sema_init(&f->sema, &f->arena, f->dc, &f->in, &lang, target);
     sema_run(&f->sema, tu);
 }
@@ -1555,6 +1557,71 @@ void test_sema_gnu_const_object_static_initializer_folding(TestCtx *t)
              "const int later = 3;\n",
              STD_GNU17);
     T_ASSERT_EQ_INT(t, f.errors, 5);
+    sfix_free(&f);
+}
+
+void test_sema_gnu_mode_ti_static_initializer_images(TestCtx *t)
+{
+    SemaFix f;
+    AstNode *decls[3] = {NULL, NULL, NULL};
+    static const char *names[3] = {"all", "negative", "narrow"};
+    u32 i;
+
+    run_sema(&f,
+             "typedef unsigned int u128 __attribute__" /* check_bans allow:
+                                                            compiler input */
+             "((mode(TI))); "
+             "typedef int i128 __attribute__" /* check_bans allow: compiler
+                                                  input */
+             "((mode(TI))); "
+             "static u128 all = (u128)-1; "
+             "static i128 negative = (i128)-7; "
+             "static u128 narrow = (u128)(unsigned long)-1;\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    for (i = 0; i < f.tu->ndecls; i++) {
+        AstNode *d = f.tu->decls[i];
+        u32 n;
+
+        if (!d || !d->name)
+            continue;
+        for (n = 0; n < 3; n++)
+            if (strcmp(d->name, names[n]) == 0)
+                decls[n] = d;
+    }
+    for (i = 0; i < 3; i++) {
+        InitImage image;
+        u32 byte;
+
+        T_ASSERT(t, decls[i] != NULL);
+        if (!decls[i])
+            continue;
+        T_ASSERT(t, constexpr_eval_initializer(&f.sema, decls[i]->sem_type,
+                                               decls[i]->init, &image));
+        T_ASSERT_EQ_INT(t, image.size, 16);
+        if (i == 0) {
+            for (byte = 0; byte < 16; byte++)
+                T_ASSERT_EQ_INT(t, image.bytes[byte], 0xff);
+        } else if (i == 1) {
+            T_ASSERT_EQ_INT(t, image.bytes[0], 0xf9);
+            for (byte = 1; byte < 16; byte++)
+                T_ASSERT_EQ_INT(t, image.bytes[byte], 0xff);
+        } else if (i == 2) {
+            for (byte = 0; byte < 8; byte++)
+                T_ASSERT_EQ_INT(t, image.bytes[byte], 0xff);
+            for (byte = 8; byte < 16; byte++)
+                T_ASSERT_EQ_INT(t, image.bytes[byte], 0);
+        }
+    }
+    sfix_free(&f);
+
+    run_sema(&f,
+             "typedef unsigned int u128 __attribute__" /* check_bans allow:
+                                                            compiler input */
+             "((mode(TI))); static int anchor; "
+             "static u128 address = (u128)&anchor;\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
     sfix_free(&f);
 }
 
