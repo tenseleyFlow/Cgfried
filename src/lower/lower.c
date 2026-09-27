@@ -208,7 +208,7 @@ void lower_memcpy_aggregate(Lower *lo, IrOperand dst, IrOperand src, Type *t,
  * copy that materializes them carries the selected source's marker. */
 u8 lower_aggregate_access_flags(const AstNode *e)
 {
-    if (!e || !lower_is_aggregate(e->sem_type))
+    if (!e || e->sem_is_bitfield || !lower_is_aggregate(e->sem_type))
         return 0;
     if (e->is_lvalue && (e->sem_type->quals & CGF_QUAL_VOLATILE))
         return IRF_VOLATILE;

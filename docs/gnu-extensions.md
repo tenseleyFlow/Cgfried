@@ -95,7 +95,7 @@ predefine.
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
 | `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
 | integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c`, static-image coverage in `tests/programs/gnu/attr_mode_ti_static_init.c`, and required-constant coverage in `tests/corpus/x86_64/int/gnu_mode_ti_constexpr.c` |
-| GNU 128-bit integer names — `__int128`, `__int128_t`, `__uint128_t` | `tests/corpus/x86_64/int/gnu_int128_spelling.c` | Apple's ARM thread-state headers use `__uint128_t` directly; the GNU spelling shares the implemented `mode(TI)` arithmetic, layout, constant-expression, and ABI contract and unlocks GCC torture `pr84748.c` |
+| GNU 128-bit integer names — `__int128`, `__int128_t`, `__uint128_t` | `tests/corpus/x86_64/int/gnu_int128_spelling.c` | Apple's ARM thread-state headers use `__uint128_t` directly; the GNU spelling shares the implemented `mode(TI)` arithmetic, layout, constant-expression, ABI, bit-field, packed-field, and reverse-storage contracts, with the bit-field surface pinned separately by `tests/corpus/x86_64/int/gnu_int128_bitfields.c` |
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
 | `gnu_inline` | `tests/programs/gnu/attr_gnu_inline.c` | glibc's `__extern_always_inline`; selects GNU89 symbol-emission rules under C99-or-newer modes |
 | `-fgnu89-inline` / `-fno-gnu89-inline` | `tests/torture/compile/20000120-2.c` | translation-unit-wide selection of GNU89 versus ISO inline emission, including replacement of an `extern inline` body by the real ordinary or static definition |
@@ -132,21 +132,25 @@ expressions and explicit static initialization (including aggregate objects)
 produce exact 128-bit values. Undefined signed overflow, division by zero, and
 out-of-range shifts are diagnosed in required contexts. Pointer relocations
 remain limited to pointer-width integer objects, matching GCC; a TI object is
-wider. TI checked-overflow operations still fail closed.
-Floating conversions, atomic TI objects and atomic/TI compound operations, TI
-bit-fields and enums, TI switch controls, and reverse scalar storage order
-likewise receive targeted errors.
+wider. TI bit-fields use the ordinary 128-bit allocation unit and preserve the
+address-backed two-limb value contract through static/runtime initialization,
+reads, writes, narrowed assignment results, compound updates, packed fields,
+and reverse scalar storage order. TI checked-overflow operations still fail
+closed. Floating conversions, atomic TI objects and atomic/TI compound
+operations, TI enums and switch controls, and reverse storage order for
+ordinary TI members or arrays likewise receive targeted errors.
 
 `__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
 that macro as an effective-target promise for bodies that also exercise the
-still-refused 128-bit bit-field, vector, and checked-overflow surfaces. Source
+still-refused vector and checked-overflow surfaces. Source
 may use the implemented types directly; the broader feature advertisement
 lands only when those guarded boundaries close.
 
 The torture harness's narrower DejaGNU `int128` capability is enabled: that
 effective-target test asks whether the source type exists. It therefore runs
-direct `__int128` cases such as `pr84748.c` while continuing to record the
-separate bit-field and reverse-storage-order refusals instead of hiding them as
+direct `__int128` cases such as `pr84748.c` and the TI bit-field compile cases
+while continuing to expose separately named selector, vector, checked-overflow,
+and ordinary-member reverse-storage boundaries instead of hiding them as
 unsupported-type skips.
 
 `__builtin_classify_type` is an integer constant expression and never
@@ -278,6 +282,11 @@ the ordinary representation. Pointer and nested aggregate members are
 unaffected, matching GCC's type-attribute boundary. Taking the address of a
 reverse-order scalar is an error; array decay is permitted with the default-on
 `-Wscalar-storage-order` warning, which can be disabled independently.
+
+Address-backed TI bit-fields are included in the MSB-first path. Ordinary TI
+members and arrays still fail closed because reversing a whole 16-byte scalar
+or each element needs a separate aggregate-value transform; they are never
+accepted and silently stored in native order.
 
 This tranche deliberately fails closed on reverse-order floating members and
 on attaching the attribute through a typedef. Those GCC-supported forms need

@@ -2133,6 +2133,49 @@ void test_lower_bitfield_signed_rw(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_gnu_int128_bitfield_two_limb_rw(TestCtx *t)
+{
+    LowFix f;
+
+    T_ASSERT(t,
+             run_lower_opts(
+                 &f,
+                 "typedef unsigned __int128 u128; "
+                 "typedef signed __int128 i128; "
+                 "struct B { unsigned lead:3; i128 s:65; u128 u:60; } g; "
+                 "struct P { unsigned char lead:7; u128 u:124; "
+                 "unsigned char tail:5; } __attribute__" /* check_bans allow:
+                                                               compiler input */
+                 "((packed)) p; "
+                 "struct R { u128 u:124; u128 tail:4; } "
+                 "__attribute__" /* check_bans allow: compiler input */
+                 "((scalar_storage_order(\"big-endian\"))) r; "
+                 "struct T { u128 u:5; i128 s:5; } t; "
+                 "struct V { volatile u128 u:124; } v; "
+                 "u128 read(void) { return g.u; } "
+                 "i128 signed_read(void) { return g.s; } "
+                 "u128 write(u128 x) { return g.u = x; } "
+                 "u128 compound(u128 x) { return g.u += x; } "
+                 "u128 packed_rw(u128 x) { p.u = x; return p.u; } "
+                 "u128 reverse_rw(u128 x) { r.u = x; return r.u; } "
+                 "int promoted(int x) { t.u += x; return ++t.s; } "
+                 "u128 volatile_read(void) { return v.u; }\n",
+                 STD_GNU17, false));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    /* Address-backed fields gather and scatter through exact byte fragments;
+     * no fictional i128 scalar load/store enters the IR. */
+    T_ASSERT(t, count_of(txt(&f), "load i8") >= 16);
+    T_ASSERT(t, count_of(txt(&f), "store i8") >= 16);
+    T_ASSERT(t, strstr(txt(&f), "ashr i64") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "@compound(") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "@promoted(") != NULL);
+    T_ASSERT(t, strstr(txt(&f), "iadd i32") != NULL);
+    /* One C volatile read gathers the field's sixteen byte fragments once;
+     * materializing and returning its temporary must remain non-volatile. */
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), ", volatile"), 16);
+    low_free(&f);
+}
+
 void test_lower_enum_bitfield_uses_value_range_signedness(TestCtx *t)
 {
     LowFix f;
