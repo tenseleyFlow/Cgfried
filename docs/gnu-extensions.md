@@ -94,7 +94,7 @@ predefine.
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
 | `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
-| integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c`, `tests/programs/gnu/attr_mode_ti_static_init.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c` |
+| integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c` and static-image coverage in `tests/programs/gnu/attr_mode_ti_static_init.c` |
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
 | `gnu_inline` | `tests/programs/gnu/attr_gnu_inline.c` | glibc's `__extern_always_inline`; selects GNU89 symbol-emission rules under C99-or-newer modes |
 | `-fgnu89-inline` / `-fno-gnu89-inline` | `tests/torture/compile/20000120-2.c` | translation-unit-wide selection of GNU89 versus ISO inline emission, including replacement of an `extern inline` body by the real ordinary or static definition |
