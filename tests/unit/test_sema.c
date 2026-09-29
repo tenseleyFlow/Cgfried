@@ -2496,6 +2496,31 @@ void test_sema_builtin_checked_overflow_predicate_family(TestCtx *t)
     T_ASSERT_EQ_INT(t, f.warnings, 0);
     sfix_free(&f);
 
+    run_sema_opts(
+        &f,
+        "typedef unsigned int u128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "typedef int i128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "struct wide_bits { i128 s : 65; u128 u : 65; }; "
+        "struct wide_bits bits; "
+        "_Static_assert(!__builtin_add_overflow_p(~0ULL, ~0ULL, (u128)0), "
+        "\"unsigned TI add\"); "
+        "_Static_assert(__builtin_sub_overflow_p(0, 1, (u128)0), "
+        "\"unsigned TI negative\"); "
+        "_Static_assert(!__builtin_mul_overflow_p(~0ULL, ~0ULL, (u128)0), "
+        "\"unsigned TI multiply\"); "
+        "_Static_assert(__builtin_mul_overflow_p(~0ULL, ~0ULL, (i128)0), "
+        "\"signed TI multiply\"); "
+        "int use(unsigned long long a, long long b) { "
+        "return __builtin_add_overflow_p(a, b, bits.s) + "
+        "__builtin_sub_overflow_p(a, b, bits.u) + "
+        "__builtin_mul_overflow_p(a, b, (i128)0); }\n",
+        STD_C17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
     /* Arity, both operand constraints, and the unpromoted selector type are
      * semantic rules. The third argument is an integer expression, not the
      * pointer used by the storing family; boolean and enum selectors remain
