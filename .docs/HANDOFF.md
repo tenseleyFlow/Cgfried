@@ -356,11 +356,13 @@ absolute-alignment gap exposed by `pr92904.c` and merged green-only through PR
 green-only as `4e809548`; PR #159's TI floating-conversion tranche merged
 green-only as `67c7d31a`; PR #160's narrow TI-vector boundary merged green-only
 as `12435595`; and PR #161's TI overflow-predicate-selector tranche merged
-green-only as `0ddd086f`. The active
-`s56.67-ti-floating-comparison-builtins` tranche starts from that exact merge
-and removes only the stale TI refusal from the six type-generic floating
-comparison builtins. The detailed ledger below records the exact evidence and
-next boundary order.
+green-only as `0ddd086f`. PR #162's TI floating-comparison-builtin tranche
+merged green-only as `10211b61`. The active
+`s56.68-ti-checked-overflow-add-sub-operands` tranche starts from that exact
+merge and admits TI operands to the generic checked addition/subtraction store
+and predicate builtins while retaining the separate four-limb multiplication
+boundary. The detailed ledger below records the exact evidence and next
+boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -8765,7 +8767,7 @@ and green post-publication CI.
   #160 `12435595` and tested head `0816db0d`, and its tree
   `5676b14cda0ab39ec2f25fa20efa80fa3ee464ef` is byte-identical to the tested
   head.
-- The active `s56.67-ti-floating-comparison-builtins` tranche starts from
+- The `s56.67-ti-floating-comparison-builtins` tranche starts from
   exact merged PR #161. It removes only the explicit TI conversion refusal
   from `__builtin_isunordered`, `__builtin_isless`,
   `__builtin_islessequal`, `__builtin_isgreater`,
@@ -8794,15 +8796,65 @@ and green post-publication CI.
   unit registry, POSIX shell, import-provenance checks, pinned clang-format
   22, and diff checks are green.
 
-  After green-only merge, split the larger checked-overflow operand boundary.
-  Take TI operands for add/subtract first: they need portable two-limb
-  sign/magnitude arithmetic and exact destination-range comparison but no
-  256-bit product. Keep TI-by-TI multiplication as a separate follow-up,
-  because its exact mathematical range requires a four-limb product. Then
-  continue the variadic, pointer-relocation/static-conversion, atomic, enum,
-  and ordinary-member reverse-storage audit. Do not define
-  `__SIZEOF_INT128__` until every advertised surface is either implemented or
-  receives an explicit fail-closed boundary.
+  Final standard
+  [run 36519257560](https://github.com/tenseleyFlow/Cgfried/actions/runs/36519257560)
+  and bootstrap runs
+  [36519257642](https://github.com/tenseleyFlow/Cgfried/actions/runs/36519257642)
+  and
+  [36519225334](https://github.com/tenseleyFlow/Cgfried/actions/runs/36519225334)
+  were fully green. PR #162 merged green-only as
+  `10211b61f7a5a3bc03940cc1baf6ea359e50264a`; its exact parents are merged
+  #161 `0ddd086f` and tested head `f0e1bd99`, and its tree
+  `cc7692d81afc1be149b722d971c3b2b14ad75644` is byte-identical to the tested
+  head.
+- The active `s56.68-ti-checked-overflow-add-sub-operands` tranche starts from
+  exact merged PR #162. It admits independently typed signed or unsigned TI
+  operands to generic `__builtin_{add,sub}_overflow` and
+  `__builtin_{add,sub}_overflow_p` while keeping a targeted diagnostic for a
+  TI operand to either multiplication form. The implementation models each
+  operand as an exact two-limb sign/magnitude value, carries a possible 129th
+  sum bit, and compares that mathematical result against narrow or TI signed
+  and unsigned destination ranges. Existing at-most-64-bit operand/result
+  calls retain their compact one-limb lowering. Constant folding uses the
+  host-portable `CeWide` counterpart.
+
+  TI rvalues are address-backed, so lowering captures each TI operand
+  immediately after evaluating it and before evaluating the next argument.
+  This preserves the already established argument sequencing even when a
+  later operand or result-pointer expression mutates the source object. The
+  permanent fixture pins unsigned carry, signed extrema, cancellation,
+  negative-to-unsigned overflow, narrow destinations/selectors, aliasing,
+  volatile access, and side-effecting store and predicate arguments. The
+  exact #162 compiler rejects its first TI add operand with the old boundary;
+  the repaired compiler no longer does. The residual boundary fixture now
+  names checked multiplication specifically.
+
+  Cgfried passes the fixture natively on arm64-macos at O0/O1/O2/O3/Os,
+  normally and under `CGF_SPILL_ALL=1`; Homebrew GCC 16 independently agrees
+  at all five levels with `-Wall -Wextra -Werror`. Both arm64-linux and
+  x86_64-linux-gnu backends emit and assemble at all five levels. The native
+  `cgf-test` boundary/runtime pair passes with zero skips.
+
+  Focused normal and ASan+UBSan sema/lowering units pass. The complete normal
+  and sanitized baselines report 992 tests / 4,330,476 assertions with
+  exactly the same eight Darwin host-assumption failures. Normal and
+  sanitized 2,000-case frontend fuzz runs find zero failures; two normal and
+  two sanitized 5,000-case hashes all produce the intentionally repinned
+  corpus digest `f382d202676a0ef7`, and both exact smoke targets pass. Source
+  bans, warning/preprocessor/sema/target seams, GNU tiers, deferrals, verifier
+  coverage, no-host-FPU, warning and format matrices, unit registry, POSIX
+  shell, import provenance, pinned clang-format 22, and diff checks are green.
+  The implementation commit is `4a9ddd861a1a2a0c2a6fdc9eac6172e69ad071f4`.
+
+  After green-only merge, take TI operands for checked multiplication as the
+  next compiler-gap tranche. Its exact mathematical range requires a portable
+  four-limb (256-bit) product before comparing against narrow or TI result
+  bounds; preserve immediate TI operand capture and the existing modular
+  destination store. Then continue the variadic,
+  pointer-relocation/static-conversion, atomic, enum, and ordinary-member
+  reverse-storage audit. Do not define `__SIZEOF_INT128__` until every
+  advertised surface is either implemented or receives an explicit
+  fail-closed boundary.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
