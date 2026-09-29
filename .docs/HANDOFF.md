@@ -8688,6 +8688,10 @@ and green post-publication CI.
   failures. Source bans, warning/preprocessor/sema/target seams, GNU tiers,
   deferrals, verifier coverage, no-host-FPU, unit registry, POSIX-shell,
   import-provenance, shell syntax, and diff checks are green. The pinned
+  frontend-fuzz sequence digest is `cf07ec939fd29332`; it moved solely because
+  this tranche adds four files beneath the deterministic fuzz corpus. The
+  exact 2,000-case smoke and 5,000-case digest gate pass after the repin. The
+  pinned
   clang-format 22 binary is absent locally (version 23 accepts the new ranges),
   so CI remains the authoritative format gate. The upstream manifest still
   policy-skips `pr105613.c` because its `dg-do` is conditional; the permanent
