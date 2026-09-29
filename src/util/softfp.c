@@ -359,6 +359,19 @@ Sf sf_from_int(uint64_t v, bool neg, SfFormat f, SfStatus *st)
     return round_pack(neg ? 1 : 0, 0, v, 0, false, f, st);
 }
 
+Sf sf_from_int128(uint64_t hi, uint64_t lo, bool neg, SfFormat f, SfStatus *st)
+{
+    Sf r;
+
+    memset(&r, 0, sizeof(r));
+    if (hi == 0 && lo == 0) {
+        r.cls = SF_ZERO;
+        r.sign = neg ? 1 : 0;
+        return r;
+    }
+    return round_pack(neg ? 1 : 0, hi, lo, 0, false, f, st);
+}
+
 /* --- arithmetic ---------------------------------------------------------- */
 
 Sf sf_neg(Sf a)
@@ -829,6 +842,60 @@ uint64_t sf_to_int(Sf a, int width, bool is_unsigned, SfStatus *st)
         return lo;
     lo = (uint64_t)(0 - lo);
     return width == 64 ? lo : lo & ((1ull << width) - 1);
+}
+
+void sf_to_int128(Sf a, bool is_unsigned, uint64_t *out_hi, uint64_t *out_lo,
+                  SfStatus *st)
+{
+    uint64_t hi = 0;
+    uint64_t lo = 0;
+    int shift;
+
+    if (out_hi)
+        *out_hi = 0;
+    if (out_lo)
+        *out_lo = 0;
+    if (a.cls == SF_ZERO)
+        return;
+    if (a.cls != SF_NORMAL) {
+        st->invalid = true;
+        return;
+    }
+    hi = a.hi;
+    lo = a.lo;
+    shift = a.exp;
+    if (shift > 0) {
+        if (u128_bitlen(hi, lo) + shift > 128) {
+            st->invalid = true;
+            return;
+        }
+        u128_shl(&hi, &lo, shift);
+    } else if (shift < 0) {
+        if (u128_shr_sticky(&hi, &lo, -shift))
+            st->inexact = true;
+    }
+
+    /* As in sf_to_int, discard the fractional part before checking range.
+     * Negative values in (-1, 0) therefore become representable zero. */
+    if (is_unsigned) {
+        if (a.sign && (hi != 0 || lo != 0)) {
+            st->invalid = true;
+            return;
+        }
+    } else if ((!a.sign && (hi >> 63) != 0) ||
+               (a.sign && (hi > 0x8000000000000000ull ||
+                           (hi == 0x8000000000000000ull && lo != 0)))) {
+        st->invalid = true;
+        return;
+    }
+    if (a.sign && (hi != 0 || lo != 0)) {
+        lo = ~lo + 1;
+        hi = ~hi + (lo == 0);
+    }
+    if (out_hi)
+        *out_hi = hi;
+    if (out_lo)
+        *out_lo = lo;
 }
 
 /* --- bit images ---------------------------------------------------------- */

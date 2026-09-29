@@ -8559,7 +8559,7 @@ and green post-publication CI.
   #156 `d2426812` and tested publication head `0e48de61`, and its tree
   `d3a3ce3311671525fba438f5046a2da5dfb1cf75` is byte-identical to the final
   tested synthetic merge.
-- The active `s56.63-ti-checked-overflow-destinations` tranche starts from
+- The `s56.63-ti-checked-overflow-destinations` tranche starts from
   exact merged #157. It removes only the TI result-pointer refusal from the
   type-generic storing builtins; TI operands and TI predicate selectors remain
   targeted fail-closed boundaries. At-most-64-bit operands are converted to
@@ -8596,6 +8596,66 @@ and green post-publication CI.
   take TI floating conversion (`pr49218.c`), then the separately documented
   vector boundary, and finally re-audit the guarded and selector surfaces
   before defining `__SIZEOF_INT128__`.
+
+  Final standard
+  [run 36313193569](https://github.com/tenseleyFlow/Cgfried/actions/runs/36313193569),
+  bootstrap runs
+  [36313193563](https://github.com/tenseleyFlow/Cgfried/actions/runs/36313193563)
+  and
+  [36313182792](https://github.com/tenseleyFlow/Cgfried/actions/runs/36313182792),
+  exact synthetic-merge nightly
+  [36315320252](https://github.com/tenseleyFlow/Cgfried/actions/runs/36315320252),
+  and exact synthetic-merge bootstrap
+  [36315320521](https://github.com/tenseleyFlow/Cgfried/actions/runs/36315320521)
+  were fully green. PR #158 merged green-only as
+  `4e809548926fbe0902a9e0bb974756cd935a7124`; its exact parents are merged
+  #157 `9bc26d36` and tested publication head `f089cda2`, and its tree
+  `3278b56f855f7bf3f1ea541bb495e098ef238020` is byte-identical to the final
+  tested synthetic merge.
+- The active `s56.64-ti-floating-conversion` tranche starts from exact merged
+  #158. It closes the last forced-advertisement parse failure,
+  `pr49218.c`, without introducing an i128 IR scalar. The shared host-FPU-free
+  soft-float core converts between its existing 113-bit-capable significand
+  and a portable two-u64 magnitude. libcgf_rt exposes the libgcc-compatible
+  `__fix*ti`/`__float*ti*` families, and lowering routes address-backed TI
+  values through the existing pair-return ABI. The selection is target-aware:
+  x86-64 `long double` uses the XF helpers, arm64 Linux uses TF, and Apple
+  arm64 uses DF. Constant folding, static initializer images, warning
+  precision checks, runtime casts, usual arithmetic conversions, conditionals,
+  and compound assignment all use the same two-limb semantics.
+
+  The permanent differential fixture covers signed and unsigned extrema,
+  high-limb values, fractional truncation, float/double/target-long-double
+  conversions, a self-hosted binary128 round trip, mixed arithmetic,
+  conditional conversion, one-time evaluation, static images, volatile TI,
+  and compound assignment. Apple Clang and the
+  repaired compiler agree natively; the exact #158 compiler reports the old
+  targeted refusal at twenty fixture sites, while repaired Cgfried passes
+  O0/O1/O2/O3/Os normally and under `CGF_SPILL_ALL=1`. Both Linux backends
+  emit that fixture and forced `pr49218.c` at all five levels. All twelve
+  guarded sources parse for both Linux targets (24/24 emissions), and all 60
+  Apple-silicon executions pass across five optimization levels. The fixture
+  also caught and this tranche repairs a pre-existing compound-update bug:
+  when the usual arithmetic type was scalar, lowering stored the address of
+  the converted TI temporary into the destination's first limb instead of
+  copying its 16-byte value.
+
+  Focused normal and sanitized units pass. The complete normal and sanitized
+  baselines report 985 tests / 4,330,354 assertions with exactly the same
+  eight Darwin host-assumption failures; three new tests account for 49 new
+  assertions. Normal and sanitized 2,000-case frontend fuzz runs find zero
+  failures, and repeated 5,000-case hashes deterministically produce the new
+  corpus digest `40272e86a42b880b`. Source bans, warning and format matrices,
+  warning/preprocessor/sema/target seams, GNU tiers, deferrals, verifier
+  coverage, no-host-FPU, fuzz crash scan, unit registry, POSIX shell, and diff
+  checks are green. The local GNU program sweep passes 122/140; all eighteen
+  failures are existing host/profile-specific x86 assembler, ELF directive,
+  or weak-link expectations on arm64 macOS, and both changed TI fixtures pass.
+
+  After this tranche, take the separately documented vector boundary, then
+  re-audit every guarded, variadic, checked-overflow operand/selector, atomic,
+  enum, and reverse-storage surface before deciding whether
+  `__SIZEOF_INT128__` can truthfully be defined.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

@@ -862,7 +862,12 @@ static bool float_constant_changes(Sema *s, AstNode *source, Type *destination)
     if (type_is_floating(destination))
         (void)sf_convert(cv.f, constexpr_format_of(s, cv.type),
                          constexpr_format_of(s, destination), &st);
-    else
+    else if (type_is_int128(destination)) {
+        u64 hi;
+        u64 lo;
+
+        sf_to_int128(cv.f, !conv_is_signed(s, destination), &hi, &lo, &st);
+    } else
         (void)sf_to_int(cv.f, (int)conv_int_bits(s, destination),
                         !conv_is_signed(s, destination), &st);
     return st.inexact || st.overflow || st.underflow || st.invalid;
@@ -872,12 +877,25 @@ static bool int_constant_changes_to_float(Sema *s, const ConstValue *cv,
                                           Type *destination)
 {
     SfStatus st = {0};
-    i64 signed_bits = signed_value(s, cv);
-    bool negative = conv_is_signed(s, cv->type) && signed_bits < 0;
-    u64 magnitude = negative ? 0ull - (u64)signed_bits : cv->i;
+    if (type_is_int128(cv->type)) {
+        u64 hi = cv->i_hi;
+        u64 lo = cv->i;
+        bool negative = conv_is_signed(s, cv->type) && (hi >> 63) != 0;
 
-    (void)sf_from_int(magnitude, negative, constexpr_format_of(s, destination),
-                      &st);
+        if (negative) {
+            lo = ~lo + 1;
+            hi = ~hi + (lo == 0);
+        }
+        (void)sf_from_int128(hi, lo, negative,
+                             constexpr_format_of(s, destination), &st);
+    } else {
+        i64 signed_bits = signed_value(s, cv);
+        bool negative = conv_is_signed(s, cv->type) && signed_bits < 0;
+        u64 magnitude = negative ? 0ull - (u64)signed_bits : cv->i;
+
+        (void)sf_from_int(magnitude, negative,
+                          constexpr_format_of(s, destination), &st);
+    }
     return st.inexact || st.overflow || st.underflow || st.invalid;
 }
 

@@ -123,9 +123,12 @@ predefine.
 signed 128-bit type; `unsigned __int128` and `__uint128_t` name its unsigned
 counterpart. The reserved spellings are accepted in strict and GNU dialects,
 matching GCC and Clang. Runtime arithmetic, comparisons, casts to and from
-integer/pointer types, shifts, assignments, and SysV/AAPCS64 parameter and
-return conventions are implemented through address-backed two-limb values and
-the existing libgcc-compatible runtime helpers. The
+integer, pointer, and floating types, shifts, assignments, and SysV/AAPCS64
+parameter and return conventions are implemented through address-backed
+two-limb values and the existing libgcc-compatible runtime helpers. Floating
+conversion covers binary32, binary64, target `long double` (x87-80,
+binary128, or binary64), and `_Float128`; compile-time folding and the runtime
+share the same host-FPU-free two-limb soft-float primitives. The
 constant evaluator retains two limbs for integer conversions and exact unary,
 binary, comparison, logical, and conditional folding, so required constant
 expressions and explicit static initialization (including aggregate objects)
@@ -141,21 +144,21 @@ the limb boundary. Type-generic checked arithmetic accepts a TI result
 destination when both operands are at most 64 bits, stores the exact
 modulo-2^128 result, and reports overflow against the destination's signed or
 unsigned range. TI operands and TI checked-overflow predicate selectors remain
-fail-closed boundaries. Floating conversions, atomic TI objects and atomic/TI
-compound operations, TI enums, and reverse storage order for ordinary TI
-members or arrays likewise receive targeted errors.
+fail-closed boundaries. Atomic TI objects and atomic/TI compound operations,
+TI enums, and reverse storage order for ordinary TI members or arrays likewise
+receive targeted errors.
 
 `__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
 that macro as an effective-target promise for bodies that also exercise the
-still-refused floating-conversion, vector, checked-overflow operand/selector,
-and variadic TI surfaces. Source may use the implemented types directly; the
+still-refused vector, checked-overflow operand/selector, and variadic TI
+surfaces. Source may use the implemented types directly; the
 broader feature advertisement lands only when those guarded boundaries close.
 
 The torture harness's narrower DejaGNU `int128` capability is enabled: that
 effective-target test asks whether the source type exists. It therefore runs
 direct `__int128` cases such as `pr84748.c` and the TI bit-field compile cases
-while continuing to expose separately named floating-conversion, vector,
-checked-overflow, variadic, and ordinary-member reverse-storage boundaries
+while continuing to expose separately named vector, checked-overflow,
+variadic, and ordinary-member reverse-storage boundaries
 instead of hiding them as unsupported-type skips.
 
 `__builtin_classify_type` is an integer constant expression and never

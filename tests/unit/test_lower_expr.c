@@ -1873,6 +1873,66 @@ void test_lower_builtin_checked_overflow_ti_destinations(TestCtx *t)
     }
 }
 
+void test_lower_gnu_mode_ti_floating_conversions(TestCtx *t)
+{
+    static const char source[] =
+        "typedef int i128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "typedef unsigned int u128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "i128 from_float(float x) { return x; } "
+        "u128 from_double(double x) { return x; } "
+        "i128 from_long_double(long double x) { return x; } "
+        "i128 from_float128(__float128 x) { return x; } "
+        "float to_float(i128 x) { return x; } "
+        "double to_double(u128 x) { return x; } "
+        "long double to_long_double(i128 x) { return x; } "
+        "__float128 to_float128(u128 x) { return x; } "
+        "void compound(i128 *p, double x) { *p += x; }\n";
+    static const struct {
+        TargetKind target;
+        int fix_xf;
+        int fix_tf;
+        int float_xf;
+        int float_tf;
+    } cases[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, 1, 1, 1, 0},
+        {CGF_TARGET_ARM64_LINUX, 0, 2, 0, 1},
+    };
+    LowFix f;
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(cases); i++) {
+        IrModule *round;
+
+        T_ASSERT(t, run_lower_target_opts(&f, source, STD_GNU17, true,
+                                          cases[i].target));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @__fixsfti("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @__fixunsdfti("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @__fixdfti("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @__fixxfti("),
+                        cases[i].fix_xf);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @__fixtfti("),
+                        cases[i].fix_tf);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @__floattisf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @__floatuntidf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @__floattidf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f80 @__floattixf("),
+                        cases[i].float_xf);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f128 @__floattitf("),
+                        cases[i].float_tf);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f128 @__floatuntitf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "pair_ii(16)"), 5);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fadd f64"), 1);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f),
+                                "<mode-ti-floating-conversions>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_fixed_checked_overflow_store_family(TestCtx *t)
 {
     static const char source[] =

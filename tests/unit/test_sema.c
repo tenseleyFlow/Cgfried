@@ -1773,6 +1773,39 @@ void test_sema_gnu_mode_ti_constant_expressions(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_gnu_mode_ti_floating_conversions(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "typedef int i128 __attribute__" /* check_bans allow */
+             "((mode(TI))); "
+             "typedef unsigned int u128 __attribute__" /* check_bans allow */
+             "((mode(TI))); "
+             "static i128 from_float = (i128)42.75; "
+             "static double from_ti = (double)((i128)1 << 100); "
+             "_Static_assert((i128)-3.75 == -3, \"truncate\"); "
+             "_Static_assert((u128)0x1p127 == ((u128)1 << 127), \"wide\"); "
+             "i128 take_float(float x) { return x; } "
+             "double take_ti(u128 x) { return x; } "
+             "double mix(i128 x) { return x + 0.5; } "
+             "i128 choose(int c, i128 x) { return c ? x : 1.5; } "
+             "void compound(i128 *p, double x) { *p += x; }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    /* Positive 2^127 is one past signed TI's range.  Constant evaluation
+     * diagnoses it instead of wrapping through the two-limb image. */
+    run_sema(&f,
+             "typedef int i128 __attribute__" /* check_bans allow */
+             "((mode(TI))); "
+             "static i128 too_large = (i128)0x1p127;\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_mode_ti_switch_labels(TestCtx *t)
 {
     SemaFix f;

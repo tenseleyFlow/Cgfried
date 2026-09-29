@@ -1731,6 +1731,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m,
             if (o.kind == CV_FLOAT) {
                 SfStatus st;
                 u64 iv;
+                u64 iv_hi;
 
                 /* 6.6p6 allows a float only as the IMMEDIATE operand of an
                  * integer cast in an ICE. gcc folds the general case as an
@@ -1742,14 +1743,21 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m,
                         "a folded floating expression is not an ISO integer "
                         "constant expression");
                 memset(&st, 0, sizeof(st));
-                iv = sf_to_int(o.f, (int)conv_int_bits(s, to),
-                               !conv_is_signed(s, to), &st);
+                if (type_is_int128(to))
+                    sf_to_int128(o.f, !conv_is_signed(s, to), &iv_hi, &iv, &st);
+                else {
+                    iv = sf_to_int(o.f, (int)conv_int_bits(s, to),
+                                   !conv_is_signed(s, to), &st);
+                    iv_hi = 0;
+                }
                 if (st.invalid) {
                     ce_error(s, m, e->span,
                              "the value is out of range for '%s'",
                              type_to_str(s->arena, to));
                     return cv_error();
                 }
+                if (type_is_int128(to))
+                    return cv_int_wide(to, iv, iv_hi);
                 return cv_int(s, to, fit(s, to, iv));
             }
             if (type_is_int128(to))
@@ -1766,10 +1774,21 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m,
             v.kind = CV_FLOAT;
             v.type = to;
             if (o.kind == CV_INT) {
-                bool neg = conv_is_signed(s, o.type) && (i64)o.i < 0;
-                u64 magnitude = neg ? 0 - o.i : o.i;
+                if (type_is_int128(o.type)) {
+                    CeWide magnitude = ce_wide_value(o);
+                    bool neg =
+                        conv_is_signed(s, o.type) && (magnitude.hi >> 63) != 0;
 
-                v.f = sf_from_int(magnitude, neg, f, &st);
+                    if (neg)
+                        magnitude = ce_wide_neg(magnitude);
+                    v.f =
+                        sf_from_int128(magnitude.hi, magnitude.lo, neg, f, &st);
+                } else {
+                    bool neg = conv_is_signed(s, o.type) && (i64)o.i < 0;
+                    u64 magnitude = neg ? 0 - o.i : o.i;
+
+                    v.f = sf_from_int(magnitude, neg, f, &st);
+                }
             } else {
                 v.f = sf_convert(o.f, constexpr_format_of(s, o.type), f, &st);
             }
@@ -2394,13 +2413,25 @@ static void fill_scalar(InitCtx *c, Type *t, AstNode *init, u64 off)
             uint8_t b[16];
             SfStatus st;
             SfFormat f = constexpr_format_of(s, t);
-            bool neg = conv_is_signed(s, v.type) && (i64)v.i < 0;
-            u64 magnitude = neg ? 0 - v.i : v.i;
             Sf converted;
             u64 i;
 
             memset(&st, 0, sizeof(st));
-            converted = sf_from_int(magnitude, neg, f, &st);
+            if (type_is_int128(v.type)) {
+                CeWide magnitude = ce_wide_value(v);
+                bool neg =
+                    conv_is_signed(s, v.type) && (magnitude.hi >> 63) != 0;
+
+                if (neg)
+                    magnitude = ce_wide_neg(magnitude);
+                converted =
+                    sf_from_int128(magnitude.hi, magnitude.lo, neg, f, &st);
+            } else {
+                bool neg = conv_is_signed(s, v.type) && (i64)v.i < 0;
+                u64 magnitude = neg ? 0 - v.i : v.i;
+
+                converted = sf_from_int(magnitude, neg, f, &st);
+            }
             sf_to_bits(converted, f, b);
             for (i = 0; i < l.size && off + i < c->img->size; i++)
                 c->img->bytes[off + i] = b[i];
@@ -2417,14 +2448,22 @@ static void fill_scalar(InitCtx *c, Type *t, AstNode *init, u64 off)
 
         memset(&st, 0, sizeof(st));
         if (type_is_integer(t)) {
-            u64 iv = sf_to_int(v.f, (int)conv_int_bits(s, t),
+            u64 iv;
+            u64 iv_hi;
+
+            if (type_is_int128(t))
+                sf_to_int128(v.f, !conv_is_signed(s, t), &iv_hi, &iv, &st);
+            else {
+                iv = sf_to_int(v.f, (int)conv_int_bits(s, t),
                                !conv_is_signed(s, t), &st);
+                iv_hi = 0;
+            }
 
             if (st.invalid) {
                 c->ok = false;
                 return;
             }
-            img_put_int(c, off, iv, 0, l.size);
+            img_put_int(c, off, iv, iv_hi, l.size);
             return;
         }
         f = constexpr_format_of(s, t);
