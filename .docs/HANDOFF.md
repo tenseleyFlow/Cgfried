@@ -8743,10 +8743,15 @@ and green post-publication CI.
   no-host-FPU, unit registry, import provenance, format matrix, and pinned
   clang-format 22 are green.
 
-  After green-only merge, take TI checked-overflow operands as the next narrow
-  tranche, then continue the variadic/atomic/enum/reverse-storage guarded
-  surface audit. Do not define `__SIZEOF_INT128__` until every advertised
-  surface is either implemented or receives an explicit fail-closed boundary.
+  After green-only merge, take TI conversion in the floating-comparison
+  builtin family as the next narrow tranche. The ordinary TI-to-floating
+  machinery is already implemented; the family retains one explicit sema
+  refusal and otherwise lowers through its established common floating type.
+  Then take the larger TI checked-overflow-operand tranche, which can require
+  exact 256-bit product/range reasoning, before continuing the variadic/
+  atomic/enum/reverse-storage guarded-surface audit. Do not define
+  `__SIZEOF_INT128__` until every advertised surface is either implemented or
+  receives an explicit fail-closed boundary.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
