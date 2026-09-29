@@ -297,6 +297,36 @@ void test_x64_vector_transport_and_forced_spill(TestCtx *t)
     arena_free_all(&f.arena);
 }
 
+void test_x64_vector_stacked_parameter_loads_whole_xmm(TestCtx *t)
+{
+    static const char src[] =
+        "func v2i64 @ninth(v2i64 %a0, v2i64 %a1, v2i64 %a2, "
+        "v2i64 %a3, v2i64 %a4, v2i64 %a5, v2i64 %a6, v2i64 %a7, "
+        "v2i64 %a8) {\nentry():\n  ret v2i64 %a8\n}\n";
+    VecFix f;
+    IrModule *m;
+    X64Func *xf;
+    Buf asm_text;
+
+    vec_init(&f);
+    m = parse_vec(&f, src);
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena, X64_PIC_NONE) : NULL;
+    T_ASSERT(t, xf != NULL);
+    if (xf) {
+        T_ASSERT_EQ_INT(t, x64_mir_verify(xf, f.dc), 0);
+        x64_regalloc(xf);
+        T_ASSERT_EQ_INT(t, x64_mir_verify(xf, f.dc), 0);
+        buf_init(&asm_text);
+        x64_emit_function(xf, m, 0, IRLINK_EXTERNAL, &asm_text);
+        buf_push_u8(&asm_text, 0);
+        T_ASSERT(t, strstr((const char *)asm_text.data, "movdqu\t16(%rbp)") !=
+                        NULL);
+        buf_free(&asm_text);
+    }
+    arena_free_all(&f.arena);
+}
+
 typedef struct {
     const char *vt;
     const char *et;

@@ -132,9 +132,10 @@ fail-closed.
 
 The wire contract is measured rather than inferred from the internal `v2i64`
 carrier. AArch64 passes this GNU vector in `q0` but returns its one TI lane in
-`x0:x1`; SysV x86-64 passes it in `rdi:rsi` and returns it in `rax:rdx`.
-`scripts/abi_differential_lane.sh` links Cgfried and Clang objects in both
-directions to pin those asymmetric rules.
+`x0:x1`; GCC's SysV x86-64 ABI uses `xmm0` in both directions. (Clang differs
+on the unusual x86 one-lane shape and uses integer pairs.)
+`scripts/abi_differential_lane.sh` links Cgfried and the target's reference
+compiler in both directions to pin those rules.
 
 `mode(TI)`, `__int128`, `signed __int128`, and `__int128_t` name the same
 signed 128-bit type; `unsigned __int128` and `__uint128_t` name its unsigned

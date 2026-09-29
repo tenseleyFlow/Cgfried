@@ -189,16 +189,14 @@ void test_abi_ti_vector_named_call_contract(TestCtx *t)
         "V call(V value) { return echo(value); }\n";
     AbiFix f;
 
-    /* This is deliberately not generic SIMD ABI coverage.  The one-lane TI
-     * source type has an asymmetric measured contract: SysV transports the
-     * argument as two INTEGER eightbytes, while AAPCS64 transports it in one
-     * SIMD register.  Both return the TI lane through the integer pair. */
+    /* This is deliberately not generic SIMD ABI coverage.  GCC's SysV ABI
+     * transports the one-lane TI vector in xmm0 in both directions. AAPCS64
+     * takes it in q0 but returns its TI lane through the integer pair. */
     T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_X86_64_LINUX_GNU));
     T_ASSERT(t, ir_verify(f.dc, f.m));
-    T_ASSERT(t, strstr(atxt(&f), "func void @echo(ptr %0, i64 %1, i64 %2) "
-                                 "abi(pair_ii)") != NULL);
-    T_ASSERT(t, strstr(atxt(&f), "call void @echo(ptr %") != NULL);
-    T_ASSERT(t, strstr(atxt(&f), "pair_ii(16), i64 %") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "func v2i64 @echo(v2i64 %0)") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "call v2i64 @echo(v2i64 %") != NULL);
+    T_ASSERT(t, strstr(atxt(&f), "pair_ii") == NULL);
     abi_free(&f);
 
     T_ASSERT(t, run_abi_target(&f, src, CGF_TARGET_ARM64_LINUX));

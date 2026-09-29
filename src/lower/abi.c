@@ -245,18 +245,9 @@ void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
     int n;
 
     memset(out, 0, sizeof(*out));
-    /* A one-lane i128 vector is the psABI exception that motivated this
-     * narrow boundary. SysV classifies its sole lane as two INTEGER
-     * eightbytes, while AAPCS64 passes the argument in one q register. */
-    if (type_is_vector(t) && !target_is_aapcs64(lo, (Span){0})) {
-        out->kind = ABI_ARG_EIGHTBYTES;
-        out->n = 2;
-        out->size = 16;
-        out->align = 16;
-        out->t[0] = IRT_I64;
-        out->t[1] = IRT_I64;
-        return;
-    }
+    /* The admitted one-lane i128 vector is scalar at the wire boundary.
+     * Its v2i64 carrier therefore reaches the SIMD register queue on both
+     * closed psABIs: xmm on GCC's SysV x86-64 ABI and q on AAPCS64. */
     if (!lower_is_aggregate(t)) {
         out->kind = ABI_ARG_SCALAR;
         out->n = 1;
@@ -309,10 +300,10 @@ void abi_classify_ret(Lower *lo, Type *t, AbiRet *out)
     int n;
 
     memset(out, 0, sizeof(*out));
-    /* Both closed psABIs return the one-lane i128 shape as an integer pair,
-     * despite AAPCS64 taking the same type as an argument in a q register.
-     * Measured against GCC/Clang in both mixed-link directions. */
-    if (type_is_vector(t)) {
+    /* AAPCS64 returns the one-lane i128 shape as an integer pair despite
+     * taking it in q0. GCC's SysV x86-64 ABI instead returns it in xmm0, so
+     * that target continues through the ordinary scalar path below. */
+    if (type_is_vector(t) && target_is_aapcs64(lo, (Span){0})) {
         out->kind = ABI_RET_PAIR;
         out->size = 16;
         out->align = 16;

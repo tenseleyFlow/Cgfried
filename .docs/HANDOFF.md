@@ -8668,19 +8668,21 @@ and green post-publication CI.
   anonymous variadic or unprototyped arguments are also explicitly
   fail-closed; this tranche does not claim general GNU SIMD.
 
-  The ABI is pinned from mixed Clang/Cgfried objects in both directions rather
-  than inferred from the internal `v2i64` carrier. Apple AArch64 takes the
-  argument in `q0` and returns the TI lane in `x0:x1`; SysV x86-64 takes it in
-  `rdi:rsi` and returns it in `rax:rdx`. The fixed mixed-link lane now runs
-  before abigen's generated ISO-C aggregate cases and reports 13 agreeing
-  signatures on arm64-macos. A focused lowering unit independently pins the
-  split SysV parameter, SIMD AAPCS64 parameter, and pair return annotations.
+  The ABI is pinned from mixed Cgfried/reference-compiler objects in both
+  directions rather than inferred from the internal `v2i64` carrier. Apple
+  AArch64 takes the argument in `q0` and returns the TI lane in `x0:x1`;
+  GCC's SysV x86-64 ABI takes and returns it in `xmm0` (Clang instead uses
+  integer pairs). The fixed mixed-link lane now runs before abigen's generated
+  ISO-C aggregate cases and reports 13 agreeing signatures on arm64-macos.
+  Focused units independently pin SysV SIMD parameter/return transport,
+  AAPCS64 SIMD parameters and pair returns, plus the ninth SysV vector's
+  whole-XMM stack load.
 
   The permanent program fixture and byte-pristine upstream source both pass
   natively at O0/O1/O2/O3/Os, normally and with `CGF_SPILL_ALL=1` (20 runs).
   Both sources emit and assemble for arm64-linux and x86_64-linux-gnu at all
-  five levels (20 cross-target cases). Normal and ASan+UBSan units report 986
-  tests / 4,330,364 assertions with exactly the existing eight Darwin
+  five levels (20 cross-target cases). Normal and ASan+UBSan units report 987
+  tests / 4,330,369 assertions with exactly the existing eight Darwin
   host-assumption failures; focused normal and sanitized vector/ABI units are
   green, and normal plus sanitized 2,000-case frontend fuzz runs find zero
   failures. Source bans, warning/preprocessor/sema/target seams, GNU tiers,
