@@ -53,6 +53,10 @@ typedef enum {
     TY_STRUCT,
     TY_UNION,
     TY_ENUM,
+    /* Narrow GNU vector boundary: one 128-bit integer lane in a 16-byte
+     * SIMD carrier.  `base` is the lane type and `size` is the total byte
+     * width.  Other vector shapes remain refused at the attribute boundary. */
+    TY_VECTOR,
     TY_ERROR /* poisoned: never diagnosed about again (Sprint 11 contract) */
 } TypeKind;
 
@@ -443,6 +447,7 @@ Type *type_integer_with_precision(Arena *ar, const Type *carrier, u32 precision,
 Type *type_ptr(Arena *ar, Type *pointee);
 Type *type_array(Arena *ar, Type *elem);
 Type *type_func(Arena *ar, Type *ret);
+Type *type_vector(Arena *ar, Type *elem, u64 size);
 Type *type_tag(Arena *ar, TagDecl *tag);
 Type *type_enum_with_repr(Arena *ar, const Type *t, Type *repr);
 Type *type_enum_underlying(const Type *t);
@@ -450,6 +455,7 @@ Type *type_enum_underlying(const Type *t);
 bool type_is_basic(const Type *t);
 bool type_is_integer(const Type *t);
 bool type_is_int128(const Type *t);
+bool type_is_vector(const Type *t);
 bool type_is_floating(const Type *t);
 bool type_is_arithmetic(const Type *t);
 bool type_is_complete(const Type *t);

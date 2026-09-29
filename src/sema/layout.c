@@ -438,6 +438,10 @@ TypeLayout layout_of(Sema *s, Type *t)
         return r;
 
     switch (t->kind) {
+    case TY_VECTOR:
+        r.size = t->size;
+        r.align = t->size;
+        break;
     case TY_ARRAY: {
         TypeLayout el = layout_of(s, t->base);
 

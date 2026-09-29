@@ -114,14 +114,13 @@ void test_ir_vector_verifier_matrix(TestCtx *t)
     static const char bad_volatile[] =
         "sym @x\nfunc void @f() {\nentry():\n"
         "  %a = load v4f32, @x, align 16, volatile\nret\n}\n";
-    static const char bad_abi[] =
+    static const char good_abi[] =
         "sym @x\nfunc v2f64 @f() {\nentry():\n"
         "  %a = load v2f64, @x, align 16\nret v2f64 %a\n}\n";
     static const char bad_select[] = "func void @f() {\nentry():\n"
                                      "  %a = vsplat v4i32 i32 1\n"
                                      "  %b = select 1, v4i32 %a, %a\nret\n}\n";
-    const char *cases[] = {bad_mul, bad_lane, bad_volatile, bad_abi,
-                           bad_select};
+    const char *cases[] = {bad_mul, bad_lane, bad_volatile, bad_select};
     u32 i;
 
     for (i = 0; i < CGF_ARRAY_LEN(cases); i++) {
@@ -132,6 +131,16 @@ void test_ir_vector_verifier_matrix(TestCtx *t)
         m = parse_vec(&f, cases[i]);
         T_ASSERT(t, m != NULL);
         T_ASSERT(t, m && !ir_verify(f.dc, m));
+        arena_free_all(&f.arena);
+    }
+    {
+        VecFix f;
+        IrModule *m;
+
+        vec_init(&f);
+        m = parse_vec(&f, good_abi);
+        T_ASSERT(t, m != NULL);
+        T_ASSERT(t, m && ir_verify(f.dc, m));
         arena_free_all(&f.arena);
     }
 }
@@ -283,6 +292,36 @@ void test_x64_vector_transport_and_forced_spill(TestCtx *t)
         T_ASSERT(t, strstr((const char *)asm_text.data, "pshufd") != NULL);
         T_ASSERT(t, strstr((const char *)asm_text.data, "paddd") != NULL);
         T_ASSERT(t, strstr((const char *)asm_text.data, "psrldq") != NULL);
+        buf_free(&asm_text);
+    }
+    arena_free_all(&f.arena);
+}
+
+void test_x64_vector_stacked_parameter_loads_whole_xmm(TestCtx *t)
+{
+    static const char src[] =
+        "func v2i64 @ninth(v2i64 %a0, v2i64 %a1, v2i64 %a2, "
+        "v2i64 %a3, v2i64 %a4, v2i64 %a5, v2i64 %a6, v2i64 %a7, "
+        "v2i64 %a8) {\nentry():\n  ret v2i64 %a8\n}\n";
+    VecFix f;
+    IrModule *m;
+    X64Func *xf;
+    Buf asm_text;
+
+    vec_init(&f);
+    m = parse_vec(&f, src);
+    T_ASSERT(t, m && ir_verify(f.dc, m));
+    xf = m ? x64_isel_function(m, &m->funcs[0], &f.arena, X64_PIC_NONE) : NULL;
+    T_ASSERT(t, xf != NULL);
+    if (xf) {
+        T_ASSERT_EQ_INT(t, x64_mir_verify(xf, f.dc), 0);
+        x64_regalloc(xf);
+        T_ASSERT_EQ_INT(t, x64_mir_verify(xf, f.dc), 0);
+        buf_init(&asm_text);
+        x64_emit_function(xf, m, 0, IRLINK_EXTERNAL, &asm_text);
+        buf_push_u8(&asm_text, 0);
+        T_ASSERT(t, strstr((const char *)asm_text.data, "movdqu\t16(%rbp)") !=
+                        NULL);
         buf_free(&asm_text);
     }
     arena_free_all(&f.arena);

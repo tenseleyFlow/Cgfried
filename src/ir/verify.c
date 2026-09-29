@@ -546,11 +546,6 @@ static void check_inst_misc(V *v, const IrInst *in)
     if (in->op == IR_CALL) {
         bool seen_anon = false;
 
-        if (ir_type_is_vector((IrType)in->type))
-            verr(v, 4, "vector call results have no Sprint 36 ABI");
-        for (i = in->subop == FUNCREF_INDIRECT ? 1u : 0u; i < in->nops; i++)
-            if (ir_type_is_vector((IrType)in->ops[i].type))
-                verr(v, 4, "vector call arguments have no Sprint 36 ABI");
         /* The anonymous parameters are a SUFFIX of the argument list, and
          * only a variadic callee has any. A gap would mean the boundary was
          * computed per-argument rather than once. */
@@ -799,11 +794,7 @@ static void verify_func(V *v, const IrFunc *f)
                  "parameter %u is stack-aligned but is not the first leaf of "
                  "a stacked composite",
                  i);
-        if (ir_type_is_vector((IrType)f->param_types[i]))
-            verr(v, 4, "vector function parameters have no Sprint 36 ABI");
     }
-    if (ir_type_is_vector((IrType)f->ret))
-        verr(v, 4, "vector function returns have no Sprint 36 ABI");
     if (f->abi_ret != IR_ABIRET_NONE &&
         (f->nparams == 0 || f->param_types[0] != IRT_PTR ||
          f->ret != IRT_VOID)) {

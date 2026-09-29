@@ -641,6 +641,24 @@ bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx)
     if (!rt || rt->kind == TY_ERROR)
         return true;
 
+    /* GNU permits a scalar initializer for a vector by converting it to the
+     * lane type and broadcasting it.  This tranche has exactly one lane, so
+     * the broadcast is also the complete value representation.  Materialize
+     * both conversions: lowering already knows how to construct TI values,
+     * and the outer cast is the one narrow vector conversion it implements. */
+    if (type_is_vector(lhs)) {
+        if (type_compatible(conv_strip_quals(s, lhs),
+                            conv_strip_quals(s, rt))) {
+            *rhs_slot = conv_cast(s, rhs, conv_strip_quals(s, lhs));
+            return true;
+        }
+        if (type_is_integer(rt)) {
+            rhs = conv_cast(s, rhs, lhs->base);
+            *rhs_slot = conv_cast(s, rhs, conv_strip_quals(s, lhs));
+            return true;
+        }
+    }
+
     /* _Bool takes any scalar (6.3.1.2), via != 0 rather than truncation. */
     if (lhs->kind == TY_BOOL &&
         (type_is_arithmetic(rt) || rt->kind == TY_PTR)) {

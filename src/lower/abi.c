@@ -245,6 +245,9 @@ void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
     int n;
 
     memset(out, 0, sizeof(*out));
+    /* The admitted one-lane i128 vector is scalar at the wire boundary.
+     * Its v2i64 carrier therefore reaches the SIMD register queue on both
+     * closed psABIs: xmm on GCC's SysV x86-64 ABI and q on AAPCS64. */
     if (!lower_is_aggregate(t)) {
         out->kind = ABI_ARG_SCALAR;
         out->n = 1;
@@ -297,6 +300,17 @@ void abi_classify_ret(Lower *lo, Type *t, AbiRet *out)
     int n;
 
     memset(out, 0, sizeof(*out));
+    /* AAPCS64 returns the one-lane i128 shape as an integer pair despite
+     * taking it in q0. GCC's SysV x86-64 ABI instead returns it in xmm0, so
+     * that target continues through the ordinary scalar path below. */
+    if (type_is_vector(t) && target_is_aapcs64(lo, (Span){0})) {
+        out->kind = ABI_RET_PAIR;
+        out->size = 16;
+        out->align = 16;
+        out->ir_abi = IR_ABIRET_PAIR_II;
+        out->arg_annot = IR_ARG_PAIR_II;
+        return;
+    }
     if (target_is_aapcs64(lo, (Span){0})) {
         classify_ret_aapcs64(lo, t, out);
         return;
@@ -438,7 +452,8 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
          * travels in memory and consumes neither register bank.  AAPCS64
          * lowers long double to f64 or f128, so its normal FP charge remains
          * explicit in the wire type. */
-        if (a->t[0] == IRT_F32 || a->t[0] == IRT_F64 || a->t[0] == IRT_F128)
+        if (a->t[0] == IRT_F32 || a->t[0] == IRT_F64 || a->t[0] == IRT_F128 ||
+            ir_type_is_vector(a->t[0]))
             b->fp++;
         else if (a->t[0] != IRT_F80)
             b->gp++;
@@ -448,7 +463,8 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
         break;
     case ABI_ARG_EIGHTBYTES:
         for (i = 0; i < a->n; i++) {
-            if (a->t[i] == IRT_F32 || a->t[i] == IRT_F64 || a->t[i] == IRT_F128)
+            if (a->t[i] == IRT_F32 || a->t[i] == IRT_F64 ||
+                a->t[i] == IRT_F128 || ir_type_is_vector(a->t[i]))
                 need_fp++;
             else
                 need_gp++;

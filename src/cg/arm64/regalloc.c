@@ -917,12 +917,13 @@ typedef struct ArgWalk {
  * that names one register in each file. */
 static bool a64_type_is_fp(u8 type)
 {
-    return type == IRT_F32 || type == IRT_F64 || type == IRT_F128;
+    return type == IRT_F32 || type == IRT_F64 || type == IRT_F128 ||
+           ir_type_is_vector((IrType)type);
 }
 
 static A64Sf a64_type_sf(u8 type)
 {
-    if (type == IRT_F128)
+    if (type == IRT_F128 || ir_type_is_vector((IrType)type))
         return A64_SF128;
     return type == IRT_I8 || type == IRT_I16 || type == IRT_I32 ||
                    type == IRT_F32

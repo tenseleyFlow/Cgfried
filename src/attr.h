@@ -113,6 +113,11 @@ typedef struct GnuDeclAttrs {
      * failure mode docs/gnu-extensions.md exists to prevent, so sema refuses
      * by name instead. Vanishingly rare in real code. */
     bool aligned_conflict;
+    /* `vector_size(N)` is likewise a constant expression.  Sema currently
+     * admits only the release-blocking 16-byte, one-lane TI shape; retaining
+     * the expression here lets it reject every other shape after the
+     * declaration's element type and target are known. */
+    struct AstNode *vector_size_expr;
     /* `alias("target")`: this declaration DEFINES a name for a symbol defined
      * elsewhere in the same translation unit. gcc requires the target to be
      * defined here -- an alias to an undefined symbol is an error rather than
@@ -268,9 +273,9 @@ typedef struct GnuDeclAttrs {
      * and the unsigned spelling gives exactly `unsigned long`. So the
      * attribute supplies the WIDTH and the declaration keeps the SIGN.
      *
-     * Only the INTEGER modes are here. Floating and vector modes remain in
-     * the refused tier: each names a type this compiler does not have, and
-     * accepting one silently would be a type of the wrong size.
+     * Only the INTEGER modes are here. Floating and machine vector modes
+     * remain in the refused tier: each names a type this compiler does not
+     * have, and accepting one silently would be a type of the wrong size.
      *
      * The parser stores the mode, not a byte count, because `word` and
      * `pointer` are target facts and the parser has no target. Sema resolves

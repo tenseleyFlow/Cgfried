@@ -2036,7 +2036,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 X64VReg a = f80_addr(is, &in->ops[0]);
 
                 x87_mem(is, X64_OP_X87_FLD, X64_T, a, 0);
-            } else if (rt == IRT_F128) {
+            } else if (irt_xmm16(rt)) {
                 /* SSE+SSEUP comes back in the whole of xmm0, so the move
                  * must be the 16-byte one. */
                 X64VReg r = newvv(is);
@@ -2296,7 +2296,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 off += 16;
                 continue;
             }
-            if (o->type == IRT_F128) {
+            if (irt_xmm16(o->type)) {
                 /* SSE+SSEUP: one WHOLE xmm register, or 16 bytes of stack
                  * at 16-byte alignment when the eight are used up. */
                 if (fp < 8) {
@@ -2387,7 +2387,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x->a.mem.disp = (i32)plans[idx].stk_off;
                 continue;
             }
-            if (o->type == IRT_F128) {
+            if (irt_xmm16(o->type)) {
                 X64VReg fv = to_vvreg(is, o);
 
                 x = emit(is, X64_OP_VSTORE, X64_X);
@@ -2542,7 +2542,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 x87_mem(is, X64_OP_X87_FSTP, X64_T, slot, 0);
                 if (in->result.v)
                     is->vals[in->result.v].vr = slot;
-            } else if (in->result.v && retty == IRT_F128) {
+            } else if (in->result.v && irt_xmm16(retty)) {
                 X64VReg d = newvv(is);
                 X64Inst *rr = emit(is, X64_OP_READREG, X64_X);
 
@@ -3746,13 +3746,6 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
     X64Func *xf = arena_alloc(a, sizeof(X64Func), _Alignof(X64Func));
     u32 bi, i;
 
-    if (ir_type_is_vector((IrType)f->ret))
-        CGF_ICE("x86_64 isel: vector function return has no Sprint 36 ABI");
-    for (i = 0; i < f->nparams; i++)
-        if (ir_type_is_vector((IrType)f->param_types[i]))
-            CGF_ICE(
-                "x86_64 isel: vector function parameter has no Sprint 36 ABI");
-
     memset(xf, 0, sizeof(*xf));
     xf->name = f->name;
     xf->arena = a;
@@ -3883,7 +3876,7 @@ X64Func *x64_isel_function(const IrModule *m, const IrFunc *f, Arena *a,
                 stack_off += 16;
                 continue;
             }
-            if (pt == IRT_F128) {
+            if (irt_xmm16(pt)) {
                 /* The mirror of the caller's SSE+SSEUP placement: a whole
                  * xmm, or 16 bytes of 16-aligned stack once the eight
                  * registers are gone. Reading it at X64_X is what carries

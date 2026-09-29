@@ -829,9 +829,10 @@ static void rewrite(Ra *ra)
                 arg_off = 16u + (u64)in.b.imm;
 
                 memset(&x, 0, sizeof(x));
-                x.op = in.op == X64_OP_ARGLEA ? X64_OP_LEA
-                       : xmm                  ? X64_OP_FLOAD
-                                              : X64_OP_LOAD;
+                x.op = in.op == X64_OP_ARGLEA     ? X64_OP_LEA
+                       : xmm && in.width == X64_X ? X64_OP_VLOAD
+                       : xmm                      ? X64_OP_FLOAD
+                                                  : X64_OP_LOAD;
                 x.width = in.width ? in.width : X64_Q;
                 x.a.kind = X64O_MEM;
                 x.a.mem.base = physreg(X64_RBP);

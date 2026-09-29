@@ -1146,6 +1146,17 @@ IrOperand lower_scalar_convert_access(Lower *lo, IrOperand v, Type *from,
         return v;
     if (to->kind == TY_VOID)
         return v; /* value discarded; nothing to emit */
+    if (type_is_vector(to)) {
+        IrOperand addr = v;
+
+        if (type_is_vector(from))
+            return v;
+        if (!type_is_int128(from))
+            addr = wide_from_scalar(lo, v, from, to->base);
+        return ir_op_value(lo->fn, ir_build_load_typed(&lo->b, IRT_V2I64, addr,
+                                                       1, access_flags,
+                                                       lower_efftype(lo, to)));
+    }
     if (type_is_int128(from)) {
         if (type_is_int128(to))
             return v;
@@ -1399,6 +1410,33 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         }
         break;
     case AST_EXPR_INDEX: {
+        if (sem(e->lhs) && type_is_vector(sem(e->lhs))) {
+            IrOperand base;
+            IrOperand idx;
+            IrOperand wide;
+
+            if (e->lhs->is_lvalue) {
+                base = lower_lvalue(lo, e->lhs).addr;
+            } else {
+                IrOperand value = lower_rvalue(lo, e->lhs);
+                ValueId tmp = lower_temp(lo, sem(e->lhs));
+
+                base = ir_op_value(lo->fn, tmp);
+                ir_build_store_typed(&lo->b, value, base, 16, 0,
+                                     lower_efftype(lo, sem(e->lhs)));
+            }
+            idx = lower_rvalue(lo, e->rhs);
+            wide = lower_scalar_convert_access(
+                lo, idx, sem(e->rhs), type_basic(TY_LONG),
+                lower_aggregate_access_flags(e->rhs));
+            ValueId scaled =
+                ir_build2(&lo->b, IR_IMUL, IRT_I64, wide,
+                          lower_i64((i64)layout_of(lo->sema, sem(e)).size));
+            ValueId sum =
+                ir_build_ptradd(&lo->b, base, ir_op_value(lo->fn, scaled));
+
+            return lv_of(lo, ir_op_value(lo->fn, sum), sem(e));
+        }
         /* Preserve source evaluation order, then normalize the commutative
          * C subscript rule: `a[b]` is `*(a + b)`, so either operand may be
          * the pointer (musl deliberately uses `index[pointer]`). */
@@ -1814,6 +1852,35 @@ static IrOperand lower_binary(Lower *lo, AstNode *e)
     }
     if (e->op == PUNCT_AMPAMP || e->op == PUNCT_PIPEPIPE)
         return lower_logical(lo, e);
+    if (type_is_vector(lt)) {
+        IrOperand a = lower_rvalue(lo, e->lhs);
+        IrOperand b = lower_rvalue(lo, e->rhs);
+        ValueId alo = ir_build_vextract(&lo->b, a, 0);
+        ValueId ahi = ir_build_vextract(&lo->b, a, 1);
+        ValueId blo = ir_build_vextract(&lo->b, b, 0);
+        ValueId bhi = ir_build_vextract(&lo->b, b, 1);
+        ValueId xlo =
+            ir_build2(&lo->b, IR_XOR, IRT_I64, ir_op_value(lo->fn, alo),
+                      ir_op_value(lo->fn, blo));
+        ValueId xhi =
+            ir_build2(&lo->b, IR_XOR, IRT_I64, ir_op_value(lo->fn, ahi),
+                      ir_op_value(lo->fn, bhi));
+        ValueId any =
+            ir_build2(&lo->b, IR_OR, IRT_I64, ir_op_value(lo->fn, xlo),
+                      ir_op_value(lo->fn, xhi));
+        ValueId truth =
+            ir_build_icmp(&lo->b, e->op == PUNCT_EQEQ ? ICMP_EQ : ICMP_NE,
+                          ir_op_value(lo->fn, any), ir_op_iconst(IRT_I64, 0));
+        ValueId wide =
+            ir_build1(&lo->b, IR_ZEXT, IRT_I64, ir_op_value(lo->fn, truth));
+        ValueId mask =
+            ir_build2(&lo->b, IR_ISUB, IRT_I64, ir_op_iconst(IRT_I64, 0),
+                      ir_op_value(lo->fn, wide));
+        ValueId result =
+            ir_build_vsplat(&lo->b, IRT_V2I64, ir_op_value(lo->fn, mask));
+
+        return ir_op_value(lo->fn, result);
+    }
     /* Pointer/integer arithmetic and warned pointer/integer comparisons stay
      * on the pointer path below even when the integer happens to be TI. */
     if (type_is_int128(lt) && (!rt || rt->kind != TY_PTR))
@@ -4377,8 +4444,12 @@ static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
                                             lower_efftype(lo, type));
         u32 k;
 
-        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), value, type,
-                               plan.align, access_flags);
+        if (type_is_vector(type))
+            ir_build_store_typed(&lo->b, value, ir_op_value(lo->fn, tmp), 16,
+                                 access_flags, lower_efftype(lo, type));
+        else
+            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), value, type,
+                                   plan.align, access_flags);
         for (k = 0; k < plan.n; k++) {
             Lvalue lv;
             IrOperand addr = ir_op_value(lo->fn, tmp);
@@ -4402,8 +4473,12 @@ static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
     case ABI_ARG_STACK: {
         ValueId tmp = lower_temp(lo, type);
 
-        lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), value, type,
-                               plan.align, access_flags);
+        if (type_is_vector(type))
+            ir_build_store_typed(&lo->b, value, ir_op_value(lo->fn, tmp), 16,
+                                 access_flags, lower_efftype(lo, type));
+        else
+            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, tmp), value, type,
+                                   plan.align, access_flags);
         args->data[args->len] = ir_op_value(lo->fn, tmp);
         args->data[args->len].b = ir_arg_annot(IR_ARG_BYVAL, plan.size);
         if (plan.kind == ABI_ARG_STACK)
@@ -4937,8 +5012,15 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             lo->fn->calls_setjmp = true;
     }
 
-    if (hidden)
-        return ir_op_value(lo->fn, sret_tmp);
+    if (hidden) {
+        IrOperand addr = ir_op_value(lo->fn, sret_tmp);
+
+        if (type_is_vector(ret))
+            return ir_op_value(lo->fn,
+                               ir_build_load_typed(&lo->b, IRT_V2I64, addr, 16,
+                                                   0, lower_efftype(lo, ret)));
+        return addr;
+    }
     if (aret.kind == ABI_RET_SMALL) {
         /* The eightbyte came back as a scalar; give the expression layer
          * the ADDRESS it expects for an aggregate value. A sub-eightbyte
@@ -5309,6 +5391,12 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
          * address; the cast is a no-op re-labelling. */
         if (from && (from->kind == TY_ARRAY || from->kind == TY_FUNC))
             return lower_rvalue(lo, e->lhs);
+        if (type_is_vector(to)) {
+            IrOperand v = lower_rvalue(lo, e->lhs);
+
+            return lower_scalar_convert_access(
+                lo, v, from, to, lower_aggregate_access_flags(e->lhs));
+        }
         if (type_is_int128(from) || type_is_int128(to))
             return wide_cast(lo, e, from, to);
         union_member = e->implicit ? NULL : type_union_cast_member(to, from);

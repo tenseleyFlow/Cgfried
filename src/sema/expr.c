@@ -51,6 +51,53 @@ static void err(Sema *s, Span sp, const char *fmt, ...)
     diag_emit(s->dc, DIAG_ERROR, sp, "%s", msg);
 }
 
+static bool type_contains_qualified_vector(const Type *t, u32 quals)
+{
+    u32 i;
+
+    if (!t)
+        return false;
+    if (type_is_vector(t))
+        return (t->quals & quals) != 0;
+    if (t->kind == TY_PTR || t->kind == TY_ARRAY)
+        return type_contains_qualified_vector(t->base, quals);
+    if (t->kind != TY_FUNC)
+        return false;
+    if (type_contains_qualified_vector(t->base, quals))
+        return true;
+    for (i = 0; i < t->nparams; i++)
+        if (type_contains_qualified_vector(t->params[i], quals))
+            return true;
+    return false;
+}
+
+static bool type_contains_vector_array(const Type *t)
+{
+    u32 i;
+
+    if (!t)
+        return false;
+    if (t->kind == TY_ARRAY) {
+        const Type *elem = t;
+
+        while (elem && elem->kind == TY_ARRAY)
+            elem = elem->base;
+        if (type_is_vector(elem))
+            return true;
+        return type_contains_vector_array(t->base);
+    }
+    if (t->kind == TY_PTR)
+        return type_contains_vector_array(t->base);
+    if (t->kind != TY_FUNC)
+        return false;
+    if (type_contains_vector_array(t->base))
+        return true;
+    for (i = 0; i < t->nparams; i++)
+        if (type_contains_vector_array(t->params[i]))
+            return true;
+    return false;
+}
+
 /* --- identifiers, with "did you mean" ------------------------------------ */
 
 /* Scans every VISIBLE ordinary identifier for a close spelling. Sprint 12
@@ -602,6 +649,40 @@ static AstNode *expr_binary(Sema *s, AstNode *e)
     lt = lhs->sem_type;
     rt = rhs->sem_type;
 
+    /* Keep the release boundary narrower than the IR vector instruction
+     * set: the corpus blocker needs TI-vector equality/inequality with the
+     * usual scalar broadcast, and no other source vector operation is
+     * promised yet.  GNU comparisons yield an all-bits mask in the vector
+     * type, not C's scalar int. */
+    if (type_is_vector(lt) || type_is_vector(rt)) {
+        Type *vt = type_is_vector(lt) ? lt : rt;
+        AstNode **other = type_is_vector(lt) ? &e->rhs : &e->lhs;
+        Type *ot = (*other)->sem_type;
+
+        if (e->op != PUNCT_EQEQ && e->op != PUNCT_NOTEQ) {
+            err(s, e->span,
+                "operator '%s' is not yet supported for the narrow "
+                "mode(TI) vector boundary (docs/gnu-extensions.md)",
+                ast_punct_name(e->op));
+            return poison(s, e);
+        }
+        if (type_is_integer(ot)) {
+            *other = conv_cast(s, *other, vt->base);
+            *other = conv_cast(s, *other, vt);
+            ot = vt;
+        }
+        if (!type_is_vector(ot) || !type_compatible(conv_strip_quals(s, vt),
+                                                    conv_strip_quals(s, ot))) {
+            err(s, e->span, "invalid operands to '%s' ('%s' and '%s')",
+                ast_punct_name(e->op), type_to_str(s->arena, lt),
+                type_to_str(s->arena, rt));
+            return poison(s, e);
+        }
+        e->sem_type = conv_strip_quals(s, vt);
+        e->is_lvalue = false;
+        return e;
+    }
+
     /* Pointer arithmetic and comparison, before the UAC gets a look. */
     if (is_ptr(lt) || is_ptr(rt)) {
         bool is_cmp = e->op == PUNCT_EQEQ || e->op == PUNCT_NOTEQ ||
@@ -1014,8 +1095,26 @@ static AstNode *expr_member(Sema *s, AstNode *e)
 
 static AstNode *expr_index(Sema *s, AstNode *e)
 {
-    AstNode *base = conv_decay_subscript(s, expr(s, e->lhs));
-    AstNode *idx = conv_decay_subscript(s, expr(s, e->rhs));
+    AstNode *base = expr(s, e->lhs);
+    AstNode *idx = expr(s, e->rhs);
+
+    if (!quiet(base, idx) && type_is_vector(base->sem_type)) {
+        idx = conv_decay_subscript(s, idx);
+        e->lhs = base;
+        e->rhs = idx;
+        if (!type_is_integer(idx->sem_type)) {
+            err(s, e->span, "invalid vector subscript of '%s' by '%s'",
+                type_to_str(s->arena, base->sem_type),
+                type_to_str(s->arena, idx->sem_type));
+            return poison(s, e);
+        }
+        e->sem_type = base->sem_type->base;
+        e->is_lvalue = base->is_lvalue;
+        return e;
+    }
+
+    base = conv_decay_subscript(s, base);
+    idx = conv_decay_subscript(s, idx);
 
     e->lhs = base;
     e->rhs = idx;
@@ -2181,6 +2280,14 @@ static AstNode *expr_call(Sema *s, AstNode *e)
             e->args[i] = poison(s, arg);
             continue;
         }
+        if (!(ft->has_proto && i < ft->nparams) &&
+            type_is_vector(arg->sem_type)) {
+            err(s, arg->span,
+                "a 'vector_size' value may not be passed through an "
+                "unprototyped or variadic argument; use a named parameter");
+            e->args[i] = poison(s, arg);
+            continue;
+        }
         if (ft->has_proto && i < ft->nparams) {
             AssignCtx ctx;
 
@@ -2508,6 +2615,19 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->is_lvalue = false;
         if (quiet(op, NULL))
             return poison(s, e);
+        if (type_contains_qualified_vector(to, CGF_QUAL_VOLATILE |
+                                                   CGF_QUAL_ATOMIC)) {
+            err(s, e->span,
+                "casts involving volatile or atomic 'vector_size' types "
+                "are not yet supported (docs/gnu-extensions.md)");
+            return poison(s, e);
+        }
+        if (type_contains_vector_array(to)) {
+            err(s, e->span,
+                "casts involving arrays of 'vector_size' type are not yet "
+                "supported (docs/gnu-extensions.md)");
+            return poison(s, e);
+        }
         /* GNU C permits a struct or union value to be explicitly cast to
          * its own compatible type.  This is an aggregate identity
          * conversion: lowering already represents aggregate rvalues by
@@ -2686,6 +2806,13 @@ static AstNode *expr(Sema *s, AstNode *e)
         e->lhs = expr_va_list_cursor(s, e->lhs);
         e->sem_type = sema_type_from_ast(s, e->type, e->span);
         e->is_lvalue = false;
+        if (type_is_vector(e->sem_type) ||
+            type_contains_vector_array(e->sem_type)) {
+            err(s, e->span,
+                "'__builtin_va_arg' of a 'vector_size' type is not yet "
+                "supported (docs/gnu-extensions.md)");
+            return poison(s, e);
+        }
         if (quiet(e->lhs, NULL))
             return poison(s, e);
         if (!is_va_list_cursor(s, e->lhs)) {
@@ -2740,6 +2867,27 @@ static AstNode *expr(Sema *s, AstNode *e)
         return e;
     case AST_EXPR_COMPOUND_LIT: {
         Type *t = sema_type_from_ast(s, e->type, e->span);
+        bool unsupported_vector = false;
+
+        if (type_contains_vector_array(t)) {
+            err(s, e->span,
+                "arrays of 'vector_size' compound literals are not yet "
+                "supported (docs/gnu-extensions.md)");
+            unsupported_vector = true;
+        }
+        if (type_is_vector(t) &&
+            (t->quals & (CGF_QUAL_VOLATILE | CGF_QUAL_ATOMIC))) {
+            err(s, e->span,
+                "volatile or atomic 'vector_size' compound literals are "
+                "not yet supported (docs/gnu-extensions.md)");
+            unsupported_vector = true;
+        }
+        if (type_is_vector(t) && e->is_static_storage) {
+            err(s, e->span,
+                "static-storage 'vector_size' compound literals are not yet "
+                "supported (docs/gnu-extensions.md)");
+            unsupported_vector = true;
+        }
 
         /* Initializer expressions are part of the compound literal's
          * evaluation.  Type them before leaving the enclosing scope so
@@ -2761,6 +2909,8 @@ static AstNode *expr(Sema *s, AstNode *e)
          * Done AFTER the initializer is typed, since counting a designated
          * item folds its index. */
         t = sema_array_complete_from_init(s, t, e->init);
+        if (unsupported_vector)
+            return poison(s, e);
         /* A compound literal IS an lvalue — `(int[]){1,2}[0]` and
          * `&(struct S){0}` both depend on that. Its storage duration was
          * decided by the parser from the scope it appeared in (Sprint 10);

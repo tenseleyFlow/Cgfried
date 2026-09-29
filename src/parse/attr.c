@@ -21,6 +21,8 @@ void gnu_attrs_merge(GnuDeclAttrs *dst, const GnuDeclAttrs *src)
         dst->aligned_bare = src->aligned_bare;
     }
     dst->aligned_conflict |= src->aligned_conflict;
+    if (src->vector_size_expr)
+        dst->vector_size_expr = src->vector_size_expr;
     if (src->alias_target)
         dst->alias_target = src->alias_target;
     dst->used |= src->used;
@@ -92,7 +94,7 @@ bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
 bool gnu_attrs_any_type_property(const GnuDeclAttrs *g)
 {
     return g->mode != GNU_MODE_NONE || g->may_alias ||
-           g->scalar_storage_order != GNU_SSO_UNSPEC;
+           g->scalar_storage_order != GNU_SSO_UNSPEC || g->vector_size_expr;
 }
 
 const char *gnu_visibility_name(u8 vis)
@@ -300,6 +302,23 @@ static void parse_aligned(Parser *p, GnuDeclAttrs *gnu)
     if (!parse_eat_punct(p, PUNCT_RPAREN)) {
         parse_error(p, parse_peek(p),
                     "expected ')' after the 'aligned' argument");
+        while (!parse_at_punct(p, PUNCT_RPAREN) &&
+               parse_peek(p)->kind != TOK_EOF)
+            p->pos++;
+        parse_eat_punct(p, PUNCT_RPAREN);
+    }
+}
+
+static void parse_vector_size(Parser *p, const Token *name, GnuDeclAttrs *gnu)
+{
+    if (!parse_eat_punct(p, PUNCT_LPAREN)) {
+        parse_error(p, name, "attribute 'vector_size' requires an argument");
+        return;
+    }
+    gnu->vector_size_expr = parse_cond_expr(p);
+    if (!parse_eat_punct(p, PUNCT_RPAREN)) {
+        parse_error(p, parse_peek(p),
+                    "expected ')' after the 'vector_size' argument");
         while (!parse_at_punct(p, PUNCT_RPAREN) &&
                parse_peek(p)->kind != TOK_EOF)
             p->pos++;
@@ -674,19 +693,7 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
         } else {
             p->pos++;
             if (!attr_kind(name->spelling, &kind)) {
-                /* Two attributes are REFUSED rather than deferred: they
-                 * would create types the rest of the compiler has no axis
-                 * for, so accepting and ignoring either one miscompiles
-                 * silently. docs/gnu-extensions.md carries the rationale;
-                 * this is the code half of that contract. */
-                if (strcmp(name->spelling, "vector_size") == 0 ||
-                    strcmp(name->spelling, "__vector_size__") == 0)
-                    parse_error(p, name,
-                                "the 'vector_size' attribute is not "
-                                "supported: it would create vector types "
-                                "with no SysV or AAPCS64 parameter contract "
-                                "(docs/gnu-extensions.md)");
-                else if (strncmp(name->spelling, "cgf_", 4) == 0)
+                if (strncmp(name->spelling, "cgf_", 4) == 0)
                     parse_error(p, name, "unknown cgf_ attribute '%s'",
                                 name->spelling);
                 else {
@@ -728,6 +735,10 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                              * passes a scratch sink must still see it and
                              * reject it. */
                             parse_mode_attr(p, name, gnu);
+                            break;
+                        }
+                        if (gnu && gnu_attr_is(name->spelling, "vector_size")) {
+                            parse_vector_size(p, name, gnu);
                             break;
                         }
                         if (gnu_attr_is(name->spelling, "may_alias")) {

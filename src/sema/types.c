@@ -176,6 +176,16 @@ Type *type_func(Arena *ar, Type *ret)
     return t;
 }
 
+Type *type_vector(Arena *ar, Type *elem, u64 size)
+{
+    Type *t = type_new(ar, TY_VECTOR);
+
+    t->base = elem;
+    t->size = size;
+    t->has_size = true;
+    return t;
+}
+
 Type *type_tag(Arena *ar, TagDecl *tag)
 {
     Type *t = type_new(ar, tag->kind);
@@ -225,6 +235,11 @@ bool type_is_int128(const Type *t)
     return t && (t->kind == TY_INT128 || t->kind == TY_UINT128);
 }
 
+bool type_is_vector(const Type *t)
+{
+    return t && t->kind == TY_VECTOR;
+}
+
 bool type_is_floating(const Type *t)
 {
     return t && t->kind >= TY_FLOAT && t->kind <= TY_FLOAT64X;
@@ -237,7 +252,7 @@ int sema_builtin_classify_type(const Type *type, bool type_name_form)
      * so _Bool, enum, and every machine-mode integer share INTEGER while
      * arrays and functions arrive as POINTER. A written type name preserves
      * the categories handled explicitly below. Cgfried does not yet have
-     * complex or vector TypeKinds, whose GCC classes are 9 and 19. */
+     * complex TypeKinds, whose GCC class is 9. */
     if (!type)
         return -1;
     if (type_name_form && type->kind == TY_VOID)
@@ -252,6 +267,8 @@ int sema_builtin_classify_type(const Type *type, bool type_name_form)
         return 5;
     if (type_is_floating(type))
         return 8;
+    if (type_is_vector(type))
+        return 19;
     if (type_name_form && type->kind == TY_FUNC)
         return 10;
     if (type->kind == TY_STRUCT)
@@ -506,6 +523,8 @@ bool type_compatible(const Type *a, const Type *b)
         if (a->has_size && b->has_size)
             return a->size == b->size;
         return true;
+    case TY_VECTOR:
+        return a->size == b->size && type_compatible(a->base, b->base);
     case TY_FUNC:
         return type_compatible(a->base, b->base) && params_compatible(a, b);
     case TY_STRUCT:
@@ -608,6 +627,12 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
             c->size_expr = b->size_expr;
         }
         c->is_vla = a->is_vla || b->is_vla;
+        return c;
+    case TY_VECTOR:
+        c = type_vector(ar, type_composite(ar, a->base, b->base), a->size);
+        c->quals = a->quals;
+        c->may_alias = a->may_alias || b->may_alias;
+        composite_alignment(c, a, b);
         return c;
     case TY_FUNC: {
         const Type *proto = a->has_proto ? a : (b->has_proto ? b : NULL);
@@ -770,6 +795,13 @@ static void render(const Type *t, Buf *b)
     }
 
     switch (t->kind) {
+    case TY_VECTOR:
+        render(t->base, b);
+        buf_printf(b,
+                   " __attribute__((vector_size(%llu)))", /* check_bans allow */
+                   (unsigned long long)t->size);
+        render_quals_suffix(t->quals, b);
+        return;
     case TY_PTR:
         render(t->base, b);
         buf_printf(b, " *");
