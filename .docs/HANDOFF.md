@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-27): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-28): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -349,10 +349,18 @@ keeping the controller address-backed and loading each limb exactly once. The
 broader `__SIZEOF_INT128__` promise remains withheld. Final standard,
 bootstrap, and exact-merge nightly CI were fully green; PR #156 merged
 green-only as `d2426812b1a142e8925c940adff66c46e0b71350`, and its actual
-merge tree is byte-identical to the tested synthetic merge. The active
-`s56.62-arm64-outgoing-stack-align` tranche starts from that exact merge. It
-repairs the Apple ARM64 absolute-alignment gap exposed by `pr92904.c`; this is
-an outgoing-stack-layout repair, not a TI-specific marshalling exception.
+merge tree is byte-identical to the tested synthetic merge. The
+`s56.62-arm64-outgoing-stack-align` tranche repaired the Apple ARM64
+absolute-alignment gap exposed by `pr92904.c` and merged green-only through PR
+#157 as `9bc26d36`. PR #158's TI checked-overflow-destination tranche merged
+green-only as `4e809548`; PR #159's TI floating-conversion tranche merged
+green-only as `67c7d31a`; PR #160's narrow TI-vector boundary merged green-only
+as `12435595`; and PR #161's TI overflow-predicate-selector tranche merged
+green-only as `0ddd086f`. The active
+`s56.67-ti-floating-comparison-builtins` tranche starts from that exact merge
+and removes only the stale TI refusal from the six type-generic floating
+comparison builtins. The detailed ledger below records the exact evidence and
+next boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -8708,7 +8716,7 @@ and green post-publication CI.
   #159 `67c7d31a` and tested publication head `3529796e`, and its tree
   `19984cdc225a29dfab458102f9f6489e6d793880` is byte-identical to the tested
   head.
-- The active `s56.66-ti-overflow-predicate-selectors` tranche starts from
+- The `s56.66-ti-overflow-predicate-selectors` tranche starts from
   exact merged PR #160. It removes only the TI third-argument refusal from
   GNU `__builtin_{add,sub,mul}_overflow_p`; TI operands remain a targeted
   fail-closed boundary. Selector evaluation remains left-to-right and exactly
@@ -8743,13 +8751,56 @@ and green post-publication CI.
   no-host-FPU, unit registry, import provenance, format matrix, and pinned
   clang-format 22 are green.
 
-  After green-only merge, take TI conversion in the floating-comparison
-  builtin family as the next narrow tranche. The ordinary TI-to-floating
-  machinery is already implemented; the family retains one explicit sema
-  refusal and otherwise lowers through its established common floating type.
-  Then take the larger TI checked-overflow-operand tranche, which can require
-  exact 256-bit product/range reasoning, before continuing the variadic/
-  atomic/enum/reverse-storage guarded-surface audit. Do not define
+  Final standard
+  [run 36516214988](https://github.com/tenseleyFlow/Cgfried/actions/runs/36516214988)
+  and bootstrap runs
+  [36516214846](https://github.com/tenseleyFlow/Cgfried/actions/runs/36516214846)
+  and
+  [36516210935](https://github.com/tenseleyFlow/Cgfried/actions/runs/36516210935)
+  were fully green, including the 100,000-iteration ASan+UBSan frontend fuzz
+  job. The first standard attempt exposed only a stale fuzz-sequence pin; the
+  corrected pin was independently reproduced by normal and sanitized builds
+  before the exact final head reran green. PR #161 merged green-only as
+  `0ddd086f295555c937dfadb1b8e646ffa40af1a9`; its exact parents are merged
+  #160 `12435595` and tested head `0816db0d`, and its tree
+  `5676b14cda0ab39ec2f25fa20efa80fa3ee464ef` is byte-identical to the tested
+  head.
+- The active `s56.67-ti-floating-comparison-builtins` tranche starts from
+  exact merged PR #161. It removes only the explicit TI conversion refusal
+  from `__builtin_isunordered`, `__builtin_isless`,
+  `__builtin_islessequal`, `__builtin_isgreater`,
+  `__builtin_isgreaterequal`, and `__builtin_islessgreater`. Existing usual
+  arithmetic conversions convert each TI operand exactly once to the common
+  floating type, existing lowering selects the established floating predicate,
+  and constant expressions continue through the host-FPU-free soft-float
+  path. No new IR or runtime primitive is introduced.
+
+  The exact #161 compiler rejects all sixteen intended sites in the permanent
+  fixture with only the named floating-comparison TI refusal. Repaired
+  Cgfried passes that fixture natively on arm64-macos at O0/O1/O2/O3/Os,
+  normally and under `CGF_SPILL_ALL=1`; Homebrew GCC 16 independently passes
+  all five levels with `-Wall -Wextra -Werror`. Both arm64-linux and
+  x86_64-linux-gnu backends emit and assemble at all five levels. The TI
+  boundary fixture remains green.
+
+  Focused normal and ASan+UBSan sema and lowering units pass. The complete
+  normal and sanitized baselines report 990 tests / 4,330,445 assertions with
+  exactly the same eight Darwin host-assumption failures. Normal and
+  sanitized 2,000-case frontend fuzz runs find zero failures; repeated normal
+  and sanitized 5,000-case hashes deterministically produce
+  `c438c22f6e343a1a`, and the exact smoke gate passes with that corpus-derived
+  pin. Source bans, warning/preprocessor/sema/target seams, GNU tiers,
+  deferrals, verifier coverage, no-host-FPU, warning and format matrices,
+  unit registry, POSIX shell, import-provenance checks, pinned clang-format
+  22, and diff checks are green.
+
+  After green-only merge, split the larger checked-overflow operand boundary.
+  Take TI operands for add/subtract first: they need portable two-limb
+  sign/magnitude arithmetic and exact destination-range comparison but no
+  256-bit product. Keep TI-by-TI multiplication as a separate follow-up,
+  because its exact mathematical range requires a four-limb product. Then
+  continue the variadic, pointer-relocation/static-conversion, atomic, enum,
+  and ordinary-member reverse-storage audit. Do not define
   `__SIZEOF_INT128__` until every advertised surface is either implemented or
   receives an explicit fail-closed boundary.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
