@@ -18,6 +18,11 @@ static u64 check_alignas(Sema *s, AstNode *d, Type *type);
 static u64 gnu_aligned_value(Sema *s, const GnuDeclAttrs *g, Span span);
 static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
                             bool binds_enum_definition, Span span);
+static Type *gnu_vector_size_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
+                                   Span span);
+static bool type_contains_vector(const Type *t);
+static bool type_contains_vector_array(const Type *t);
+static bool type_contains_volatile_vector(const Type *t);
 
 VEC_DECL(InitNodeVec, AstNode *);
 VEC_DECL(SymbolVec, Symbol *);
@@ -512,6 +517,13 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
          * before the Member is built rather than beside the alignment
          * override further down. */
         mt = gnu_mode_apply(s, mt, &m->gnu, false, m->span);
+        mt = gnu_vector_size_apply(s, mt, &m->gnu, m->span);
+        if (type_contains_vector(mt) || type_contains_vector_array(mt)) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, m->span,
+                      "record members with 'vector_size' type are not yet "
+                      "supported (docs/gnu-extensions.md)");
+        }
         if (m->gnu.scalar_storage_order)
             warn_at(s->lang->warnings, WARN_ATTRIBUTES, m->span,
                     "'scalar_storage_order' attribute ignored on a field");
@@ -2628,6 +2640,91 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
     return t;
 }
 
+/* The deliberately narrow vector boundary.  GCC's vector_size attribute is
+ * vastly broader, but the corpus release blocker needs exactly one shape:
+ * one signed or unsigned TI lane in a 16-byte SIMD value.  Keeping the gate
+ * here, after the declaration type is resolved, prevents a generic vector
+ * implementation from being implied by accepting the syntax. */
+static Type *gnu_vector_size_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
+                                   Span span)
+{
+    i64 want = 0;
+    Type *elem;
+    Type *vec;
+
+    if (!g || !g->vector_size_expr || !t || t->kind == TY_ERROR)
+        return t;
+    if (!enum_fold(s, g->vector_size_expr, &want))
+        return t;
+    if (want != 16 || !type_is_int128(t)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, span,
+                  "the 'vector_size' attribute currently supports only a "
+                  "16-byte vector whose element type is signed or unsigned "
+                  "mode(TI); other GNU vector shapes remain unsupported "
+                  "(docs/gnu-extensions.md)");
+        return t;
+    }
+    elem = conv_strip_quals(s, t);
+    vec = type_vector(s->arena, elem, 16);
+    vec->quals = t->quals;
+    vec->may_alias = t->may_alias;
+    vec->align_override = t->align_override;
+    vec->align_is_exact = t->align_is_exact;
+    return vec;
+}
+
+static bool type_contains_vector(const Type *t)
+{
+    if (!t)
+        return false;
+    if (type_is_vector(t))
+        return true;
+    if (t->kind == TY_ARRAY)
+        return type_contains_vector(t->base);
+    return false;
+}
+
+static bool type_contains_vector_array(const Type *t)
+{
+    u32 i;
+
+    if (!t)
+        return false;
+    if (t->kind == TY_ARRAY)
+        return type_contains_vector(t) || type_contains_vector_array(t->base);
+    if (t->kind == TY_PTR)
+        return type_contains_vector_array(t->base);
+    if (t->kind != TY_FUNC)
+        return false;
+    if (type_contains_vector_array(t->base))
+        return true;
+    for (i = 0; i < t->nparams; i++)
+        if (type_contains_vector_array(t->params[i]))
+            return true;
+    return false;
+}
+
+static bool type_contains_volatile_vector(const Type *t)
+{
+    u32 i;
+
+    if (!t)
+        return false;
+    if (type_is_vector(t))
+        return (t->quals & CGF_QUAL_VOLATILE) != 0;
+    if (t->kind == TY_PTR || t->kind == TY_ARRAY)
+        return type_contains_volatile_vector(t->base);
+    if (t->kind != TY_FUNC)
+        return false;
+    if (type_contains_volatile_vector(t->base))
+        return true;
+    for (i = 0; i < t->nparams; i++)
+        if (type_contains_volatile_vector(t->params[i]))
+            return true;
+    return false;
+}
+
 /* Fold and range-check one `constructor`/`destructor` priority.
  *
  * The range is gcc's, and so is the split within it: 0..65535 is legal, but
@@ -3128,6 +3225,26 @@ static void declare_one(Sema *s, AstNode *d)
      * function all arrive here; the function is what gnu_mode_apply's
      * inappropriate-type error catches, matching gcc. */
     type = gnu_mode_apply(s, type, &d->gnu, false, d->span);
+    type = gnu_vector_size_apply(s, type, &d->gnu, d->span);
+    if (type_contains_vector_array(type)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "arrays of 'vector_size' type are not yet supported "
+                  "(docs/gnu-extensions.md)");
+    }
+    if (type_contains_volatile_vector(type)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "volatile 'vector_size' types are not yet supported "
+                  "(docs/gnu-extensions.md)");
+    }
+    if (!(d->storage & AST_SC_TYPEDEF) && type_is_vector(type) &&
+        (file_scope || (d->storage & AST_SC_STATIC))) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, d->span,
+                  "static-storage 'vector_size' objects are not yet "
+                  "supported (docs/gnu-extensions.md)");
+    }
     mark_old_style_definition(d, type);
     if (d->gnu.scalar_storage_order) {
         if ((d->storage & AST_SC_TYPEDEF) && type &&
@@ -3432,6 +3549,11 @@ static void declare_one(Sema *s, AstNode *d)
                 s->nerrors++;
                 diag_emit(s->dc, DIAG_ERROR, d->span,
                           "atomic mode(TI) objects are not yet supported "
+                          "(docs/gnu-extensions.md)");
+            } else if (type_is_vector(elem)) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, d->span,
+                          "atomic 'vector_size' types are not yet supported "
                           "(docs/gnu-extensions.md)");
             } else if (type_is_vm(type)) {
                 s->nerrors++;

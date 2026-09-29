@@ -344,6 +344,13 @@ IrType lower_irtype(Lower *lo, const Type *t)
     }
     case TY_PTR:
         return IRT_PTR;
+    case TY_VECTOR:
+        /* The admitted source shape is one 128-bit TI lane. IR has no i128
+         * scalar lane, so its bit carrier is the existing pair of i64 lanes;
+         * source operations preserve the one-lane TI semantics. */
+        if (t->size == 16 && type_is_int128(t->base))
+            return IRT_V2I64;
+        CGF_ICE("unsupported source vector shape reached lowering");
     default:
         CGF_ICE("lower_irtype on non-scalar type kind %d", (int)t->kind);
     }
@@ -406,6 +413,7 @@ EffTypeId lower_efftype(Lower *lo, const Type *t)
         return ETYPE_UNION;
     case TY_STRUCT:
     case TY_ARRAY:
+    case TY_VECTOR:
         return ETYPE_AGGREGATE;
     case TY_ENUM:
         switch (lower_irtype(lo, t)) {

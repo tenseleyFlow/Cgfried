@@ -176,6 +176,7 @@ int main(void)
         return 2;
     return 0;
 }
+
 EOF
     cat >"$d/callee.c" <<'EOF'
 #include "abi.h"
@@ -191,6 +192,58 @@ union union_value make_union(long double value)
     return out;
 }
 long double read_union(union union_value value) { return value.value; }
+EOF
+    try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
+}
+
+# The narrow source-vector boundary has target- and direction-specific psABI
+# register banks. Keep this outside abigen (which intentionally generates only
+# ISO C aggregates): a compiler agreeing with itself can use the wrong bank
+# and still pass, while either mixed direction catches it.
+check_ti_vector_fixed() {
+    d=$WORK/fixed-ti-vector
+
+    rm -rf "$d"
+    mkdir -p "$d"
+    cat >"$d/abi.h" <<'EOF'
+typedef unsigned __int128 V __attribute__((vector_size(16)));
+V abi_vector_echo(V value);
+V abi_vector_mask(V value);
+V abi_vector_ninth(V a0, V a1, V a2, V a3, V a4,
+                   V a5, V a6, V a7, V a8);
+EOF
+    cat >"$d/caller.c" <<'EOF'
+#include "abi.h"
+int main(void)
+{
+    V value = (V){0x500000005ULL};
+    V echoed = abi_vector_echo(value);
+    V mask = abi_vector_mask(value);
+    V zero = abi_vector_mask((V){0});
+    V ninth = abi_vector_ninth((V){1}, (V){2}, (V){3}, (V){4}, (V){5},
+                               (V){6}, (V){7}, (V){8}, (V){9});
+    if (echoed[0] != (unsigned __int128)0x500000005ULL)
+        return 1;
+    if (mask[0] != ~(unsigned __int128)0)
+        return 2;
+    if (zero[0] != 0)
+        return 3;
+    if (ninth[0] != 9)
+        return 4;
+    return 0;
+}
+EOF
+    cat >"$d/callee.c" <<'EOF'
+#include "abi.h"
+V abi_vector_echo(V value) { return value; }
+V abi_vector_mask(V value) { return value != 0; }
+V abi_vector_ninth(V a0, V a1, V a2, V a3, V a4,
+                   V a5, V a6, V a7, V a8)
+{
+    (void)a0; (void)a1; (void)a2; (void)a3; (void)a4;
+    (void)a5; (void)a6; (void)a7;
+    return a8;
+}
 EOF
     try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
 }
@@ -542,6 +595,13 @@ minimize() {
 
 checked=0
 failed=0
+
+if check_ti_vector_fixed; then
+    checked=$((checked + 1))
+else
+    echo "abi_differential: REGRESSION on fixed TI vector ABI" >&2
+    failed=$((failed + 1))
+fi
 
 if [ "$target" = x86_64-linux-gnu ]; then
     if check_ir_c01_fixed; then

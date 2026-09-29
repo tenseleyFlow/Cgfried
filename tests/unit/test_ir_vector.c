@@ -114,14 +114,13 @@ void test_ir_vector_verifier_matrix(TestCtx *t)
     static const char bad_volatile[] =
         "sym @x\nfunc void @f() {\nentry():\n"
         "  %a = load v4f32, @x, align 16, volatile\nret\n}\n";
-    static const char bad_abi[] =
+    static const char good_abi[] =
         "sym @x\nfunc v2f64 @f() {\nentry():\n"
         "  %a = load v2f64, @x, align 16\nret v2f64 %a\n}\n";
     static const char bad_select[] = "func void @f() {\nentry():\n"
                                      "  %a = vsplat v4i32 i32 1\n"
                                      "  %b = select 1, v4i32 %a, %a\nret\n}\n";
-    const char *cases[] = {bad_mul, bad_lane, bad_volatile, bad_abi,
-                           bad_select};
+    const char *cases[] = {bad_mul, bad_lane, bad_volatile, bad_select};
     u32 i;
 
     for (i = 0; i < CGF_ARRAY_LEN(cases); i++) {
@@ -132,6 +131,16 @@ void test_ir_vector_verifier_matrix(TestCtx *t)
         m = parse_vec(&f, cases[i]);
         T_ASSERT(t, m != NULL);
         T_ASSERT(t, m && !ir_verify(f.dc, m));
+        arena_free_all(&f.arena);
+    }
+    {
+        VecFix f;
+        IrModule *m;
+
+        vec_init(&f);
+        m = parse_vec(&f, good_abi);
+        T_ASSERT(t, m != NULL);
+        T_ASSERT(t, m && ir_verify(f.dc, m));
         arena_free_all(&f.arena);
     }
 }

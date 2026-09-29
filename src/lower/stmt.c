@@ -1382,9 +1382,15 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
             IrOperand src = lower_rvalue(lo, s->lhs);
             TypeLayout l = layout_of(lo->sema, s->lhs->sem_type);
 
-            lower_memcpy_aggregate(lo, ir_op_value(lo->fn, lo->sret), src,
-                                   s->lhs->sem_type, (u32)l.align,
-                                   lower_aggregate_access_flags(s->lhs));
+            if (type_is_vector(s->lhs->sem_type))
+                ir_build_store_typed(&lo->b, src, ir_op_value(lo->fn, lo->sret),
+                                     (u32)l.align,
+                                     lower_aggregate_access_flags(s->lhs),
+                                     lower_efftype(lo, s->lhs->sem_type));
+            else
+                lower_memcpy_aggregate(lo, ir_op_value(lo->fn, lo->sret), src,
+                                       s->lhs->sem_type, (u32)l.align,
+                                       lower_aggregate_access_flags(s->lhs));
         } else if (lo->cur_abi_ret && lo->cur_abi_ret->kind == ABI_RET_SMALL) {
             /* A small aggregate travels as one wire scalar. Usually that is
              * an eightbyte i64/f64; IR-C-01 also uses an f80 for the exact

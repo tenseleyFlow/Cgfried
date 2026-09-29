@@ -245,6 +245,18 @@ void abi_classify_arg(Lower *lo, Type *t, AbiArg *out)
     int n;
 
     memset(out, 0, sizeof(*out));
+    /* A one-lane i128 vector is the psABI exception that motivated this
+     * narrow boundary. SysV classifies its sole lane as two INTEGER
+     * eightbytes, while AAPCS64 passes the argument in one q register. */
+    if (type_is_vector(t) && !target_is_aapcs64(lo, (Span){0})) {
+        out->kind = ABI_ARG_EIGHTBYTES;
+        out->n = 2;
+        out->size = 16;
+        out->align = 16;
+        out->t[0] = IRT_I64;
+        out->t[1] = IRT_I64;
+        return;
+    }
     if (!lower_is_aggregate(t)) {
         out->kind = ABI_ARG_SCALAR;
         out->n = 1;
@@ -297,6 +309,17 @@ void abi_classify_ret(Lower *lo, Type *t, AbiRet *out)
     int n;
 
     memset(out, 0, sizeof(*out));
+    /* Both closed psABIs return the one-lane i128 shape as an integer pair,
+     * despite AAPCS64 taking the same type as an argument in a q register.
+     * Measured against GCC/Clang in both mixed-link directions. */
+    if (type_is_vector(t)) {
+        out->kind = ABI_RET_PAIR;
+        out->size = 16;
+        out->align = 16;
+        out->ir_abi = IR_ABIRET_PAIR_II;
+        out->arg_annot = IR_ARG_PAIR_II;
+        return;
+    }
     if (target_is_aapcs64(lo, (Span){0})) {
         classify_ret_aapcs64(lo, t, out);
         return;
@@ -438,7 +461,8 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
          * travels in memory and consumes neither register bank.  AAPCS64
          * lowers long double to f64 or f128, so its normal FP charge remains
          * explicit in the wire type. */
-        if (a->t[0] == IRT_F32 || a->t[0] == IRT_F64 || a->t[0] == IRT_F128)
+        if (a->t[0] == IRT_F32 || a->t[0] == IRT_F64 || a->t[0] == IRT_F128 ||
+            ir_type_is_vector(a->t[0]))
             b->fp++;
         else if (a->t[0] != IRT_F80)
             b->gp++;
@@ -448,7 +472,8 @@ void abi_arg_place(Lower *lo, AbiArg *a, AbiBudget *b, bool anon)
         break;
     case ABI_ARG_EIGHTBYTES:
         for (i = 0; i < a->n; i++) {
-            if (a->t[i] == IRT_F32 || a->t[i] == IRT_F64 || a->t[i] == IRT_F128)
+            if (a->t[i] == IRT_F32 || a->t[i] == IRT_F64 ||
+                a->t[i] == IRT_F128 || ir_type_is_vector(a->t[i]))
                 need_fp++;
             else
                 need_gp++;

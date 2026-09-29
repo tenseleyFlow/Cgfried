@@ -8656,6 +8656,45 @@ and green post-publication CI.
   re-audit every guarded, variadic, checked-overflow operand/selector, atomic,
   enum, and reverse-storage surface before deciding whether
   `__SIZEOF_INT128__` can truthfully be defined.
+- The active `s56.65-ti-vector-boundary` tranche starts from exact merged PR
+  #159, `67c7d31a96534a762f79047d86fde60fdebb6580`. It implements only the GNU
+  `vector_size(16)` shape whose signed or unsigned element is `mode(TI)`, the
+  blocker in GCC torture `execute/pr105613.c`. The source contract includes
+  automatic braced construction, assignment, equality/inequality with the
+  same vector type or a scalar integer broadcast through TI, lane-zero
+  indexing, layout/classification, and named function parameters and returns.
+  Other vector sizes/elements and operators remain targeted refusals. Arrays,
+  record members, volatile/atomic objects, static-storage objects/literals, and
+  anonymous variadic or unprototyped arguments are also explicitly
+  fail-closed; this tranche does not claim general GNU SIMD.
+
+  The ABI is pinned from mixed Clang/Cgfried objects in both directions rather
+  than inferred from the internal `v2i64` carrier. Apple AArch64 takes the
+  argument in `q0` and returns the TI lane in `x0:x1`; SysV x86-64 takes it in
+  `rdi:rsi` and returns it in `rax:rdx`. The fixed mixed-link lane now runs
+  before abigen's generated ISO-C aggregate cases and reports 13 agreeing
+  signatures on arm64-macos. A focused lowering unit independently pins the
+  split SysV parameter, SIMD AAPCS64 parameter, and pair return annotations.
+
+  The permanent program fixture and byte-pristine upstream source both pass
+  natively at O0/O1/O2/O3/Os, normally and with `CGF_SPILL_ALL=1` (20 runs).
+  Both sources emit and assemble for arm64-linux and x86_64-linux-gnu at all
+  five levels (20 cross-target cases). Normal and ASan+UBSan units report 986
+  tests / 4,330,364 assertions with exactly the existing eight Darwin
+  host-assumption failures; focused normal and sanitized vector/ABI units are
+  green, and normal plus sanitized 2,000-case frontend fuzz runs find zero
+  failures. Source bans, warning/preprocessor/sema/target seams, GNU tiers,
+  deferrals, verifier coverage, no-host-FPU, unit registry, POSIX-shell,
+  import-provenance, shell syntax, and diff checks are green. The pinned
+  clang-format 22 binary is absent locally (version 23 accepts the new ranges),
+  so CI remains the authoritative format gate. The upstream manifest still
+  policy-skips `pr105613.c` because its `dg-do` is conditional; the permanent
+  fixture and forced original-source matrix carry the regression contract.
+
+  Next, perform the complete guarded/variadic/checked-overflow
+  operand-selector/atomic/enum/reverse-storage audit. Do not define
+  `__SIZEOF_INT128__` until every one of those surfaces is either implemented
+  or receives an explicit fail-closed boundary.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

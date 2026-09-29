@@ -66,8 +66,6 @@ GA(warn_unused_result, GA_IMPLEMENTED)
 /* Intercepted by name in parse_cgf_attributes before the class is consulted;
  * the rows are here so this table remains the whole attribute surface. */
 GA(alias, GA_IMPLEMENTED)
-/* `used` keeps a symbol the IPO pass would otherwise delete. */
-GA(used, GA_IMPLEMENTED)
 GA(aligned, GA_IMPLEMENTED)
 GA(cleanup, GA_IMPLEMENTED)
 GA(constructor, GA_IMPLEMENTED)
@@ -79,6 +77,9 @@ GA(packed, GA_IMPLEMENTED)
 GA(returns_twice, GA_IMPLEMENTED)
 GA(scalar_storage_order, GA_IMPLEMENTED)
 GA(section, GA_IMPLEMENTED)
+/* `used` keeps a symbol the IPO pass would otherwise delete. */
+GA(used, GA_IMPLEMENTED)
+GA(vector_size, GA_IMPLEMENTED)
 GA(visibility, GA_IMPLEMENTED)
 GA(weak, GA_IMPLEMENTED)
 

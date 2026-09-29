@@ -95,6 +95,7 @@ predefine.
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
 | `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
 | integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c`, static-image coverage in `tests/programs/gnu/attr_mode_ti_static_init.c`, and required-constant coverage in `tests/corpus/x86_64/int/gnu_mode_ti_constexpr.c` |
+| `vector_size(16)` on signed or unsigned `mode(TI)` | `tests/programs/gnu/attr_vector_size_ti.c` | GCC torture PR105613's one-lane TI comparison, with named parameter and return ABI coverage |
 | GNU 128-bit integer names — `__int128`, `__int128_t`, `__uint128_t` | `tests/corpus/x86_64/int/gnu_int128_spelling.c` | Apple's ARM thread-state headers use `__uint128_t` directly; the GNU spelling shares the implemented `mode(TI)` arithmetic, layout, constant-expression, ABI, bit-field, packed-field, and reverse-storage contracts, with the bit-field surface pinned separately by `tests/corpus/x86_64/int/gnu_int128_bitfields.c` |
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
 | `gnu_inline` | `tests/programs/gnu/attr_gnu_inline.c` | glibc's `__extern_always_inline`; selects GNU89 symbol-emission rules under C99-or-newer modes |
@@ -118,6 +119,22 @@ predefine.
 | hosted GNU `alloca(...)` alias | `tests/programs/gnu/alloca_alias.c` | GNU89 sources that use GCC's plain spelling without including `<alloca.h>` |
 | static whole-array initialization from compatible array compound literals | `tests/programs/gnu/compound_literal_array_initializer.c` | GCC torture PR48517 and static aggregate images copied from compound literals |
 | records containing variably sized members | `tests/corpus/x86_64/int/vla_record_copy.c` | historical GNU C code that assigns, passes, and retrieves runtime-sized records |
+
+The `vector_size` boundary is intentionally one shape rather than a promise of
+general GNU vector support. A signed or unsigned TI element with a 16-byte
+vector size forms a one-lane vector. It supports automatic braced
+construction, assignment, `==`/`!=` against the same vector type or a scalar
+TI value, lane-zero indexing, `sizeof`/`_Alignof`, named function parameters,
+and function returns. Other operators, element types, and sizes remain hard
+errors. Arrays, record members, volatile or atomic objects, static-storage
+objects or literals, and anonymous variadic or unprototyped arguments remain
+fail-closed.
+
+The wire contract is measured rather than inferred from the internal `v2i64`
+carrier. AArch64 passes this GNU vector in `q0` but returns its one TI lane in
+`x0:x1`; SysV x86-64 passes it in `rdi:rsi` and returns it in `rax:rdx`.
+`scripts/abi_differential_lane.sh` links Cgfried and Clang objects in both
+directions to pin those asymmetric rules.
 
 `mode(TI)`, `__int128`, `signed __int128`, and `__int128_t` name the same
 signed 128-bit type; `unsigned __int128` and `__uint128_t` name its unsigned
@@ -150,9 +167,11 @@ receive targeted errors.
 
 `__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
 that macro as an effective-target promise for bodies that also exercise the
-still-refused vector, checked-overflow operand/selector, and variadic TI
-surfaces. Source may use the implemented types directly; the
-broader feature advertisement lands only when those guarded boundaries close.
+still-refused checked-overflow operand/selector, variadic, atomic, enum, and
+reverse-storage TI surfaces. The one-lane vector boundary above is now
+implemented, but source should continue to use the implemented types directly;
+the broader feature advertisement lands only when every guarded boundary
+closes.
 
 The torture harness's narrower DejaGNU `int128` capability is enabled: that
 effective-target test asks whether the source type exists. It therefore runs
@@ -168,8 +187,9 @@ enum expressions report the integer class (`1`) while arrays and functions
 report pointer (`5`). A written type name preserves GCC's distinct void (`0`),
 enum (`3`), boolean (`4`), function (`10`), and array (`14`) classes. Real
 floating, struct, and union types report `8`, `12`, and `13`; `mode(TI)` is an
-integer. Complex and vector classes remain unavailable because those source
-types are explicitly refused rather than accepted with invented semantics.
+integer, and the admitted one-lane TI vector reports `19`. Complex types and
+all other vector shapes remain unavailable rather than acquiring invented
+semantics.
 
 `__builtin_extract_return_addr` has GCC's `void *(void *)` contract. The
 argument undergoes ordinary pointer assignment conversion and is evaluated
@@ -671,7 +691,7 @@ silently rather than fail loudly.
 | `asm goto` | control flow out of an asm block needs edges the IR verifier would have to trust rather than check | the Linux kernel; none of our targets |
 | arbitrary extra REGISTER outputs in one `asm` | one MIR instruction defines one value on both backends, so another allocator-chosen output means widening `CgMirView`. Memory outputs are supported, as are x86 fixed-register extras with exactly one matching input: that input reserves the location and a post-asm `READREG` captures it, covering glibc `<sys/io.h>`. General `=r` extras and every arm64 multi-register-output form remain refused | Linux's allocator-chosen `__cmpxchg` shapes; no musl TU we compile |
 | non-integer `mode(...)` — `SF`/`DF`/`XF`/`TF`, `V*` | each names either a floating type chosen by width (which would silently disagree with the target's own `float`/`double`/`long double` — x86-64's is x87 80-bit, so `TF` is not it) or a vector with no source-type contract. The integer modes, including TI, are implemented; see that row | glibc uses exactly one mode in all of `/usr/include`, and it is an integer one |
-| `vector_size(...)` | would create vector types with no AAPCS64 or SysV parameter contract — Sprint 36 declined to invent one | none of our corpora |
+| all other `vector_size(...)` shapes and uses | the admitted one-lane TI form has a measured named-call ABI; general element counts, derived objects, operators, volatile/atomic access, static images, and anonymous argument transport do not | GNU SIMD sources outside GCC torture PR105613 |
 | nested functions | requires executable trampolines on the stack | none of our targets |
 | computed goto (`&&label`, `goto *p`) | out of the v0.1.0 scope contract | interpreters; not our corpora |
 | `__label__` (block-scoped labels) | our labels have FUNCTION scope and are interned by the lexer, with `label_find` comparing pointers, so block scoping means mangling and the parser holds no interner to mangle with. Accepting it as an ordinary label would compile the single-use case and report "duplicate label" on the sibling-block case gcc accepts — rejecting valid code while looking implemented | musl 0 uses, glibc headers 0; only clang's own sources |
