@@ -1734,12 +1734,6 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                      * precision recorded on the expression. */
                     if (quiet(e->args[2], NULL)) {
                         valid = false;
-                    } else if (type_is_int128(selector)) {
-                        err(s, e->args[2]->span,
-                            "mode(TI) selectors for checked-overflow "
-                            "builtins are not yet supported "
-                            "(docs/gnu-extensions.md)");
-                        valid = false;
                     } else if (!selector || !type_is_integer(selector) ||
                                selector->kind == TY_BOOL ||
                                selector->kind == TY_ENUM) {

@@ -2030,6 +2030,54 @@ void test_lower_builtin_checked_overflow_predicate_family(TestCtx *t)
     }
 }
 
+void test_lower_builtin_checked_overflow_ti_predicate_selectors(TestCtx *t)
+{
+    static const char source[] =
+        "typedef unsigned int u128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "typedef int i128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "unsigned long long left(void); long long right(void); "
+        "i128 selector(void); "
+        "struct bits { i128 value : 65; }; struct bits *field(void); "
+        "volatile u128 wide_selector; "
+        "_Bool add(void) { return __builtin_add_overflow_p(left(), right(), "
+        "selector()); } "
+        "_Bool sub(void) { return __builtin_sub_overflow_p(left(), right(), "
+        "field()->value); } "
+        "_Bool mul(void) { return __builtin_mul_overflow_p(left(), right(), "
+        "selector()); } "
+        "_Bool umul(void) { return __builtin_mul_overflow_p(left(), right(), "
+        "wide_selector); }\n";
+    static const TargetKind targets[] = {CGF_TARGET_X86_64_LINUX_GNU,
+                                         CGF_TARGET_ARM64_LINUX};
+    LowFix f;
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        IrModule *round;
+
+        T_ASSERT(t,
+                 run_lower_target_opts(&f, source, STD_C17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @left()"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @right()"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @selector("), 2);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @field()"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @__multi3("), 2);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "memcpy "), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), ", volatile"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "udiv i64"), 0);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), " nsw"), 0);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_"), 0);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f),
+                                "<checked-overflow-ti-predicates>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_clrsb_family(TestCtx *t)
 {
     static const char calls[] =

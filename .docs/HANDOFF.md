@@ -8656,7 +8656,7 @@ and green post-publication CI.
   re-audit every guarded, variadic, checked-overflow operand/selector, atomic,
   enum, and reverse-storage surface before deciding whether
   `__SIZEOF_INT128__` can truthfully be defined.
-- The active `s56.65-ti-vector-boundary` tranche starts from exact merged PR
+- The `s56.65-ti-vector-boundary` tranche starts from exact merged PR
   #159, `67c7d31a96534a762f79047d86fde60fdebb6580`. It implements only the GNU
   `vector_size(16)` shape whose signed or unsigned element is `mode(TI)`, the
   blocker in GCC torture `execute/pr105613.c`. The source contract includes
@@ -8697,10 +8697,61 @@ and green post-publication CI.
   policy-skips `pr105613.c` because its `dg-do` is conditional; the permanent
   fixture and forced original-source matrix carry the regression contract.
 
-  Next, perform the complete guarded/variadic/checked-overflow
-  operand-selector/atomic/enum/reverse-storage audit. Do not define
-  `__SIZEOF_INT128__` until every one of those surfaces is either implemented
-  or receives an explicit fail-closed boundary.
+  Final standard
+  [run 36510299449](https://github.com/tenseleyFlow/Cgfried/actions/runs/36510299449)
+  and bootstrap runs
+  [36510299423](https://github.com/tenseleyFlow/Cgfried/actions/runs/36510299423)
+  and
+  [36510296010](https://github.com/tenseleyFlow/Cgfried/actions/runs/36510296010)
+  were fully green. PR #160 merged green-only as
+  `12435595101db8c98db0bebd91f0e4441075a14d`; its exact parents are merged
+  #159 `67c7d31a` and tested publication head `3529796e`, and its tree
+  `19984cdc225a29dfab458102f9f6489e6d793880` is byte-identical to the tested
+  head.
+- The active `s56.66-ti-overflow-predicate-selectors` tranche starts from
+  exact merged PR #160. It removes only the TI third-argument refusal from
+  GNU `__builtin_{add,sub,mul}_overflow_p`; TI operands remain a targeted
+  fail-closed boundary. Selector evaluation remains left-to-right and exactly
+  once, including volatile accesses, while the value is ignored. Selectors at
+  most 64 bits keep the established one-limb path. Wider signed and unsigned
+  selectors, including the exact precision of TI bit-fields, compare a
+  two-limb mathematical magnitude with the selected range. Add/subtract form
+  that magnitude inline; multiply reuses the existing `__multi3` ABI, without
+  introducing an i128 IR scalar. Constant folding uses the same range model
+  through the host-portable `CeWide` primitives.
+
+  The exact #160 compiler reports the former selector refusal at all 28 sites
+  in the permanent fixture. Repaired Cgfried and GCC 16 agree on that fixture
+  at O0/O1/O2/O3/Os on arm64-macos; Cgfried also passes all five levels with
+  `CGF_SPILL_ALL=1`. Both Linux backends emit and assemble it at all five
+  levels. Byte-pristine GCC torture `compile/pr93335.c` emits for both Linux
+  targets at all five levels. Full-width signed/unsigned ranges, 65-bit signed
+  and unsigned TI bit-fields, mixed signs, zero-sign normalization, constant
+  folding, exact-once function selectors, and volatile selector reads are
+  permanently pinned. The upstream manifest still policy-skips `pr93335.c`
+  because its `dg-do` is conditional, so the permanent fixture and forced
+  original-source matrix carry the regression contract.
+
+  Focused normal and ASan+UBSan units pass. The complete normal and sanitized
+  baselines report 988 tests / 4,330,399 assertions with exactly the same
+  eight Darwin host-assumption failures; the new lowering test plus expanded
+  sema test account for 30 assertions. Normal and sanitized 2,000-case
+  frontend fuzz runs find zero failures. Repeated normal and sanitized
+  5,000-case hashes deterministically produce `af3fd04be990fed9`; the digest
+  moved solely because this tranche adds one permanent program to the fuzz
+  corpus. Source bans, target seams, GNU tiers, deferrals, verifier coverage,
+  no-host-FPU, unit registry, import provenance, format matrix, and pinned
+  clang-format 22 are green.
+
+  After green-only merge, take TI conversion in the floating-comparison
+  builtin family as the next narrow tranche. The ordinary TI-to-floating
+  machinery is already implemented; the family retains one explicit sema
+  refusal and otherwise lowers through its established common floating type.
+  Then take the larger TI checked-overflow-operand tranche, which can require
+  exact 256-bit product/range reasoning, before continuing the variadic/
+  atomic/enum/reverse-storage guarded-surface audit. Do not define
+  `__SIZEOF_INT128__` until every advertised surface is either implemented or
+  receives an explicit fail-closed boundary.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

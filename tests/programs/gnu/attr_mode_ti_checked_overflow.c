@@ -1,7 +1,7 @@
 // Type-generic checked arithmetic stores exact modulo-2^128 results in TI
 // destinations while reporting overflow against the destination's signed or
-// unsigned range. TI operands and predicate selectors remain separate
-// boundaries.
+// unsigned range. TI operands remain a separate boundary; TI predicate
+// selectors have their own exact-range fixture.
 // FLAGS: -std=gnu17 -Wall -Wextra
 // WARN_COUNT: 0
 // EXIT_CODE: 0

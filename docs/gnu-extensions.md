@@ -161,18 +161,22 @@ two-limb value, including signed and unsigned labels and GNU ranges that cross
 the limb boundary. Type-generic checked arithmetic accepts a TI result
 destination when both operands are at most 64 bits, stores the exact
 modulo-2^128 result, and reports overflow against the destination's signed or
-unsigned range. TI operands and TI checked-overflow predicate selectors remain
-fail-closed boundaries. Atomic TI objects and atomic/TI compound operations,
-TI enums, and reverse storage order for ordinary TI members or arrays likewise
-receive targeted errors.
+unsigned range. The `__builtin_{add,sub,mul}_overflow_p` family also accepts
+signed and unsigned TI selectors, including their exact unpromoted bit-field
+precision, while retaining the at-most-64-bit operand boundary. Constant
+folding and runtime lowering compare an exact two-limb magnitude with the
+selector range, and the ignored selector value is still evaluated once.
+Atomic TI objects and atomic/TI compound operations, TI enums, and reverse
+storage order for ordinary TI members or arrays likewise receive targeted
+errors.
 
 `__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
 that macro as an effective-target promise for bodies that also exercise the
-still-refused checked-overflow operand/selector, variadic, atomic, enum, and
-reverse-storage TI surfaces. The one-lane vector boundary above is now
-implemented, but source should continue to use the implemented types directly;
-the broader feature advertisement lands only when every guarded boundary
-closes.
+still-refused checked-overflow operand, variadic, atomic, enum, and
+reverse-storage TI surfaces. The checked-overflow selector and one-lane vector
+boundaries are now implemented, but source should continue to use the
+implemented types directly; the broader feature advertisement lands only when
+every guarded boundary closes.
 
 The torture harness's narrower DejaGNU `int128` capability is enabled: that
 effective-target test asks whether the source type exists. It therefore runs
