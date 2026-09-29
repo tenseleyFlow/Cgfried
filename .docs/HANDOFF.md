@@ -8737,7 +8737,7 @@ and green post-publication CI.
   eight Darwin host-assumption failures; the new lowering test plus expanded
   sema test account for 30 assertions. Normal and sanitized 2,000-case
   frontend fuzz runs find zero failures. Repeated normal and sanitized
-  5,000-case hashes deterministically produce `2a9f2f6bde9584a3`; the digest
+  5,000-case hashes deterministically produce `af3fd04be990fed9`; the digest
   moved solely because this tranche adds one permanent program to the fuzz
   corpus. Source bans, target seams, GNU tiers, deferrals, verifier coverage,
   no-host-FPU, unit registry, import provenance, format matrix, and pinned
