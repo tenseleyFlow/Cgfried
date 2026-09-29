@@ -1637,13 +1637,6 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                  * not, and neither are pointer/aggregate operands. */
                 if (quiet(e->args[0], e->args[1]))
                     return poison(s, e);
-                if (type_is_int128(left) || type_is_int128(right)) {
-                    err(s, e->span,
-                        "floating comparison builtin conversion from "
-                        "mode(TI) is not yet supported "
-                        "(docs/gnu-extensions.md)");
-                    return poison(s, e);
-                }
                 if (!type_is_arithmetic(left) || !type_is_arithmetic(right) ||
                     (!type_is_floating(left) && !type_is_floating(right))) {
                     err(s, e->span,

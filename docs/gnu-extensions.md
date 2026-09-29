@@ -94,7 +94,7 @@ predefine.
 | `__thread`, `__extension__` | `tests/corpus/x86_64/int/gnu_thread_extension.c` | musl and glibc write `__thread`; `__extension__` guards every pedwarn-provoking header construct |
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
 | `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
-| integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c`, static-image coverage in `tests/programs/gnu/attr_mode_ti_static_init.c`, and required-constant coverage in `tests/corpus/x86_64/int/gnu_mode_ti_constexpr.c` |
+| integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c`, static-image coverage in `tests/programs/gnu/attr_mode_ti_static_init.c`, required-constant coverage in `tests/corpus/x86_64/int/gnu_mode_ti_constexpr.c`, and floating-comparison builtin coverage in `tests/programs/gnu/attr_mode_ti_float_compare.c` |
 | `vector_size(16)` on signed or unsigned `mode(TI)` | `tests/programs/gnu/attr_vector_size_ti.c` | GCC torture PR105613's one-lane TI comparison, with named parameter and return ABI coverage |
 | GNU 128-bit integer names — `__int128`, `__int128_t`, `__uint128_t` | `tests/corpus/x86_64/int/gnu_int128_spelling.c` | Apple's ARM thread-state headers use `__uint128_t` directly; the GNU spelling shares the implemented `mode(TI)` arithmetic, layout, constant-expression, ABI, bit-field, packed-field, and reverse-storage contracts, with the bit-field surface pinned separately by `tests/corpus/x86_64/int/gnu_int128_bitfields.c` |
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
@@ -146,14 +146,17 @@ parameter and return conventions are implemented through address-backed
 two-limb values and the existing libgcc-compatible runtime helpers. Floating
 conversion covers binary32, binary64, target `long double` (x87-80,
 binary128, or binary64), and `_Float128`; compile-time folding and the runtime
-share the same host-FPU-free two-limb soft-float primitives. The
-constant evaluator retains two limbs for integer conversions and exact unary,
-binary, comparison, logical, and conditional folding, so required constant
-expressions and explicit static initialization (including aggregate objects)
-produce exact 128-bit values. Undefined signed overflow, division by zero, and
-out-of-range shifts are diagnosed in required contexts. Pointer relocations
-remain limited to pointer-width integer objects, matching GCC; a TI object is
-wider. TI bit-fields use the ordinary 128-bit allocation unit and preserve the
+share the same host-FPU-free two-limb soft-float primitives. The six
+type-generic floating-comparison builtins accept TI on either side, apply the
+usual arithmetic conversions once, and then use their established ordered or
+unordered floating predicate. The constant evaluator retains two limbs for
+integer conversions and exact unary, binary, comparison, logical, and
+conditional folding, so required constant expressions and explicit static
+initialization (including aggregate objects) produce exact 128-bit values.
+Undefined signed overflow, division by zero, and out-of-range shifts are
+diagnosed in required contexts. Pointer relocations remain limited to
+pointer-width integer objects, matching GCC; a TI object is wider. TI
+bit-fields use the ordinary 128-bit allocation unit and preserve the
 address-backed two-limb value contract through static/runtime initialization,
 reads, writes, narrowed assignment results, compound updates, packed fields,
 and reverse scalar storage order. TI switch controls compare the full

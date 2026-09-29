@@ -1572,6 +1572,69 @@ void test_lower_builtin_fp_compare_family(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_fp_compare_ti_operands(TestCtx *t)
+{
+    static const char source[] =
+        "typedef int i128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "typedef unsigned int u128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "i128 source_s(void); u128 source_u(void); "
+        "float source_f(void); double source_d(void); "
+        "long double source_l(void); int use(void) { "
+        "return __builtin_isunordered(source_u(), source_f()) + "
+        "__builtin_isless(source_s(), source_d()) + "
+        "__builtin_islessequal(source_u(), source_l()) + "
+        "__builtin_isgreater(source_f(), source_s()) + "
+        "__builtin_isgreaterequal(source_d(), source_u()) + "
+        "__builtin_islessgreater(source_l(), source_s()); }\n";
+    static const struct {
+        TargetKind target;
+        const char *signed_long_double_helper;
+        const char *unsigned_long_double_helper;
+    } cases[] = {
+        {CGF_TARGET_X86_64_LINUX_GNU, "call f80 @__floattixf(",
+         "call f80 @__floatuntixf("},
+        {CGF_TARGET_ARM64_LINUX, "call f128 @__floattitf(",
+         "call f128 @__floatuntitf("},
+    };
+    LowFix f;
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(cases); i++) {
+        IrModule *round;
+
+        T_ASSERT(t, run_lower_target_opts(&f, source, STD_GNU17, true,
+                                          cases[i].target));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @source_s("), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @source_u("), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @source_f()"), 2);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @source_d()"), 2);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@source_l()"), 2);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @__floattisf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @__floatuntisf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @__floattidf("), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @__floatuntidf("), 1);
+        T_ASSERT_EQ_INT(
+            t, count_of(txt(&f), cases[i].signed_long_double_helper), 1);
+        T_ASSERT_EQ_INT(
+            t, count_of(txt(&f), cases[i].unsigned_long_double_helper), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp uno "), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp olt "), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp ole "), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp ogt "), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp oge "), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp one "), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_is"), 0);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f),
+                                "<fp-compare-ti-operands>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_fp_classification_family(TestCtx *t)
 {
     static const char source[] =

@@ -2148,6 +2148,39 @@ void test_sema_builtin_fp_compare_family(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_fp_compare_ti_operands(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "typedef int i128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "typedef unsigned int u128 __attribute__" /* check_bans allow */
+        "((mode(TI)));\n"
+        "#define U ((u128)1)\n"
+        "#define B(n) (U << (n))\n"
+        "_Static_assert(__builtin_isunordered(B(100), __builtin_nan(\"\")), "
+        "\"unordered\"); "
+        "_Static_assert(__builtin_isless((i128)-1, 0.0), \"less\"); "
+        "_Static_assert(__builtin_islessequal(B(100), 0x1p100), "
+        "\"less equal\"); "
+        "_Static_assert(__builtin_isgreater(B(100), 0x1p99), \"greater\"); "
+        "_Static_assert(__builtin_isgreaterequal(0x1p100, B(100)), "
+        "\"greater equal\"); "
+        "_Static_assert(__builtin_islessgreater((i128)-2, -1.0), "
+        "\"less greater\"); "
+        "i128 signed_source(void); u128 unsigned_source(void); "
+        "double real_source(void); "
+        "int runtime(void) { return "
+        "__builtin_isless(signed_source(), real_source()) + "
+        "__builtin_isgreater(real_source(), unsigned_source()); }\n",
+        STD_GNU17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_fp_classification_family(TestCtx *t)
 {
     SemaFix f;
