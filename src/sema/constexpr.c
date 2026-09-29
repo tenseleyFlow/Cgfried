@@ -886,7 +886,7 @@ overflow:
 }
 
 typedef struct {
-    u64 magnitude;
+    CeWide magnitude;
     bool negative;
 } CeOverflowInteger;
 
@@ -894,11 +894,20 @@ static CeOverflowInteger ce_overflow_integer(Sema *s, ConstValue value)
 {
     CeOverflowInteger out;
     u32 width = conv_int_bits(s, value.type);
-    u64 sign = width && width <= 64 ? 1ull << (width - 1) : 0;
+    u64 sign;
 
+    if (width > 64) {
+        CeWide bits = ce_wide_value(value);
+
+        out.negative = conv_is_signed(s, value.type) && (bits.hi >> 63) != 0;
+        out.magnitude = out.negative ? ce_wide_neg(bits) : bits;
+        return out;
+    }
+
+    sign = width ? 1ull << (width - 1) : 0;
     out.negative =
         conv_is_signed(s, value.type) && sign && (value.i & sign) != 0;
-    out.magnitude = out.negative ? 0 - value.i : value.i;
+    out.magnitude = ce_wide(out.negative ? 0 - value.i : value.i, 0);
     return out;
 }
 
@@ -906,10 +915,9 @@ static u64 ce_overflow_limit(Sema *s, Type *result_type, bool negative)
 {
     u32 width = conv_int_bits(s, result_type);
 
-    /* The checked-overflow folder still reasons through one-limb magnitudes,
-     * and expression sema separately refuses its mode(TI) operands. Returning
-     * the u64 ceiling here keeps any opportunistic recovery fold conservative
-     * and, critically, avoids shifting the compiler's own integer by 127. */
+    /* This helper serves narrow result ranges and the still-one-limb
+     * multiplication path. Wide checked addition/subtraction obtains its
+     * exact two-limb bound from ce_overflow_wide_limit below. */
     if (width > 64)
         return UINT64_MAX;
 
@@ -924,6 +932,9 @@ static u64 ce_overflow_limit(Sema *s, Type *result_type, bool negative)
 static CeWide ce_overflow_wide_limit(Sema *s, Type *result_type, bool negative)
 {
     u32 width = conv_int_bits(s, result_type);
+
+    if (width <= 64)
+        return ce_wide(ce_overflow_limit(s, result_type, negative), 0);
 
     if (conv_is_signed(s, result_type)) {
         if (negative)
@@ -943,30 +954,32 @@ static bool ce_addsub_overflow_wide_p(Sema *s, CeOverflowInteger left,
     CeWide magnitude;
     CeWide limit;
     bool negative;
+    bool carry = false;
 
-    if (subtract && right.magnitude != 0)
+    if (subtract && !ce_wide_is_zero(right.magnitude))
         right.negative = !right.negative;
     if (left.negative == right.negative) {
-        magnitude = ce_wide_add(ce_wide(left.magnitude, 0),
-                                ce_wide(right.magnitude, 0));
+        magnitude = ce_wide_add(left.magnitude, right.magnitude);
+        carry = ce_wide_cmp_unsigned(magnitude, left.magnitude) < 0;
         negative = left.negative;
-    } else if (left.magnitude >= right.magnitude) {
-        magnitude = ce_wide(left.magnitude - right.magnitude, 0);
-        negative = left.magnitude != right.magnitude && left.negative;
+    } else if (ce_wide_cmp_unsigned(left.magnitude, right.magnitude) >= 0) {
+        magnitude = ce_wide_sub(left.magnitude, right.magnitude);
+        negative = !ce_wide_is_zero(magnitude) && left.negative;
     } else {
-        magnitude = ce_wide(right.magnitude - left.magnitude, 0);
+        magnitude = ce_wide_sub(right.magnitude, left.magnitude);
         negative = right.negative;
     }
     limit = ce_overflow_wide_limit(s, result_type, negative);
-    return ce_wide_cmp_unsigned(magnitude, limit) > 0;
+    return carry || ce_wide_cmp_unsigned(magnitude, limit) > 0;
 }
 
 static bool ce_mul_overflow_wide_p(Sema *s, CeOverflowInteger left,
                                    CeOverflowInteger right, Type *result_type)
 {
-    bool negative = left.magnitude != 0 && right.magnitude != 0 &&
+    bool negative = !ce_wide_is_zero(left.magnitude) &&
+                    !ce_wide_is_zero(right.magnitude) &&
                     left.negative != right.negative;
-    CeWide magnitude = ce_wide_mul64(left.magnitude, right.magnitude);
+    CeWide magnitude = ce_wide_mul64(left.magnitude.lo, right.magnitude.lo);
     CeWide limit = ce_overflow_wide_limit(s, result_type, negative);
 
     return ce_wide_cmp_unsigned(magnitude, limit) > 0;
@@ -976,30 +989,14 @@ static bool ce_addsub_overflow_p(Sema *s, CeOverflowInteger left,
                                  CeOverflowInteger right, Type *result_type,
                                  bool subtract)
 {
-    u64 limit;
-
-    if (conv_int_bits(s, result_type) > 64)
-        return ce_addsub_overflow_wide_p(s, left, right, result_type, subtract);
-
-    if (subtract && right.magnitude != 0)
-        right.negative = !right.negative;
-    if (left.negative == right.negative) {
-        limit = ce_overflow_limit(s, result_type, left.negative);
-        return right.magnitude > limit ||
-               left.magnitude > limit - right.magnitude;
-    }
-    if (left.magnitude >= right.magnitude) {
-        limit = ce_overflow_limit(s, result_type, left.negative);
-        return left.magnitude - right.magnitude > limit;
-    }
-    limit = ce_overflow_limit(s, result_type, right.negative);
-    return right.magnitude - left.magnitude > limit;
+    return ce_addsub_overflow_wide_p(s, left, right, result_type, subtract);
 }
 
 static bool ce_mul_overflow_p(Sema *s, CeOverflowInteger left,
                               CeOverflowInteger right, Type *result_type)
 {
-    bool negative = left.magnitude != 0 && right.magnitude != 0 &&
+    bool negative = !ce_wide_is_zero(left.magnitude) &&
+                    !ce_wide_is_zero(right.magnitude) &&
                     left.negative != right.negative;
     u64 limit;
 
@@ -1007,7 +1004,10 @@ static bool ce_mul_overflow_p(Sema *s, CeOverflowInteger left,
         return ce_mul_overflow_wide_p(s, left, right, result_type);
     limit = ce_overflow_limit(s, result_type, negative);
 
-    return left.magnitude != 0 && right.magnitude > limit / left.magnitude;
+    if (left.magnitude.hi != 0 || right.magnitude.hi != 0)
+        return true;
+    return left.magnitude.lo != 0 &&
+           right.magnitude.lo > limit / left.magnitude.lo;
 }
 
 static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m,

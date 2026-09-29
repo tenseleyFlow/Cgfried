@@ -161,32 +161,36 @@ address-backed two-limb value contract through static/runtime initialization,
 reads, writes, narrowed assignment results, compound updates, packed fields,
 and reverse scalar storage order. TI switch controls compare the full
 two-limb value, including signed and unsigned labels and GNU ranges that cross
-the limb boundary. Type-generic checked arithmetic accepts a TI result
-destination when both operands are at most 64 bits, stores the exact
-modulo-2^128 result, and reports overflow against the destination's signed or
-unsigned range. The `__builtin_{add,sub,mul}_overflow_p` family also accepts
-signed and unsigned TI selectors, including their exact unpromoted bit-field
-precision, while retaining the at-most-64-bit operand boundary. Constant
-folding and runtime lowering compare an exact two-limb magnitude with the
-selector range, and the ignored selector value is still evaluated once.
+the limb boundary. Type-generic checked addition and subtraction accept
+independently typed TI operands and integer result destinations through TI.
+Each address-backed operand is captured before the next argument is evaluated.
+Runtime lowering tracks an exact two-limb sign/magnitude plus its possible
+129th carry bit, stores the required destination-width low bits, and reports
+overflow against the destination's signed or unsigned range. The predicate
+forms use the same model and accept signed and unsigned TI selectors,
+including their exact unpromoted bit-field precision; their ignored selector
+value is still evaluated once. Constant folding uses the matching
+host-portable two-limb model. Checked multiplication accepts TI destinations
+and selectors when both operands are at most 64 bits; a TI multiplication
+operand remains a targeted four-limb-product boundary.
 Atomic TI objects and atomic/TI compound operations, TI enums, and reverse
 storage order for ordinary TI members or arrays likewise receive targeted
 errors.
 
 `__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
 that macro as an effective-target promise for bodies that also exercise the
-still-refused checked-overflow operand, variadic, atomic, enum, and
-reverse-storage TI surfaces. The checked-overflow selector and one-lane vector
-boundaries are now implemented, but source should continue to use the
-implemented types directly; the broader feature advertisement lands only when
-every guarded boundary closes.
+still-refused checked-overflow multiplication operand, variadic, atomic, enum,
+and reverse-storage TI surfaces. The checked-overflow selector and one-lane
+vector boundaries are now implemented, but source should continue to use the
+implemented types directly; the broader feature advertisement lands only
+when every guarded boundary closes.
 
 The torture harness's narrower DejaGNU `int128` capability is enabled: that
 effective-target test asks whether the source type exists. It therefore runs
 direct `__int128` cases such as `pr84748.c` and the TI bit-field compile cases
-while continuing to expose separately named vector, checked-overflow,
-variadic, and ordinary-member reverse-storage boundaries
-instead of hiding them as unsupported-type skips.
+while continuing to expose separately named vector, checked-overflow
+multiplication-operand, variadic, and ordinary-member reverse-storage
+boundaries instead of hiding them as unsupported-type skips.
 
 `__builtin_classify_type` is an integer constant expression and never
 evaluates an expression operand. Expression operands undergo GCC's ordinary

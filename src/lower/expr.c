@@ -3333,37 +3333,78 @@ static IrOperand lower_fp_signbit(Lower *lo, AstNode *argument)
 }
 
 typedef struct OverflowInteger {
-    IrOperand magnitude; /* unsigned i64 absolute value */
-    IrOperand negative;  /* i32 predicate; zero is never negative */
+    WideInt magnitude;  /* unsigned two-limb absolute value */
+    IrOperand negative; /* i32 predicate; zero is never negative */
 } OverflowInteger;
 
 /* Preserve the source operand's signed mathematical value as sign+magnitude.
- * Every supported source integer is at most 64 bits. In particular,
- * 0 - INT64_MIN in unsigned IR produces the representable magnitude 2^63,
- * so neither the compiler host nor generated code performs signed UB. */
+ * Narrow scalars use the low limb. TI rvalues have already been captured by
+ * the caller, so loading both limbs here cannot observe a later argument's
+ * side effect. Two-limb negation is unsigned IR and therefore represents the
+ * signed minimum exactly without compiler-host or generated-code UB. */
 static OverflowInteger lower_overflow_integer(Lower *lo, IrOperand value,
                                               Type *type)
 {
     bool is_signed = conv_is_signed(lo->sema, type);
-    Type *wide_type = type_basic(is_signed ? TY_LLONG : TY_ULLONG);
     OverflowInteger out;
 
-    value = lower_scalar_convert(lo, value, type, wide_type);
-    if (!is_signed) {
-        out.magnitude = value;
-        out.negative = ir_op_iconst(IRT_I32, 0);
-        return out;
+    if (type_is_int128(type)) {
+        WideInt bits = wide_load(lo, value, type, 0);
+
+        if (!is_signed) {
+            out.magnitude = bits;
+            out.negative = ir_op_iconst(IRT_I32, 0);
+            return out;
+        }
+        {
+            IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
+            ValueId negative = ir_build_icmp(&lo->b, ICMP_SLT, bits.hi, zero64);
+            ValueId negated_lo =
+                ir_build2(&lo->b, IR_ISUB, IRT_I64, zero64, bits.lo);
+            ValueId low_nonzero =
+                ir_build_icmp(&lo->b, ICMP_NE, bits.lo, zero64);
+            ValueId borrow = ir_build1(&lo->b, IR_ZEXT, IRT_I64,
+                                       ir_op_value(lo->fn, low_nonzero));
+            ValueId negated_hi =
+                ir_build2(&lo->b, IR_ISUB, IRT_I64, zero64, bits.hi);
+
+            negated_hi = ir_build2(&lo->b, IR_ISUB, IRT_I64,
+                                   ir_op_value(lo->fn, negated_hi),
+                                   ir_op_value(lo->fn, borrow));
+            out.negative = ir_op_value(lo->fn, negative);
+            out.magnitude.lo = ir_op_value(
+                lo->fn,
+                ir_build_select(&lo->b, out.negative,
+                                ir_op_value(lo->fn, negated_lo), bits.lo));
+            out.magnitude.hi = ir_op_value(
+                lo->fn,
+                ir_build_select(&lo->b, out.negative,
+                                ir_op_value(lo->fn, negated_hi), bits.hi));
+            return out;
+        }
     }
     {
-        IrOperand zero = ir_op_iconst(IRT_I64, 0);
-        ValueId negative = ir_build_icmp(&lo->b, ICMP_SLT, value, zero);
-        ValueId negated = ir_build2(&lo->b, IR_ISUB, IRT_I64, zero, value);
+        Type *wide_type = type_basic(is_signed ? TY_LLONG : TY_ULLONG);
 
-        out.negative = ir_op_value(lo->fn, negative);
-        out.magnitude = ir_op_value(
-            lo->fn, ir_build_select(&lo->b, out.negative,
-                                    ir_op_value(lo->fn, negated), value));
-        return out;
+        value = lower_scalar_convert(lo, value, type, wide_type);
+        if (!is_signed) {
+            out.magnitude.lo = value;
+            out.magnitude.hi = ir_op_iconst(IRT_I64, 0);
+            out.negative = ir_op_iconst(IRT_I32, 0);
+            return out;
+        }
+        {
+            IrOperand zero = ir_op_iconst(IRT_I64, 0);
+            ValueId negative = ir_build_icmp(&lo->b, ICMP_SLT, value, zero);
+            ValueId negated = ir_build2(&lo->b, IR_ISUB, IRT_I64, zero, value);
+
+            out.negative = ir_op_value(lo->fn, negative);
+            out.magnitude.lo = ir_op_value(
+                lo->fn, ir_build_select(&lo->b, out.negative,
+                                        ir_op_value(lo->fn, negated), value));
+            out.magnitude.hi = ir_op_iconst(IRT_I64, 0);
+            return out;
+        }
     }
 }
 
@@ -3391,9 +3432,12 @@ static IrOperand overflow_limit(Lower *lo, IrOperand negative,
                                 ir_op_iconst(IRT_I64, (i64)positive_limit)));
 }
 
-static IrOperand lower_addsub_overflow(Lower *lo, OverflowInteger left,
-                                       OverflowInteger right, Type *result_type,
-                                       bool subtract)
+/* Keep the established compact lowering when the operands and result all fit
+ * one limb. TI operands need the two-limb path below even for a narrow result.
+ */
+static IrOperand lower_addsub_overflow_narrow(Lower *lo, OverflowInteger left,
+                                              OverflowInteger right,
+                                              Type *result_type, bool subtract)
 {
     IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
     IrOperand one32 = ir_op_iconst(IRT_I32, 1);
@@ -3413,12 +3457,10 @@ static IrOperand lower_addsub_overflow(Lower *lo, OverflowInteger left,
 
     if (subtract) {
         ValueId right_nonzero =
-            ir_build_icmp(&lo->b, ICMP_NE, right.magnitude, zero64);
+            ir_build_icmp(&lo->b, ICMP_NE, right.magnitude.lo, zero64);
         ValueId inverted =
             ir_build2(&lo->b, IR_XOR, IRT_I32, right.negative, one32);
 
-        /* Negating the second mathematical operand turns subtraction into
-         * addition. Normalize zero's sign so 0 - 0 remains nonnegative. */
         right.negative =
             ir_op_value(lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32,
                                           ir_op_value(lo->fn, right_nonzero),
@@ -3428,22 +3470,21 @@ static IrOperand lower_addsub_overflow(Lower *lo, OverflowInteger left,
     same_sign = ir_build_icmp(&lo->b, ICMP_EQ, left.negative, right.negative);
     sum_limit = overflow_limit(lo, left.negative, result_type);
     right_past_limit =
-        ir_build_icmp(&lo->b, ICMP_UGT, right.magnitude, sum_limit);
-    remaining = ir_build2(&lo->b, IR_ISUB, IRT_I64, sum_limit, right.magnitude);
-    left_past_remaining = ir_build_icmp(&lo->b, ICMP_UGT, left.magnitude,
+        ir_build_icmp(&lo->b, ICMP_UGT, right.magnitude.lo, sum_limit);
+    remaining =
+        ir_build2(&lo->b, IR_ISUB, IRT_I64, sum_limit, right.magnitude.lo);
+    left_past_remaining = ir_build_icmp(&lo->b, ICMP_UGT, left.magnitude.lo,
                                         ir_op_value(lo->fn, remaining));
     sum_overflow =
         ir_build2(&lo->b, IR_OR, IRT_I32, ir_op_value(lo->fn, right_past_limit),
                   ir_op_value(lo->fn, left_past_remaining));
 
-    /* Opposite signs subtract magnitudes, which cannot overflow a u64. The
-     * larger magnitude determines the mathematical result sign. */
     left_ge_right =
-        ir_build_icmp(&lo->b, ICMP_UGE, left.magnitude, right.magnitude);
-    left_difference =
-        ir_build2(&lo->b, IR_ISUB, IRT_I64, left.magnitude, right.magnitude);
-    right_difference =
-        ir_build2(&lo->b, IR_ISUB, IRT_I64, right.magnitude, left.magnitude);
+        ir_build_icmp(&lo->b, ICMP_UGE, left.magnitude.lo, right.magnitude.lo);
+    left_difference = ir_build2(&lo->b, IR_ISUB, IRT_I64, left.magnitude.lo,
+                                right.magnitude.lo);
+    right_difference = ir_build2(&lo->b, IR_ISUB, IRT_I64, right.magnitude.lo,
+                                 left.magnitude.lo);
     difference = ir_op_value(
         lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, left_ge_right),
                                 ir_op_value(lo->fn, left_difference),
@@ -3461,14 +3502,162 @@ static IrOperand lower_addsub_overflow(Lower *lo, OverflowInteger left,
                                 ir_op_value(lo->fn, difference_overflow)));
 }
 
+typedef struct OverflowAddSub {
+    WideInt magnitude;
+    IrOperand negative;
+    IrOperand carry; /* 129th magnitude bit */
+} OverflowAddSub;
+
+static WideInt overflow_wide_limit(Lower *lo, IrOperand negative,
+                                   Type *result_type);
+
+static OverflowAddSub lower_addsub_result(Lower *lo, OverflowInteger left,
+                                          OverflowInteger right, bool subtract)
+{
+    Type *unsigned_wide = type_basic(TY_UINT128);
+    IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
+    IrOperand one32 = ir_op_iconst(IRT_I32, 1);
+    OverflowAddSub out;
+    ValueId same_sign;
+    WideInt sum;
+    ValueId low_carry;
+    ValueId low_carry64;
+    ValueId high_sum;
+    ValueId high_carry0;
+    ValueId high_carry1;
+    ValueId sum_carry;
+    IrOperand left_ge_right;
+    WideInt left_difference;
+    WideInt right_difference;
+    ValueId left_borrow;
+    ValueId left_borrow64;
+    ValueId right_borrow;
+    ValueId right_borrow64;
+    WideInt difference;
+    ValueId difference_bits;
+    ValueId difference_nonzero;
+    ValueId difference_sign;
+    ValueId difference_negative;
+
+    if (subtract) {
+        ValueId right_bits = ir_build2(&lo->b, IR_OR, IRT_I64,
+                                       right.magnitude.lo, right.magnitude.hi);
+        ValueId right_nonzero = ir_build_icmp(
+            &lo->b, ICMP_NE, ir_op_value(lo->fn, right_bits), zero64);
+        ValueId inverted =
+            ir_build2(&lo->b, IR_XOR, IRT_I32, right.negative, one32);
+
+        /* Negating the second mathematical operand turns subtraction into
+         * addition. Normalize zero's sign so 0 - 0 remains nonnegative. */
+        right.negative =
+            ir_op_value(lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32,
+                                          ir_op_value(lo->fn, right_nonzero),
+                                          ir_op_value(lo->fn, inverted)));
+    }
+
+    same_sign = ir_build_icmp(&lo->b, ICMP_EQ, left.negative, right.negative);
+    sum.lo =
+        ir_op_value(lo->fn, ir_build2(&lo->b, IR_IADD, IRT_I64,
+                                      left.magnitude.lo, right.magnitude.lo));
+    low_carry = ir_build_icmp(&lo->b, ICMP_ULT, sum.lo, left.magnitude.lo);
+    low_carry64 =
+        ir_build1(&lo->b, IR_ZEXT, IRT_I64, ir_op_value(lo->fn, low_carry));
+    high_sum = ir_build2(&lo->b, IR_IADD, IRT_I64, left.magnitude.hi,
+                         right.magnitude.hi);
+    high_carry0 = ir_build_icmp(&lo->b, ICMP_ULT, ir_op_value(lo->fn, high_sum),
+                                left.magnitude.hi);
+    sum.hi = ir_op_value(lo->fn, ir_build2(&lo->b, IR_IADD, IRT_I64,
+                                           ir_op_value(lo->fn, high_sum),
+                                           ir_op_value(lo->fn, low_carry64)));
+    high_carry1 =
+        ir_build_icmp(&lo->b, ICMP_ULT, sum.hi, ir_op_value(lo->fn, high_sum));
+    sum_carry =
+        ir_build2(&lo->b, IR_OR, IRT_I32, ir_op_value(lo->fn, high_carry0),
+                  ir_op_value(lo->fn, high_carry1));
+
+    left_ge_right = wide_compare(lo, PUNCT_GE, unsigned_wide, left.magnitude,
+                                 right.magnitude);
+    left_difference.lo =
+        ir_op_value(lo->fn, ir_build2(&lo->b, IR_ISUB, IRT_I64,
+                                      left.magnitude.lo, right.magnitude.lo));
+    left_borrow =
+        ir_build_icmp(&lo->b, ICMP_ULT, left.magnitude.lo, right.magnitude.lo);
+    left_borrow64 =
+        ir_build1(&lo->b, IR_ZEXT, IRT_I64, ir_op_value(lo->fn, left_borrow));
+    left_difference.hi =
+        ir_op_value(lo->fn, ir_build2(&lo->b, IR_ISUB, IRT_I64,
+                                      left.magnitude.hi, right.magnitude.hi));
+    left_difference.hi = ir_op_value(
+        lo->fn, ir_build2(&lo->b, IR_ISUB, IRT_I64, left_difference.hi,
+                          ir_op_value(lo->fn, left_borrow64)));
+
+    right_difference.lo =
+        ir_op_value(lo->fn, ir_build2(&lo->b, IR_ISUB, IRT_I64,
+                                      right.magnitude.lo, left.magnitude.lo));
+    right_borrow =
+        ir_build_icmp(&lo->b, ICMP_ULT, right.magnitude.lo, left.magnitude.lo);
+    right_borrow64 =
+        ir_build1(&lo->b, IR_ZEXT, IRT_I64, ir_op_value(lo->fn, right_borrow));
+    right_difference.hi =
+        ir_op_value(lo->fn, ir_build2(&lo->b, IR_ISUB, IRT_I64,
+                                      right.magnitude.hi, left.magnitude.hi));
+    right_difference.hi = ir_op_value(
+        lo->fn, ir_build2(&lo->b, IR_ISUB, IRT_I64, right_difference.hi,
+                          ir_op_value(lo->fn, right_borrow64)));
+
+    difference.lo = ir_op_value(lo->fn, ir_build_select(&lo->b, left_ge_right,
+                                                        left_difference.lo,
+                                                        right_difference.lo));
+    difference.hi = ir_op_value(lo->fn, ir_build_select(&lo->b, left_ge_right,
+                                                        left_difference.hi,
+                                                        right_difference.hi));
+    difference_bits =
+        ir_build2(&lo->b, IR_OR, IRT_I64, difference.lo, difference.hi);
+    difference_nonzero = ir_build_icmp(
+        &lo->b, ICMP_NE, ir_op_value(lo->fn, difference_bits), zero64);
+    difference_sign =
+        ir_build_select(&lo->b, left_ge_right, left.negative, right.negative);
+    difference_negative = ir_build2(&lo->b, IR_AND, IRT_I32,
+                                    ir_op_value(lo->fn, difference_nonzero),
+                                    ir_op_value(lo->fn, difference_sign));
+
+    out.magnitude.lo = ir_op_value(
+        lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, same_sign), sum.lo,
+                                difference.lo));
+    out.magnitude.hi = ir_op_value(
+        lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, same_sign), sum.hi,
+                                difference.hi));
+    out.negative = ir_op_value(
+        lo->fn,
+        ir_build_select(&lo->b, ir_op_value(lo->fn, same_sign), left.negative,
+                        ir_op_value(lo->fn, difference_negative)));
+    out.carry = ir_op_value(lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32,
+                                              ir_op_value(lo->fn, same_sign),
+                                              ir_op_value(lo->fn, sum_carry)));
+    return out;
+}
+
+static IrOperand lower_addsub_overflow(Lower *lo, OverflowInteger left,
+                                       OverflowInteger right, Type *result_type,
+                                       bool subtract)
+{
+    OverflowAddSub result = lower_addsub_result(lo, left, right, subtract);
+    WideInt limit = overflow_wide_limit(lo, result.negative, result_type);
+    IrOperand past_limit = wide_compare(lo, PUNCT_GT, type_basic(TY_UINT128),
+                                        result.magnitude, limit);
+
+    return ir_op_value(
+        lo->fn, ir_build2(&lo->b, IR_OR, IRT_I32, result.carry, past_limit));
+}
+
 static IrOperand lower_mul_overflow(Lower *lo, OverflowInteger left,
                                     OverflowInteger right, Type *result_type)
 {
     IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
     ValueId left_nonzero =
-        ir_build_icmp(&lo->b, ICMP_NE, left.magnitude, zero64);
+        ir_build_icmp(&lo->b, ICMP_NE, left.magnitude.lo, zero64);
     ValueId right_nonzero =
-        ir_build_icmp(&lo->b, ICMP_NE, right.magnitude, zero64);
+        ir_build_icmp(&lo->b, ICMP_NE, right.magnitude.lo, zero64);
     ValueId both_nonzero =
         ir_build2(&lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, left_nonzero),
                   ir_op_value(lo->fn, right_nonzero));
@@ -3481,9 +3670,9 @@ static IrOperand lower_mul_overflow(Lower *lo, OverflowInteger left,
         overflow_limit(lo, ir_op_value(lo->fn, negative), result_type);
     IrOperand divisor = ir_op_value(
         lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, left_nonzero),
-                                left.magnitude, ir_op_iconst(IRT_I64, 1)));
+                                left.magnitude.lo, ir_op_iconst(IRT_I64, 1)));
     ValueId quotient = ir_build2(&lo->b, IR_UDIV, IRT_I64, limit, divisor);
-    ValueId too_large = ir_build_icmp(&lo->b, ICMP_UGT, right.magnitude,
+    ValueId too_large = ir_build_icmp(&lo->b, ICMP_UGT, right.magnitude.lo,
                                       ir_op_value(lo->fn, quotient));
 
     /* Compare magnitudes against limit / left instead of forming a product
@@ -3494,63 +3683,26 @@ static IrOperand lower_mul_overflow(Lower *lo, OverflowInteger left,
                                          ir_op_value(lo->fn, too_large)));
 }
 
-/* The generic checked-arithmetic operands remain at most 64 bits while a TI
- * destination is two limbs.  Recover the infinite-precision result's sign
- * from the operands: the modulo-2^128 result alone cannot distinguish a
- * representable negative value from a wrapped positive one. */
-static IrOperand lower_overflow_result_negative(Lower *lo, OverflowInteger left,
-                                                OverflowInteger right, u16 op)
+/* TI operands remain refused for multiplication, so both magnitudes fit one
+ * limb here. Recover the infinite-precision product's sign independently of
+ * its modulo-2^128 stored representation. */
+static IrOperand lower_mul_result_negative(Lower *lo, OverflowInteger left,
+                                           OverflowInteger right)
 {
     IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
+    ValueId left_nonzero =
+        ir_build_icmp(&lo->b, ICMP_NE, left.magnitude.lo, zero64);
+    ValueId right_nonzero =
+        ir_build_icmp(&lo->b, ICMP_NE, right.magnitude.lo, zero64);
+    ValueId both_nonzero =
+        ir_build2(&lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, left_nonzero),
+                  ir_op_value(lo->fn, right_nonzero));
+    ValueId signs_differ =
+        ir_build2(&lo->b, IR_XOR, IRT_I32, left.negative, right.negative);
 
-    if (op == SEMA_BUILTIN_MUL_OVERFLOW || op == SEMA_BUILTIN_MUL_OVERFLOW_P) {
-        ValueId left_nonzero =
-            ir_build_icmp(&lo->b, ICMP_NE, left.magnitude, zero64);
-        ValueId right_nonzero =
-            ir_build_icmp(&lo->b, ICMP_NE, right.magnitude, zero64);
-        ValueId both_nonzero = ir_build2(&lo->b, IR_AND, IRT_I32,
-                                         ir_op_value(lo->fn, left_nonzero),
-                                         ir_op_value(lo->fn, right_nonzero));
-        ValueId signs_differ =
-            ir_build2(&lo->b, IR_XOR, IRT_I32, left.negative, right.negative);
-
-        return ir_op_value(lo->fn,
-                           ir_build2(&lo->b, IR_AND, IRT_I32,
-                                     ir_op_value(lo->fn, both_nonzero),
-                                     ir_op_value(lo->fn, signs_differ)));
-    }
-
-    if (op == SEMA_BUILTIN_SUB_OVERFLOW || op == SEMA_BUILTIN_SUB_OVERFLOW_P) {
-        ValueId right_nonzero =
-            ir_build_icmp(&lo->b, ICMP_NE, right.magnitude, zero64);
-        ValueId inverted = ir_build2(&lo->b, IR_XOR, IRT_I32, right.negative,
-                                     ir_op_iconst(IRT_I32, 1));
-
-        /* Negating zero must keep its mathematical sign nonnegative. */
-        right.negative =
-            ir_op_value(lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32,
-                                          ir_op_value(lo->fn, right_nonzero),
-                                          ir_op_value(lo->fn, inverted)));
-    }
-    {
-        ValueId same_sign =
-            ir_build_icmp(&lo->b, ICMP_EQ, left.negative, right.negative);
-        ValueId left_ge_right =
-            ir_build_icmp(&lo->b, ICMP_UGE, left.magnitude, right.magnitude);
-        ValueId magnitudes_differ =
-            ir_build_icmp(&lo->b, ICMP_NE, left.magnitude, right.magnitude);
-        ValueId difference_sign =
-            ir_build_select(&lo->b, ir_op_value(lo->fn, left_ge_right),
-                            left.negative, right.negative);
-        ValueId negative_difference = ir_build2(
-            &lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, magnitudes_differ),
-            ir_op_value(lo->fn, difference_sign));
-
-        return ir_op_value(
-            lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, same_sign),
-                                    left.negative,
-                                    ir_op_value(lo->fn, negative_difference)));
-    }
+    return ir_op_value(lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32,
+                                         ir_op_value(lo->fn, both_nonzero),
+                                         ir_op_value(lo->fn, signs_differ)));
 }
 
 static WideInt overflow_wide_limit(Lower *lo, IrOperand negative,
@@ -3561,6 +3713,19 @@ static WideInt overflow_wide_limit(Lower *lo, IrOperand negative,
     WideInt positive;
     WideInt negative_limit;
     WideInt limit;
+
+    if (width <= 64) {
+        positive.lo = overflow_limit(lo, ir_op_iconst(IRT_I32, 0), result_type);
+        positive.hi = ir_op_iconst(IRT_I64, 0);
+        negative_limit.lo =
+            overflow_limit(lo, ir_op_iconst(IRT_I32, 1), result_type);
+        negative_limit.hi = ir_op_iconst(IRT_I64, 0);
+        limit.lo = ir_op_value(
+            lo->fn,
+            ir_build_select(&lo->b, negative, negative_limit.lo, positive.lo));
+        limit.hi = ir_op_iconst(IRT_I64, 0);
+        return limit;
+    }
 
     positive.lo = ir_op_iconst(IRT_I64, -1);
     if (is_signed) {
@@ -3582,75 +3747,20 @@ static WideInt overflow_wide_limit(Lower *lo, IrOperand negative,
     return limit;
 }
 
-static IrOperand lower_addsub_overflow_wide(Lower *lo, OverflowInteger left,
-                                            OverflowInteger right,
-                                            Type *result_type, u16 op)
-{
-    IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
-    IrOperand one32 = ir_op_iconst(IRT_I32, 1);
-    bool subtract = op == SEMA_BUILTIN_SUB_OVERFLOW_P;
-    IrOperand negative = lower_overflow_result_negative(lo, left, right, op);
-    ValueId same_sign;
-    ValueId sum;
-    ValueId carry;
-    ValueId carry64;
-    ValueId left_ge_right;
-    ValueId left_difference;
-    ValueId right_difference;
-    IrOperand difference;
-    WideInt magnitude;
-    WideInt limit;
-
-    if (subtract) {
-        ValueId right_nonzero =
-            ir_build_icmp(&lo->b, ICMP_NE, right.magnitude, zero64);
-        ValueId inverted =
-            ir_build2(&lo->b, IR_XOR, IRT_I32, right.negative, one32);
-
-        right.negative =
-            ir_op_value(lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32,
-                                          ir_op_value(lo->fn, right_nonzero),
-                                          ir_op_value(lo->fn, inverted)));
-    }
-    same_sign = ir_build_icmp(&lo->b, ICMP_EQ, left.negative, right.negative);
-    sum = ir_build2(&lo->b, IR_IADD, IRT_I64, left.magnitude, right.magnitude);
-    carry = ir_build_icmp(&lo->b, ICMP_ULT, ir_op_value(lo->fn, sum),
-                          left.magnitude);
-    carry64 = ir_build1(&lo->b, IR_ZEXT, IRT_I64, ir_op_value(lo->fn, carry));
-    left_ge_right =
-        ir_build_icmp(&lo->b, ICMP_UGE, left.magnitude, right.magnitude);
-    left_difference =
-        ir_build2(&lo->b, IR_ISUB, IRT_I64, left.magnitude, right.magnitude);
-    right_difference =
-        ir_build2(&lo->b, IR_ISUB, IRT_I64, right.magnitude, left.magnitude);
-    difference = ir_op_value(
-        lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, left_ge_right),
-                                ir_op_value(lo->fn, left_difference),
-                                ir_op_value(lo->fn, right_difference)));
-    magnitude.lo = ir_op_value(
-        lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, same_sign),
-                                ir_op_value(lo->fn, sum), difference));
-    magnitude.hi = ir_op_value(
-        lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, same_sign),
-                                ir_op_value(lo->fn, carry64), zero64));
-    limit = overflow_wide_limit(lo, negative, result_type);
-    return wide_compare(lo, PUNCT_GT, type_basic(TY_UINT128), magnitude, limit);
-}
-
 static IrOperand lower_mul_overflow_wide(Lower *lo, OverflowInteger left,
                                          OverflowInteger right,
-                                         Type *result_type, u16 op)
+                                         Type *result_type)
 {
     Type *wide_type = type_basic(TY_UINT128);
     Type *limb_type = type_basic(TY_ULLONG);
     IrOperand left_wide =
-        wide_from_scalar(lo, left.magnitude, limb_type, wide_type);
+        wide_from_scalar(lo, left.magnitude.lo, limb_type, wide_type);
     IrOperand right_wide =
-        wide_from_scalar(lo, right.magnitude, limb_type, wide_type);
+        wide_from_scalar(lo, right.magnitude.lo, limb_type, wide_type);
     IrOperand product =
         wide_binary_values(lo, PUNCT_STAR, wide_type, left_wide, right_wide);
     WideInt magnitude = wide_load(lo, product, wide_type, 0);
-    IrOperand negative = lower_overflow_result_negative(lo, left, right, op);
+    IrOperand negative = lower_mul_result_negative(lo, left, right);
     WideInt limit = overflow_wide_limit(lo, negative, result_type);
 
     return wide_compare(lo, PUNCT_GT, wide_type, magnitude, limit);
@@ -3671,22 +3781,30 @@ static IrOperand lower_checked_overflow_wide_result(
                                                          : PUNCT_STAR;
     IrOperand stored_result = wide_binary_values(
         lo, operation, arithmetic_type, converted_left, converted_right);
-    IrOperand negative = lower_overflow_result_negative(lo, left, right, e->op);
-    IrOperand overflow = negative;
+    IrOperand overflow;
     u8 flags = (result_type->quals & CGF_QUAL_VOLATILE) ? IRF_VOLATILE : 0;
     ValueId bool_result;
 
-    if (conv_is_signed(lo->sema, result_type)) {
-        WideInt stored = wide_load(lo, stored_result, arithmetic_type, 0);
-        ValueId sign = ir_build_icmp(&lo->b, ICMP_SLT, stored.hi,
-                                     ir_op_iconst(IRT_I64, 0));
+    if (e->op == SEMA_BUILTIN_MUL_OVERFLOW) {
+        IrOperand negative = lower_mul_result_negative(lo, left, right);
 
-        /* With two at-most-64-bit operands, the exact magnitude is strictly
-         * below 2^128.  A signed TI result therefore overflows exactly when
-         * its stored sign bit disagrees with the mathematical sign. */
-        overflow =
-            ir_op_value(lo->fn, ir_build2(&lo->b, IR_XOR, IRT_I32,
-                                          ir_op_value(lo->fn, sign), negative));
+        overflow = negative;
+        if (conv_is_signed(lo->sema, result_type)) {
+            WideInt stored = wide_load(lo, stored_result, arithmetic_type, 0);
+            ValueId sign = ir_build_icmp(&lo->b, ICMP_SLT, stored.hi,
+                                         ir_op_iconst(IRT_I64, 0));
+
+            /* Multiplication still admits only at-most-64-bit operands, so
+             * its exact magnitude is below 2^128. The signed TI destination
+             * overflows exactly when the stored and mathematical signs
+             * disagree; an unsigned destination overflows on negativity. */
+            overflow = ir_op_value(lo->fn, ir_build2(&lo->b, IR_XOR, IRT_I32,
+                                                     ir_op_value(lo->fn, sign),
+                                                     negative));
+        }
+    } else {
+        overflow = lower_addsub_overflow(lo, left, right, result_type,
+                                         e->op == SEMA_BUILTIN_SUB_OVERFLOW);
     }
 
     /* TI values are address-backed in IR.  Use the same conservative copy as
@@ -3704,10 +3822,24 @@ static IrOperand lower_checked_overflow(Lower *lo, AstNode *e)
     Type *right_type = sem(e->args[1]);
     Type *result_type = sem(e->args[2])->base;
     IrOperand left_value = lower_rvalue(lo, e->args[0]);
-    IrOperand right_value = lower_rvalue(lo, e->args[1]);
-    IrOperand result_address = lower_rvalue(lo, e->args[2]);
-    OverflowInteger left = lower_overflow_integer(lo, left_value, left_type);
-    OverflowInteger right = lower_overflow_integer(lo, right_value, right_type);
+    IrOperand right_value;
+    IrOperand result_address;
+    OverflowInteger left;
+    OverflowInteger right;
+
+    /* TI rvalues are addresses. Capture each one before evaluating the next
+     * argument so later side effects cannot change an already evaluated
+     * operand. Scalar lower_rvalue already returns a captured value. */
+    if (type_is_int128(left_type))
+        left_value = wide_capture(lo, left_value, left_type,
+                                  lower_aggregate_access_flags(e->args[0]));
+    right_value = lower_rvalue(lo, e->args[1]);
+    if (type_is_int128(right_type))
+        right_value = wide_capture(lo, right_value, right_type,
+                                   lower_aggregate_access_flags(e->args[1]));
+    result_address = lower_rvalue(lo, e->args[2]);
+    left = lower_overflow_integer(lo, left_value, left_type);
+    right = lower_overflow_integer(lo, right_value, right_type);
 
     if (type_is_int128(result_type))
         return lower_checked_overflow_wide_result(
@@ -3730,11 +3862,16 @@ static IrOperand lower_checked_overflow(Lower *lo, AstNode *e)
                                    arithmetic_right);
     IrOperand stored_result = lower_scalar_convert(
         lo, ir_op_value(lo->fn, raw_result), arithmetic_type, result_type);
+    bool has_ti_operand =
+        type_is_int128(left_type) || type_is_int128(right_type);
     IrOperand overflow =
         e->op == SEMA_BUILTIN_MUL_OVERFLOW
             ? lower_mul_overflow(lo, left, right, result_type)
-            : lower_addsub_overflow(lo, left, right, result_type,
-                                    e->op == SEMA_BUILTIN_SUB_OVERFLOW);
+        : has_ti_operand
+            ? lower_addsub_overflow(lo, left, right, result_type,
+                                    e->op == SEMA_BUILTIN_SUB_OVERFLOW)
+            : lower_addsub_overflow_narrow(lo, left, right, result_type,
+                                           e->op == SEMA_BUILTIN_SUB_OVERFLOW);
     ValueId bool_result;
 
     /* The modular low bits equal the infinite-precision result converted to
@@ -3756,30 +3893,44 @@ static IrOperand lower_checked_overflow_predicate(Lower *lo, AstNode *e)
     Type *right_type = sem(e->args[1]);
     Type *result_type = conv_unpromoted_integer_expr_type(lo->sema, e->args[2]);
     IrOperand left_value = lower_rvalue(lo, e->args[0]);
-    IrOperand right_value = lower_rvalue(lo, e->args[1]);
+    IrOperand right_value;
     OverflowInteger left;
     OverflowInteger right;
     IrOperand overflow;
     ValueId bool_result;
+    bool has_ti_operand =
+        type_is_int128(left_type) || type_is_int128(right_type);
 
-    /* GCC ignores the selector's value, not its side effects. Lowering the
-     * expression once also preserves a volatile access; the resulting value
-     * deliberately has no data dependency on the predicate. */
+    if (type_is_int128(left_type))
+        left_value = wide_capture(lo, left_value, left_type,
+                                  lower_aggregate_access_flags(e->args[0]));
+    right_value = lower_rvalue(lo, e->args[1]);
+    if (type_is_int128(right_type))
+        right_value = wide_capture(lo, right_value, right_type,
+                                   lower_aggregate_access_flags(e->args[1]));
+
+    /* GCC ignores the selector's value, not its side effects. Lowering it
+     * after both operand captures preserves left-to-right evaluation and a
+     * volatile selector access; its value has no predicate dependency. */
     lower_discard_expr(lo, e->args[2]);
     left = lower_overflow_integer(lo, left_value, left_type);
     right = lower_overflow_integer(lo, right_value, right_type);
     if (conv_int_bits(lo->sema, result_type) > 64) {
         overflow =
             e->op == SEMA_BUILTIN_MUL_OVERFLOW_P
-                ? lower_mul_overflow_wide(lo, left, right, result_type, e->op)
-                : lower_addsub_overflow_wide(lo, left, right, result_type,
-                                             e->op);
+                ? lower_mul_overflow_wide(lo, left, right, result_type)
+                : lower_addsub_overflow(lo, left, right, result_type,
+                                        e->op == SEMA_BUILTIN_SUB_OVERFLOW_P);
     } else {
         overflow =
             e->op == SEMA_BUILTIN_MUL_OVERFLOW_P
                 ? lower_mul_overflow(lo, left, right, result_type)
-                : lower_addsub_overflow(lo, left, right, result_type,
-                                        e->op == SEMA_BUILTIN_SUB_OVERFLOW_P);
+            : has_ti_operand
+                ? lower_addsub_overflow(lo, left, right, result_type,
+                                        e->op == SEMA_BUILTIN_SUB_OVERFLOW_P)
+                : lower_addsub_overflow_narrow(lo, left, right, result_type,
+                                               e->op ==
+                                                   SEMA_BUILTIN_SUB_OVERFLOW_P);
     }
     bool_result = ir_build1(&lo->b, IR_TRUNC, IRT_I8, overflow);
     return ir_op_value(lo->fn, bool_result);
