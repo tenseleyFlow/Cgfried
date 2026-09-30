@@ -2614,23 +2614,36 @@ void test_sema_builtin_checked_overflow_ti_add_sub_operands(TestCtx *t)
     T_ASSERT_EQ_INT(t, f.errors, 0);
     T_ASSERT_EQ_INT(t, f.warnings, 0);
     sfix_free(&f);
+}
 
-    /* TI multiplication remains a separate four-limb product tranche. Each
-     * call has exactly one TI operand, so each must produce one targeted
-     * error rather than falling through to lowering. */
+void test_sema_builtin_checked_overflow_ti_mul_operands(TestCtx *t)
+{
+    SemaFix f;
+
     run_sema_opts(
         &f,
         "typedef unsigned int u128 __attribute__" /* check_bans allow */
         "((mode(TI))); "
         "typedef int i128 __attribute__" /* check_bans allow */
-        "((mode(TI))); "
-        "u128 u; i128 s; unsigned long long result; "
+        "((mode(TI)));\n"
+        "#define UONE ((u128)1)\n"
+        "#define UMAX (~(u128)0)\n"
+        "#define IMAX ((i128)(UMAX >> 1))\n"
+        "#define IMIN (-IMAX - 1)\n"
+        "u128 u; i128 s; unsigned long long result; u128 wide; "
+        "_Static_assert(__builtin_mul_overflow_p(UMAX, (u128)2, (u128)0), "
+        "\"unsigned product\"); "
+        "_Static_assert(__builtin_mul_overflow_p(IMIN, (i128)-1, (i128)0), "
+        "\"signed product\"); "
+        "_Static_assert(!__builtin_mul_overflow_p(IMIN, (i128)1, (i128)0), "
+        "\"signed edge\"); "
         "int a(void) { return __builtin_mul_overflow(u, 2, &result); } "
-        "int b(void) { return __builtin_mul_overflow(2, s, &result); } "
+        "int b(void) { return __builtin_mul_overflow(2, s, &wide); } "
         "int c(void) { return __builtin_mul_overflow_p(u, 2, 0); } "
         "int d(void) { return __builtin_mul_overflow_p(2, s, 0); }\n",
         STD_GNU17, true);
-    T_ASSERT_EQ_INT(t, f.errors, 4);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
     sfix_free(&f);
 }
 
