@@ -3,7 +3,7 @@
 // ERROR_EXPECTED: the cast to 'unsigned mode(TI) integer' is not pointer-width
 // ERROR_EXPECTED: mode(TI) enumerated types are not yet supported
 // ERROR_EXPECTED: reverse scalar storage order for mode(TI) member
-// ERROR_EXPECTED: mode(TI) operands to checked-overflow
+// ERROR_EXPECTED: mode(TI) operands to checked-overflow multiplication
 // ERROR_EXPECTED: compound assignment between an atomic object
 // ERROR_EXPECTED: overflow in constant expression
 // ERROR_EXPECTED: division by zero in a constant expression
@@ -54,11 +54,11 @@ struct __attribute__((scalar_storage_order("big-endian"))) ReverseWide {
     u128 value[2];
 };
 
-int checked_overflow(u128 value)
+int checked_overflow_multiply(u128 value)
 {
     unsigned long result;
 
-    return __builtin_add_overflow(value, 1ul, &result);
+    return __builtin_mul_overflow(value, 1ul, &result);
 }
 
 _Atomic(unsigned long) atomic_word;

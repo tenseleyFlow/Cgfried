@@ -2585,6 +2585,55 @@ void test_sema_builtin_checked_overflow_predicate_family(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_checked_overflow_ti_add_sub_operands(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema_opts(
+        &f,
+        "typedef unsigned int u128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "typedef int i128 __attribute__" /* check_bans allow */
+        "((mode(TI)));\n"
+        "#define UONE ((u128)1)\n"
+        "#define UMAX (~(u128)0)\n"
+        "#define IMAX ((i128)((UMAX >> 1)))\n"
+        "#define IMIN (-IMAX - 1)\n"
+        "u128 u; i128 s; unsigned long long narrow; "
+        "_Static_assert(__builtin_add_overflow_p(UMAX, UONE, (u128)0), "
+        "\"unsigned carry\"); "
+        "_Static_assert(__builtin_add_overflow_p(IMAX, UONE, (i128)0), "
+        "\"signed add\"); "
+        "_Static_assert(__builtin_sub_overflow_p(IMIN, UONE, (i128)0), "
+        "\"signed sub\"); "
+        "int use(void) { return __builtin_add_overflow(u, s, &u) + "
+        "__builtin_sub_overflow(s, u, &narrow) + "
+        "__builtin_add_overflow_p(u, s, (unsigned char)0) + "
+        "__builtin_sub_overflow_p(s, u, (u128)0); }\n",
+        STD_GNU17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    sfix_free(&f);
+
+    /* TI multiplication remains a separate four-limb product tranche. Each
+     * call has exactly one TI operand, so each must produce one targeted
+     * error rather than falling through to lowering. */
+    run_sema_opts(
+        &f,
+        "typedef unsigned int u128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "typedef int i128 __attribute__" /* check_bans allow */
+        "((mode(TI))); "
+        "u128 u; i128 s; unsigned long long result; "
+        "int a(void) { return __builtin_mul_overflow(u, 2, &result); } "
+        "int b(void) { return __builtin_mul_overflow(2, s, &result); } "
+        "int c(void) { return __builtin_mul_overflow_p(u, 2, 0); } "
+        "int d(void) { return __builtin_mul_overflow_p(2, s, 0); }\n",
+        STD_GNU17, true);
+    T_ASSERT_EQ_INT(t, f.errors, 4);
+    sfix_free(&f);
+}
+
 void test_sema_builtin_clrsb_family_constant_expression_boundary(TestCtx *t)
 {
     SemaFix f;
