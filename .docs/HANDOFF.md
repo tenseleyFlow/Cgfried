@@ -8886,7 +8886,7 @@ and green post-publication CI.
   zero skips.
 
   Focused normal and ASan+UBSan sema/lowering units pass. The complete normal
-  and sanitized baselines report 994 tests / 4,330,509 assertions with exactly
+  and sanitized baselines report 994 tests / 4,330,512 assertions with exactly
   the same eight Darwin host-assumption failures. Normal and sanitized
   2,000-case frontend fuzz runs find zero failures; two normal and two
   sanitized 5,000-case hashes all produce the intentionally repinned corpus
@@ -8896,6 +8896,30 @@ and green post-publication CI.
   shell, import provenance, pinned clang-format 22, and diff checks are green.
   The implementation commit is
   `c6ff9ab009df8ed9c596391a6f8c9d523eb57ae8`.
+
+  The first two published PR heads exposed a pre-existing frontend recovery
+  defect in the 100,000-iteration ASan+UBSan fuzz job: run `36747803100`
+  deterministically found seed `66711` after every other executed standard-CI
+  job had passed. The mutator changed `short bytes[HUGE_COUNT]` into
+  `short bytes[typeof HUGE_COUNT]` under strict C17. After diagnosing the
+  implicit `typeof` call, sema incorrectly allowed that variably modified
+  field in a file-scope record; member-offset lowering later produced a
+  use-before-definition and void-typed multiply, which the IR verifier
+  correctly rejected as an ICE. The same source reproduces against the exact
+  merged #163 compiler, proving that the multiplication implementation did
+  not introduce the defect; its new corpus fixture merely shifted the
+  deterministic mutation sequence onto it.
+
+  Repair commit `3b136e390a11a1824006e2f959a44a8c029e7a8f`
+  applies the missing file-scope constraint to the full variably-modified
+  member derivation, including pointer-to-VLA members, while explicitly
+  preserving supported GNU block-scope VLA records. GCC 16 independently
+  diagnoses the original mutation as a file-scope variably modified field.
+  The original source now exits with an ordinary source error and no IR or
+  sanitizer failure; sanitized seed `66711`, a 100-iteration slice starting
+  there, and both normal and sanitized 2,000-case smoke runs report zero
+  findings. The pinned digest remains `cb74ac49d46cbc41`, the crash directory
+  is empty, and clang-format 22 plus the unit-registry and diff checks pass.
 
   After green-only merge, audit and permanently pin TI anonymous variadic
   calls and `va_arg` first: the ABI machinery already classifies TI as an
