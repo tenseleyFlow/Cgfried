@@ -23,6 +23,7 @@ static Type *gnu_vector_size_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
 static bool type_contains_vector(const Type *t);
 static bool type_contains_vector_array(const Type *t);
 static bool type_contains_volatile_vector(const Type *t);
+static bool type_is_vm(const Type *t);
 
 VEC_DECL(InitNodeVec, AstNode *);
 VEC_DECL(SymbolVec, Symbol *);
@@ -423,6 +424,26 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
             return;
         reject_nonfunction_attrs(s, m->cgf_attrs);
         mt = type_from_ast(s, m->type, m->span);
+        /* 6.7.6.2p2 applies to member declarators too: a variably modified
+         * type may have only ordinary-identifier linkage and block or
+         * prototype scope.  We deliberately retain GCC's useful local
+         * record extension (`struct S { int a[n]; }` inside a function),
+         * but a file-scope record has nowhere to evaluate or cache that
+         * bound.  Letting it survive used to defer the failure until member
+         * addressing, where lowering could emit a use-before-definition and
+         * a void-typed multiply instead of a source diagnostic.
+         *
+         * Test the full VM derivation, not only a directly VLA-sized field:
+         * a pointer to VLA is fixed-size storage but is still a variably
+         * modified declared type and has the same scope constraint. */
+        if (mt && mt->kind != TY_ERROR && type_is_vm(mt) &&
+            s->scope->kind == SCOPE_FILE) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, m->span,
+                      "field '%s' has variably modified type at file scope",
+                      m->name ? m->name : "<anonymous>");
+            mt = type_basic(TY_ERROR);
+        }
         /* A member carries its own _Alignas constraints; the bitfield
          * case in particular has no address to align. The RESULT feeds
          * layout — an _Alignas on a member raises the record's alignment

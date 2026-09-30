@@ -369,6 +369,10 @@ void test_s16_vm_classifier(TestCtx *t)
         {"int n; int (*p)[n];", true, "pointer TO a VLA is VM"},
         {"int n; int a[n][3];", true, "VLA of arrays"},
         {"int n; int a[3][n];", true, "array of VLAs"},
+        {"int n(void); struct S { int a[n()]; int x; };", true,
+         "VLA member in a file-scope record"},
+        {"int n; struct S { int (*p)[n]; };", true,
+         "VM pointer member in a file-scope record"},
         {"int a[3];", false, "constant bound is not VM"},
         {"int (*p)[3];", false, "pointer to constant array"},
         {"enum { N = 4 }; int a[N];", false, "enum constant bound is ICE"},
@@ -377,6 +381,9 @@ void test_s16_vm_classifier(TestCtx *t)
          "automatic VLA is the LEGAL case"},
         {"void f(int n){ int (*p)[n]; (void)p; }", false,
          "automatic VM pointer is legal"},
+        {"void f(int n){ struct S { int a[n]; int x; }; "
+         "struct S s; (void)s; }",
+         false, "GNU local VLA record remains legal"},
     };
     u32 i;
 
