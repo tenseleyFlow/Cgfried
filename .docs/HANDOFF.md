@@ -8899,10 +8899,12 @@ and green post-publication CI.
 
   After green-only merge, audit and permanently pin TI anonymous variadic
   calls and `va_arg` first: the ABI machinery already classifies TI as an
-  address-backed two-eightbyte value, and forced `pr92904.c` has passed all
-  three supported native ABIs, but the contract lacks a dedicated fixture.
-  Then address atomic TI, TI enums, and reverse scalar storage order for
-  ordinary TI members/arrays. Re-audit the pointer-relocation/static-conversion
+  address-backed two-eightbyte value, and forced `pr92904.c` passes
+  arm64-macos and emits/assembles for both Linux targets. The contract still
+  lacks a dedicated fixture and forced native Linux execution; the older
+  target-complete `pr92904.c` publication exercised its macro fallback. Then
+  address atomic TI, TI enums, and reverse scalar storage order for ordinary
+  TI members/arrays. Re-audit the pointer-relocation/static-conversion
   diagnostic against GCC rather than assuming it is an implementation gap.
   Do not define `__SIZEOF_INT128__` until every advertised surface is either
   implemented or receives an explicit fail-closed boundary.
