@@ -209,6 +209,55 @@ void test_abi_ti_vector_named_call_contract(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_ti_anonymous_call_and_va_arg_contract(TestCtx *t)
+{
+    static const char src[] =
+        "typedef __builtin_va_list va_list;\n"
+        "typedef unsigned int u128 "
+        "__attribute__" /* check_bans allow: compiler input */
+        "((mode(TI)));\n"
+        "u128 take(int n, ...) {\n"
+        "  va_list ap; u128 value; __builtin_va_start(ap, n);\n"
+        "  while (n--) (void)__builtin_va_arg(ap, unsigned long long);\n"
+        "  value = __builtin_va_arg(ap, u128);\n"
+        "  __builtin_va_end(ap); return value;\n"
+        "}\n"
+        "u128 call(u128 value) {\n"
+        "  return take(6, 1ULL,2ULL,3ULL,4ULL,5ULL,6ULL, value);\n"
+        "}\n";
+    static const TargetKind targets[] = {CGF_TARGET_X86_64_LINUX_GNU,
+                                         CGF_TARGET_ARM64_LINUX,
+                                         CGF_TARGET_ARM64_MACOS};
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        AbiFix f;
+        const char *ir;
+
+        T_ASSERT(t, run_abi_target(&f, src, targets[i]));
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        ir = atxt(&f);
+        /* TI stays an address-backed two-eightbyte value at both the call
+         * and va_arg seams; scalar IR lowering would ICE by construction. */
+        T_ASSERT(t, strstr(ir, "call void @take(ptr %") != NULL);
+        T_ASSERT(t, strstr(ir, "pair_ii(16)") != NULL);
+        T_ASSERT(t, strstr(ir, " anon") != NULL);
+        T_ASSERT(t, strstr(ir, "alloca 16, align 16") != NULL);
+        if (targets[i] == CGF_TARGET_ARM64_MACOS) {
+            /* Apple puts every anonymous argument on the stack and aligns
+             * the TI cursor directly; it has no register-save diamond. */
+            T_ASSERT(t, strstr(ir, "va.reg") == NULL);
+            T_ASSERT(t, strstr(ir, ", -16") != NULL);
+        } else {
+            T_ASSERT(t, strstr(ir, "va.reg") != NULL);
+            T_ASSERT(t, strstr(ir, targets[i] == CGF_TARGET_ARM64_LINUX
+                                       ? "va.stack"
+                                       : "va.mem") != NULL);
+        }
+        abi_free(&f);
+    }
+}
+
 void test_abi_sysv_f80_aggregate_direction_split(TestCtx *t)
 {
     AbiFix f;

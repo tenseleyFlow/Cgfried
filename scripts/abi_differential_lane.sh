@@ -248,6 +248,111 @@ EOF
     try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
 }
 
+# mode(TI)/__int128 is represented as an address-backed aggregate inside
+# Cgfried, but all three psABIs pass it as one 16-byte integer value.  A
+# same-compiler test can silently agree on the wrong register pair, alignment,
+# or va_list cursor.  Exercise both mixed directions at the exact register to
+# stack cliffs and through a mixed GP/FP anonymous stream.
+check_ti_varargs_fixed() {
+    d=$WORK/fixed-ti-varargs
+
+    rm -rf "$d"
+    mkdir -p "$d"
+    cat >"$d/abi.h" <<'EOF'
+typedef unsigned __int128 u128;
+typedef __int128 i128;
+union ti_words { u128 u; i128 i; unsigned long long limb[2]; };
+static u128 make_u128(unsigned long long lo, unsigned long long hi)
+{
+    union ti_words value = {.limb = {lo, hi}};
+    return value.u;
+}
+static i128 make_i128(unsigned long long lo, unsigned long long hi)
+{
+    union ti_words value = {.limb = {lo, hi}};
+    return value.i;
+}
+u128 variadic_u128(unsigned count, ...);
+i128 variadic_i128(unsigned count, ...);
+int variadic_ti_stream(int tag, ...);
+EOF
+    cat >"$d/caller.c" <<'EOF'
+#include "abi.h"
+int main(void)
+{
+    u128 high = make_u128(0x123456789abcdef0ULL, 0x0000001000000000ULL);
+    i128 low = make_i128(0x0102030405060708ULL, 0x8000000000000000ULL);
+
+    if (variadic_u128(0, high) != high)
+        return 1;
+    if (variadic_u128(4, 1ULL,2ULL,3ULL,4ULL, high) != high)
+        return 2;
+    if (variadic_u128(5, 1ULL,2ULL,3ULL,4ULL,5ULL, high) != high)
+        return 3;
+    if (variadic_u128(6, 1ULL,2ULL,3ULL,4ULL,5ULL,6ULL, high) != high)
+        return 4;
+    if (variadic_u128(9, 1ULL,2ULL,3ULL,4ULL,5ULL,6ULL,7ULL,8ULL,9ULL,
+                      high) != high)
+        return 5;
+    if (variadic_i128(0, low) != low)
+        return 6;
+    if (variadic_i128(6, 1ULL,2ULL,3ULL,4ULL,5ULL,6ULL, low) != low)
+        return 7;
+    if (!variadic_ti_stream(17, 23,
+                            make_u128(29, 0x0000001000000000ULL), 3.5,
+                            make_i128(31, 0x8000000000000000ULL), 37))
+        return 8;
+    return 0;
+}
+EOF
+    cat >"$d/callee.c" <<'EOF'
+#include "abi.h"
+#include <stdarg.h>
+u128 variadic_u128(unsigned count, ...)
+{
+    va_list ap;
+    u128 value;
+    va_start(ap, count);
+    while (count--)
+        (void)va_arg(ap, unsigned long long);
+    value = va_arg(ap, u128);
+    va_end(ap);
+    return value;
+}
+i128 variadic_i128(unsigned count, ...)
+{
+    va_list ap;
+    i128 value;
+    va_start(ap, count);
+    while (count--)
+        (void)va_arg(ap, unsigned long long);
+    value = va_arg(ap, i128);
+    va_end(ap);
+    return value;
+}
+int variadic_ti_stream(int tag, ...)
+{
+    va_list ap;
+    int lead, tail;
+    u128 high;
+    double fp;
+    i128 low;
+
+    va_start(ap, tag);
+    lead = va_arg(ap, int);
+    high = va_arg(ap, u128);
+    fp = va_arg(ap, double);
+    low = va_arg(ap, i128);
+    tail = va_arg(ap, int);
+    va_end(ap);
+    return tag == 17 && lead == 23 &&
+           high == make_u128(29, 0x0000001000000000ULL) && fp == 3.5 &&
+           low == make_i128(31, 0x8000000000000000ULL) && tail == 37;
+}
+EOF
+    try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
+}
+
 # IR-C-09 is outside abigen's repertoire because its composites never carry
 # an explicit 16-byte alignment. Exercise fixed and variadic placement in
 # both mixed-compiler directions: Linux C.10 must skip x1, while va_arg must
@@ -595,6 +700,13 @@ minimize() {
 
 checked=0
 failed=0
+
+if check_ti_varargs_fixed; then
+    checked=$((checked + 1))
+else
+    echo "abi_differential: REGRESSION on fixed TI varargs ABI" >&2
+    failed=$((failed + 1))
+fi
 
 if check_ti_vector_fixed; then
     checked=$((checked + 1))
