@@ -132,6 +132,8 @@ static bool reg_is_fp(A64Reg r)
     return r.physical && r.id - 1 >= A64_V0 && r.id - 1 <= A64_V31;
 }
 
+static const char *vname(A64Reg r);
+
 static const char *sym_name(const Emit *e, u32 id)
 {
     if (!e->m || !id || id > e->m->nsyms)
@@ -374,6 +376,38 @@ static void emit_mem(Emit *e, const A64Inst *in, bool store)
          * displacement here would be unencodable rather than merely slow. */
         if (addr->mem.offset || addr->mem.index.id)
             CGF_ICE("arm64 emit: an atomic access cannot carry an offset");
+        if (size == 16) {
+            const char *base = rn(addr->mem.base, A64_SF64);
+            const char *tmp = a64_phys_name(A64_ATOMIC_TMP, A64_SF64);
+            const char *tmp2 = a64_phys_name(A64_ATOMIC_STATUS, A64_SF64);
+
+            /* Match the naturally aligned paired access and seq_cst barrier
+             * placement emitted by the Apple platform compiler. Linux never
+             * reaches this platform-specific expansion and uses libatomic's
+             * generic ABI from lowering instead. */
+            if (!e->apple)
+                CGF_ICE("arm64-linux: 16-byte atomic access bypassed "
+                        "libatomic lowering");
+            if (!fp)
+                CGF_ICE("arm64-macos: 16-byte atomic carrier is not SIMD");
+            if (store) {
+                buf_printf(e->out, "\tdmb\tish\n");
+                buf_printf(e->out, "\tumov\t%s, %s.d[0]\n", tmp,
+                           vname(value->reg));
+                buf_printf(e->out, "\tumov\t%s, %s.d[1]\n", tmp2,
+                           vname(value->reg));
+                buf_printf(e->out, "\tstp\t%s, %s, [%s]\n", tmp, tmp2, base);
+                buf_printf(e->out, "\tdmb\tish\n");
+            } else {
+                buf_printf(e->out, "\tldp\t%s, %s, [%s]\n", tmp, tmp2, base);
+                buf_printf(e->out, "\tdmb\tish\n");
+                buf_printf(e->out, "\tfmov\t%s, %s\n", rn(value->reg, A64_SF64),
+                           tmp);
+                buf_printf(e->out, "\tmov\t%s.d[1], %s\n", vname(value->reg),
+                           tmp2);
+            }
+            return;
+        }
         buf_printf(e->out, "\t%s%s\t%s, [%s]\n", store ? "stlr" : "ldar",
                    ex_suffix(size), rn(value->reg, sf),
                    rn(addr->mem.base, A64_SF64));

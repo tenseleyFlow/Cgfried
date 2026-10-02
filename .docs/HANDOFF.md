@@ -362,10 +362,12 @@ green-only as `0ddd086f`. PR #162's TI floating-comparison-builtin tranche
 merged green-only as `10211b61`. PR #163's TI checked-add/subtract-operand
 tranche merged green-only as `b96defe9`. PR #164's TI checked-multiplication
 operand tranche and its file-scope variably-modified-member fuzz repair merged
-green-only as `eb8f5f57`. The active `s56.70-ti-anonymous-varargs` tranche
-starts from that exact merge and permanently pins the already-correct TI
-anonymous-call and `va_arg` ABI across all three closed psABIs. The detailed
-ledger below records the exact evidence and next boundary order.
+green-only as `eb8f5f57`. PR #165's TI anonymous-call and `va_arg` ABI contract
+tranche merged green-only as `8b6d6571`. The active `s56.71-ti-atomic` tranche
+starts from that exact merge and implements naturally aligned sequentially
+consistent TI loads and stores while keeping read-modify-write operations a
+named fail-closed boundary. The detailed ledger below records the exact
+evidence and next boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -8965,6 +8967,39 @@ and green post-publication CI.
   assuming it is an implementation gap. Do not define `__SIZEOF_INT128__`
   until every advertised surface is either implemented or receives an
   explicit fail-closed boundary.
+- PR #165's final exact head `18bf268a8551d09a5c4d24969c54abf564d96df6`
+  completed with 28 successful checks and nine intentional skips. It merged
+  green-only as `8b6d6571729044fbc9e1cde1a7331ce45f218af7`; its exact parents
+  are merged #164 `eb8f5f57` and that tested head, and its tree
+  `76c631ac27b499782ff59a999e5553d7ae654872` is byte-identical to the
+  tested head.
+- The active `s56.71-ti-atomic` tranche starts from exact merged PR #165. It
+  accepts naturally aligned atomic TI objects and initialization, plus
+  sequentially consistent loads, stores, and simple assignment. x86-64 reuses
+  the existing sized `__atomic_{load,store}_16` selection; arm64-linux uses
+  libatomic's generic out-pointer ABI without assuming LSE; Apple ARM64
+  matches the platform compiler's naturally aligned paired access and barrier
+  placement. Compound assignment and increment/decrement remain targeted
+  errors for the next atomic RMW tranche. Atomic-qualified bit-fields are now
+  rejected before their non-atomic container RMW could reach lowering.
+
+  A five-target lowering unit pins the IR contract. Permanent assembly and
+  runtime fixtures cover all three closed psABIs, signed and unsigned TI,
+  volatile/discarded accesses, assignment-result capture, static
+  initialization, arrays, members, and pointer dereference. The native Apple
+  runtime passes at O0/O1/O2/O3/Os. Focused verifier/lowering units pass 80
+  assertions, and all focused diagnostic and assembly fixtures pass. The
+  complete normal and ASan+UBSan unit baselines are identical: 996 tests,
+  4,330,582 assertions, and the same eight known Darwin host-assumption
+  failures. Normal and sanitized 2,000-case frontend fuzz runs find zero
+  failures; repeated 5,000-case hashes produce the intentionally repinned
+  digest `b8f5fdca1e6bb974`. All policy gates available on this host are green;
+  pinned clang-format 22 remains authoritative in CI because this machine has
+  clang-format 23.
+
+  After this access tranche merges green-only, complete atomic TI
+  read-modify-write operations before moving to TI enums and reverse scalar
+  storage order for ordinary TI members/arrays.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

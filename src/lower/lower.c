@@ -235,6 +235,12 @@ static bool discarded_value_is_already_materialized(const AstNode *e)
 {
     if (!e)
         return false;
+    /* Atomic TI lvalue conversion is materialized by lower_rvalue itself;
+     * the address-backed aggregate rule below must not synthesize a second
+     * volatile copy of that temporary for a discarded expression. */
+    if (e->is_lvalue && type_is_int128(e->sem_type) &&
+        (e->sem_type->quals & CGF_QUAL_ATOMIC))
+        return true;
     switch (e->kind) {
     case AST_EXPR_PAREN:
     case AST_EXPR_CAST:
