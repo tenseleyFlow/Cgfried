@@ -1372,12 +1372,6 @@ static bool is_builtin_checked_overflow_predicate(u16 builtin)
            builtin == SEMA_BUILTIN_MUL_OVERFLOW_P;
 }
 
-static bool is_builtin_checked_overflow_multiply(u16 builtin)
-{
-    return builtin == SEMA_BUILTIN_MUL_OVERFLOW ||
-           builtin == SEMA_BUILTIN_MUL_OVERFLOW_P;
-}
-
 static bool is_builtin_checked_overflow(u16 builtin)
 {
     return is_builtin_checked_overflow_store(builtin) ||
@@ -1682,13 +1676,6 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                  * signedness/range information lowering needs. */
                 for (i = 0; i < 2; i++) {
                     if (quiet(e->args[i], NULL)) {
-                        valid = false;
-                    } else if (type_is_int128(e->args[i]->sem_type) &&
-                               is_builtin_checked_overflow_multiply(b)) {
-                        err(s, e->args[i]->span,
-                            "mode(TI) operands to checked-overflow "
-                            "multiplication are not yet supported "
-                            "(docs/gnu-extensions.md)");
                         valid = false;
                     } else if (!type_is_integer(e->args[i]->sem_type)) {
                         err(s, e->args[i]->span,

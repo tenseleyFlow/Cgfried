@@ -915,9 +915,8 @@ static u64 ce_overflow_limit(Sema *s, Type *result_type, bool negative)
 {
     u32 width = conv_int_bits(s, result_type);
 
-    /* This helper serves narrow result ranges and the still-one-limb
-     * multiplication path. Wide checked addition/subtraction obtains its
-     * exact two-limb bound from ce_overflow_wide_limit below. */
+    /* This helper serves narrow result ranges. Wide checked arithmetic
+     * obtains its exact two-limb bound from ce_overflow_wide_limit below. */
     if (width > 64)
         return UINT64_MAX;
 
@@ -973,18 +972,6 @@ static bool ce_addsub_overflow_wide_p(Sema *s, CeOverflowInteger left,
     return carry || ce_wide_cmp_unsigned(magnitude, limit) > 0;
 }
 
-static bool ce_mul_overflow_wide_p(Sema *s, CeOverflowInteger left,
-                                   CeOverflowInteger right, Type *result_type)
-{
-    bool negative = !ce_wide_is_zero(left.magnitude) &&
-                    !ce_wide_is_zero(right.magnitude) &&
-                    left.negative != right.negative;
-    CeWide magnitude = ce_wide_mul64(left.magnitude.lo, right.magnitude.lo);
-    CeWide limit = ce_overflow_wide_limit(s, result_type, negative);
-
-    return ce_wide_cmp_unsigned(magnitude, limit) > 0;
-}
-
 static bool ce_addsub_overflow_p(Sema *s, CeOverflowInteger left,
                                  CeOverflowInteger right, Type *result_type,
                                  bool subtract)
@@ -998,16 +985,13 @@ static bool ce_mul_overflow_p(Sema *s, CeOverflowInteger left,
     bool negative = !ce_wide_is_zero(left.magnitude) &&
                     !ce_wide_is_zero(right.magnitude) &&
                     left.negative != right.negative;
-    u64 limit;
+    CeWide limit = ce_overflow_wide_limit(s, result_type, negative);
+    CeWide quotient;
 
-    if (conv_int_bits(s, result_type) > 64)
-        return ce_mul_overflow_wide_p(s, left, right, result_type);
-    limit = ce_overflow_limit(s, result_type, negative);
-
-    if (left.magnitude.hi != 0 || right.magnitude.hi != 0)
-        return true;
-    return left.magnitude.lo != 0 &&
-           right.magnitude.lo > limit / left.magnitude.lo;
+    if (ce_wide_is_zero(left.magnitude))
+        return false;
+    quotient = ce_wide_udiv(limit, left.magnitude, NULL);
+    return ce_wide_cmp_unsigned(right.magnitude, quotient) > 0;
 }
 
 static ConstValue eval_binary(Sema *s, AstNode *e, CeMode m,

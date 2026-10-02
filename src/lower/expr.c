@@ -3683,17 +3683,20 @@ static IrOperand lower_mul_overflow(Lower *lo, OverflowInteger left,
                                          ir_op_value(lo->fn, too_large)));
 }
 
-/* TI operands remain refused for multiplication, so both magnitudes fit one
- * limb here. Recover the infinite-precision product's sign independently of
- * its modulo-2^128 stored representation. */
+/* Recover the infinite-precision product's sign independently of its stored
+ * modular representation. Zero is normalized to nonnegative. */
 static IrOperand lower_mul_result_negative(Lower *lo, OverflowInteger left,
                                            OverflowInteger right)
 {
     IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
+    ValueId left_bits =
+        ir_build2(&lo->b, IR_OR, IRT_I64, left.magnitude.lo, left.magnitude.hi);
+    ValueId right_bits = ir_build2(&lo->b, IR_OR, IRT_I64, right.magnitude.lo,
+                                   right.magnitude.hi);
     ValueId left_nonzero =
-        ir_build_icmp(&lo->b, ICMP_NE, left.magnitude.lo, zero64);
+        ir_build_icmp(&lo->b, ICMP_NE, ir_op_value(lo->fn, left_bits), zero64);
     ValueId right_nonzero =
-        ir_build_icmp(&lo->b, ICMP_NE, right.magnitude.lo, zero64);
+        ir_build_icmp(&lo->b, ICMP_NE, ir_op_value(lo->fn, right_bits), zero64);
     ValueId both_nonzero =
         ir_build2(&lo->b, IR_AND, IRT_I32, ir_op_value(lo->fn, left_nonzero),
                   ir_op_value(lo->fn, right_nonzero));
@@ -3766,6 +3769,48 @@ static IrOperand lower_mul_overflow_wide(Lower *lo, OverflowInteger left,
     return wide_compare(lo, PUNCT_GT, wide_type, magnitude, limit);
 }
 
+static IrOperand lower_mul_overflow_ti_operands(Lower *lo, OverflowInteger left,
+                                                OverflowInteger right,
+                                                Type *result_type)
+{
+    Type *wide_type = type_basic(TY_UINT128);
+    IrOperand zero64 = ir_op_iconst(IRT_I64, 0);
+    ValueId left_bits =
+        ir_build2(&lo->b, IR_OR, IRT_I64, left.magnitude.lo, left.magnitude.hi);
+    ValueId left_nonzero =
+        ir_build_icmp(&lo->b, ICMP_NE, ir_op_value(lo->fn, left_bits), zero64);
+    IrOperand left_nonzero_op = ir_op_value(lo->fn, left_nonzero);
+    WideInt divisor;
+    IrOperand negative = lower_mul_result_negative(lo, left, right);
+    WideInt limit = overflow_wide_limit(lo, negative, result_type);
+    IrOperand limit_address;
+    IrOperand divisor_address;
+    IrOperand quotient_address;
+    WideInt quotient;
+    IrOperand too_large;
+
+    divisor.lo = ir_op_value(lo->fn, ir_build_select(&lo->b, left_nonzero_op,
+                                                     left.magnitude.lo,
+                                                     ir_op_iconst(IRT_I64, 1)));
+    divisor.hi =
+        ir_op_value(lo->fn, ir_build_select(&lo->b, left_nonzero_op,
+                                            left.magnitude.hi, zero64));
+    limit_address = wide_materialize(lo, wide_type, limit);
+    divisor_address = wide_materialize(lo, wide_type, divisor);
+    quotient_address = wide_binary_values(lo, PUNCT_SLASH, wide_type,
+                                          limit_address, divisor_address);
+    quotient = wide_load(lo, quotient_address, wide_type, 0);
+    too_large =
+        wide_compare(lo, PUNCT_GT, wide_type, right.magnitude, quotient);
+
+    /* For a nonzero left magnitude, left*right exceeds the destination range
+     * exactly when right exceeds floor(limit/left). Selecting divisor one for
+     * a zero left keeps the helper call defined; the final AND forces the
+     * mathematically exact no-overflow result. */
+    return ir_op_value(
+        lo->fn, ir_build2(&lo->b, IR_AND, IRT_I32, left_nonzero_op, too_large));
+}
+
 static IrOperand lower_checked_overflow_wide_result(
     Lower *lo, AstNode *e, Type *left_type, Type *right_type, Type *result_type,
     IrOperand left_value, IrOperand right_value, IrOperand result_address,
@@ -3784,23 +3829,31 @@ static IrOperand lower_checked_overflow_wide_result(
     IrOperand overflow;
     u8 flags = (result_type->quals & CGF_QUAL_VOLATILE) ? IRF_VOLATILE : 0;
     ValueId bool_result;
+    bool has_ti_operand =
+        type_is_int128(left_type) || type_is_int128(right_type);
 
     if (e->op == SEMA_BUILTIN_MUL_OVERFLOW) {
-        IrOperand negative = lower_mul_result_negative(lo, left, right);
+        if (has_ti_operand) {
+            overflow =
+                lower_mul_overflow_ti_operands(lo, left, right, result_type);
+        } else {
+            IrOperand negative = lower_mul_result_negative(lo, left, right);
 
-        overflow = negative;
-        if (conv_is_signed(lo->sema, result_type)) {
-            WideInt stored = wide_load(lo, stored_result, arithmetic_type, 0);
-            ValueId sign = ir_build_icmp(&lo->b, ICMP_SLT, stored.hi,
-                                         ir_op_iconst(IRT_I64, 0));
+            overflow = negative;
+            if (conv_is_signed(lo->sema, result_type)) {
+                WideInt stored =
+                    wide_load(lo, stored_result, arithmetic_type, 0);
+                ValueId sign = ir_build_icmp(&lo->b, ICMP_SLT, stored.hi,
+                                             ir_op_iconst(IRT_I64, 0));
 
-            /* Multiplication still admits only at-most-64-bit operands, so
-             * its exact magnitude is below 2^128. The signed TI destination
-             * overflows exactly when the stored and mathematical signs
-             * disagree; an unsigned destination overflows on negativity. */
-            overflow = ir_op_value(lo->fn, ir_build2(&lo->b, IR_XOR, IRT_I32,
-                                                     ir_op_value(lo->fn, sign),
-                                                     negative));
+                /* Two at-most-64-bit operands have an exact magnitude below
+                 * 2^128. Signed TI overflow is therefore exactly a mismatch
+                 * between the stored and mathematical signs; an unsigned
+                 * destination overflows on negativity. */
+                overflow = ir_op_value(
+                    lo->fn, ir_build2(&lo->b, IR_XOR, IRT_I32,
+                                      ir_op_value(lo->fn, sign), negative));
+            }
         }
     } else {
         overflow = lower_addsub_overflow(lo, left, right, result_type,
@@ -3866,7 +3919,10 @@ static IrOperand lower_checked_overflow(Lower *lo, AstNode *e)
         type_is_int128(left_type) || type_is_int128(right_type);
     IrOperand overflow =
         e->op == SEMA_BUILTIN_MUL_OVERFLOW
-            ? lower_mul_overflow(lo, left, right, result_type)
+            ? (has_ti_operand
+                   ? lower_mul_overflow_ti_operands(lo, left, right,
+                                                    result_type)
+                   : lower_mul_overflow(lo, left, right, result_type))
         : has_ti_operand
             ? lower_addsub_overflow(lo, left, right, result_type,
                                     e->op == SEMA_BUILTIN_SUB_OVERFLOW)
@@ -3918,13 +3974,19 @@ static IrOperand lower_checked_overflow_predicate(Lower *lo, AstNode *e)
     if (conv_int_bits(lo->sema, result_type) > 64) {
         overflow =
             e->op == SEMA_BUILTIN_MUL_OVERFLOW_P
-                ? lower_mul_overflow_wide(lo, left, right, result_type)
+                ? (has_ti_operand
+                       ? lower_mul_overflow_ti_operands(lo, left, right,
+                                                        result_type)
+                       : lower_mul_overflow_wide(lo, left, right, result_type))
                 : lower_addsub_overflow(lo, left, right, result_type,
                                         e->op == SEMA_BUILTIN_SUB_OVERFLOW_P);
     } else {
         overflow =
             e->op == SEMA_BUILTIN_MUL_OVERFLOW_P
-                ? lower_mul_overflow(lo, left, right, result_type)
+                ? (has_ti_operand
+                       ? lower_mul_overflow_ti_operands(lo, left, right,
+                                                        result_type)
+                       : lower_mul_overflow(lo, left, right, result_type))
             : has_ti_operand
                 ? lower_addsub_overflow(lo, left, right, result_type,
                                         e->op == SEMA_BUILTIN_SUB_OVERFLOW_P)

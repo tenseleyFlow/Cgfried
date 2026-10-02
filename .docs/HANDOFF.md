@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-28): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps 2026-09-30): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,12 +11,14 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 18/30 through September 26 after required daily x86 evidence was
+at a strict 22/30 through September 30 after required daily x86 evidence was
 absent on September 5 and matching-head evidence was absent on September 7–8.
 It remains
-operationally OPEN. Matching-head September 12--26 hosted daily runs are
+operationally OPEN. Matching-head September 12--30 hosted daily runs are
 green, and the separate September 13 and September 20 weekly runs are
-full-lattice green. The
+full-lattice green; the September 27 full-lattice
+[run 36309598318](https://github.com/tenseleyFlow/Cgfried/actions/runs/36309598318)
+is green as well. The
 matching-head September 11 recovery
 [`34569061464`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34569061464)
 is full-lattice green at `5f5b0e66`; it completed all four required daily
@@ -357,12 +359,12 @@ green-only as `4e809548`; PR #159's TI floating-conversion tranche merged
 green-only as `67c7d31a`; PR #160's narrow TI-vector boundary merged green-only
 as `12435595`; and PR #161's TI overflow-predicate-selector tranche merged
 green-only as `0ddd086f`. PR #162's TI floating-comparison-builtin tranche
-merged green-only as `10211b61`. The active
-`s56.68-ti-checked-overflow-add-sub-operands` tranche starts from that exact
-merge and admits TI operands to the generic checked addition/subtraction store
-and predicate builtins while retaining the separate four-limb multiplication
-boundary. The detailed ledger below records the exact evidence and next
-boundary order.
+merged green-only as `10211b61`. PR #163's TI checked-add/subtract-operand
+tranche merged green-only as `b96defe9`. The active
+`s56.69-ti-checked-overflow-mul-operands` tranche starts from that exact merge
+and admits TI operands to generic checked multiplication without introducing
+a host-dependent 256-bit value. The detailed ledger below records the exact
+evidence and next boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -8807,7 +8809,7 @@ and green post-publication CI.
   #161 `0ddd086f` and tested head `f0e1bd99`, and its tree
   `cc7692d81afc1be149b722d971c3b2b14ad75644` is byte-identical to the tested
   head.
-- The active `s56.68-ti-checked-overflow-add-sub-operands` tranche starts from
+- The `s56.68-ti-checked-overflow-add-sub-operands` tranche starts from
   exact merged PR #162. It admits independently typed signed or unsigned TI
   operands to generic `__builtin_{add,sub}_overflow` and
   `__builtin_{add,sub}_overflow_p` while keeping a targeted diagnostic for a
@@ -8846,15 +8848,90 @@ and green post-publication CI.
   shell, import provenance, pinned clang-format 22, and diff checks are green.
   The implementation commit is `4a9ddd861a1a2a0c2a6fdc9eac6172e69ad071f4`.
 
-  After green-only merge, take TI operands for checked multiplication as the
-  next compiler-gap tranche. Its exact mathematical range requires a portable
-  four-limb (256-bit) product before comparing against narrow or TI result
-  bounds; preserve immediate TI operand capture and the existing modular
-  destination store. Then continue the variadic,
-  pointer-relocation/static-conversion, atomic, enum, and ordinary-member
-  reverse-storage audit. Do not define `__SIZEOF_INT128__` until every
-  advertised surface is either implemented or receives an explicit
-  fail-closed boundary.
+  Final standard
+  [run 36525014792](https://github.com/tenseleyFlow/Cgfried/actions/runs/36525014792)
+  and bootstrap runs
+  [36525011757](https://github.com/tenseleyFlow/Cgfried/actions/runs/36525011757)
+  and
+  [36525014973](https://github.com/tenseleyFlow/Cgfried/actions/runs/36525014973)
+  were fully green. PR #163 merged green-only as
+  `b96defe92febd7893deb78700e4efb24fe93c6f9`; its exact parents are merged
+  #162 `10211b61` and tested head `d379fccd`, and its tree
+  `0a3f6c25771dc2fe28ef413ede7708c49bf52958` is byte-identical to the tested
+  head.
+- The active `s56.69-ti-checked-overflow-mul-operands` tranche starts from
+  exact merged PR #163. It admits independently typed signed or unsigned TI
+  operands to generic `__builtin_mul_overflow` and
+  `__builtin_mul_overflow_p`; all pre-existing at-most-64-bit operand paths
+  remain unchanged. The implementation deliberately avoids a new four-limb
+  runtime representation. For a nonzero left magnitude, the exact overflow
+  predicate is `right > floor(limit / left)`: lowering computes that quotient
+  through the existing unsigned TI division helper, and constant folding uses
+  the matching host-portable two-limb division. A zero left magnitude selects
+  divisor one and gates the final predicate false, so runtime division is
+  always defined. The existing TI multiplication helper supplies the modular
+  low 128 bits for TI destinations; narrow destinations retain their scalar
+  low-bit store. Immediate TI operand capture preserves argument sequencing.
+
+  The exact #163 compiler rejects the multiplication site in the residual TI
+  boundary fixture with the former targeted diagnostic. The permanent runtime
+  fixture pins unsigned wrap, bit-127/bit-128 edges, signed minimum, negative
+  products, signed-to-unsigned overflow, zero multiplication, narrow
+  destinations, aliasing, volatile objects, both TI operand positions, and
+  exact-once evaluation of operand and result expressions. Repaired Cgfried
+  passes it natively on arm64-macos at O0/O1/O2/O3/Os, normally and under
+  `CGF_SPILL_ALL=1`; Homebrew GCC 16 agrees at all five levels with
+  `-Wall -Wextra -Werror`. Both arm64-linux and x86_64-linux-gnu emit and
+  assemble at all five levels. The native boundary/runtime pair passes with
+  zero skips.
+
+  Focused normal and ASan+UBSan sema/lowering units pass. The complete normal
+  and sanitized baselines report 994 tests / 4,330,512 assertions with exactly
+  the same eight Darwin host-assumption failures. Normal and sanitized
+  2,000-case frontend fuzz runs find zero failures; two normal and two
+  sanitized 5,000-case hashes all produce the intentionally repinned corpus
+  digest `cb74ac49d46cbc41`, and both exact smoke targets pass. Source bans,
+  warning/preprocessor/sema/target seams, GNU tiers, deferrals, verifier
+  coverage, no-host-FPU, warning and format matrices, unit registry, POSIX
+  shell, import provenance, pinned clang-format 22, and diff checks are green.
+  The implementation commit is
+  `c6ff9ab009df8ed9c596391a6f8c9d523eb57ae8`.
+
+  The first two published PR heads exposed a pre-existing frontend recovery
+  defect in the 100,000-iteration ASan+UBSan fuzz job: run `36747803100`
+  deterministically found seed `66711` after every other executed standard-CI
+  job had passed. The mutator changed `short bytes[HUGE_COUNT]` into
+  `short bytes[typeof HUGE_COUNT]` under strict C17. After diagnosing the
+  implicit `typeof` call, sema incorrectly allowed that variably modified
+  field in a file-scope record; member-offset lowering later produced a
+  use-before-definition and void-typed multiply, which the IR verifier
+  correctly rejected as an ICE. The same source reproduces against the exact
+  merged #163 compiler, proving that the multiplication implementation did
+  not introduce the defect; its new corpus fixture merely shifted the
+  deterministic mutation sequence onto it.
+
+  Repair commit `3b136e390a11a1824006e2f959a44a8c029e7a8f`
+  applies the missing file-scope constraint to the full variably-modified
+  member derivation, including pointer-to-VLA members, while explicitly
+  preserving supported GNU block-scope VLA records. GCC 16 independently
+  diagnoses the original mutation as a file-scope variably modified field.
+  The original source now exits with an ordinary source error and no IR or
+  sanitizer failure; sanitized seed `66711`, a 100-iteration slice starting
+  there, and both normal and sanitized 2,000-case smoke runs report zero
+  findings. The pinned digest remains `cb74ac49d46cbc41`, the crash directory
+  is empty, and clang-format 22 plus the unit-registry and diff checks pass.
+
+  After green-only merge, audit and permanently pin TI anonymous variadic
+  calls and `va_arg` first: the ABI machinery already classifies TI as an
+  address-backed two-eightbyte value, and forced `pr92904.c` passes
+  arm64-macos and emits/assembles for both Linux targets. The contract still
+  lacks a dedicated fixture and forced native Linux execution; the older
+  target-complete `pr92904.c` publication exercised its macro fallback. Then
+  address atomic TI, TI enums, and reverse scalar storage order for ordinary
+  TI members/arrays. Re-audit the pointer-relocation/static-conversion
+  diagnostic against GCC rather than assuming it is an implementation gap.
+  Do not define `__SIZEOF_INT128__` until every advertised surface is either
+  implemented or receives an explicit fail-closed boundary.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
