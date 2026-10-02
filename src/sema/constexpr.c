@@ -1507,6 +1507,9 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m,
         ConstValue v;
         u32 i;
 
+        if (sym && sym->kind == SYM_ENUM_CONST && type_is_int128(e->sem_type))
+            return cv_int_wide(e->sem_type, (u64)sym->enum_value,
+                               sym->enum_value_hi);
         if (sym && sym->kind == SYM_ENUM_CONST)
             return cv_int(s, e->sem_type, (u64)sym->enum_value);
         for (i = 0; sym && i < nbindings; i++) {

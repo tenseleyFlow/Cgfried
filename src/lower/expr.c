@@ -5846,6 +5846,11 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
         Symbol *sym = e->sym;
         Lvalue lv;
 
+        if (sym && sym->kind == SYM_ENUM_CONST && type_is_int128(sem(e)))
+            return wide_materialize(
+                lo, sem(e),
+                (WideInt){ir_op_iconst(IRT_I64, sym->enum_value),
+                          ir_op_iconst(IRT_I64, (i64)sym->enum_value_hi)});
         if (sym && sym->kind == SYM_ENUM_CONST)
             return ir_op_iconst(lower_irtype(lo, sem(e)), sym->enum_value);
         if (sym && sym->kind == SYM_FUNC)

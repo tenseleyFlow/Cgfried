@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps 2026-09-30): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak through 2026-09-30; compiler gaps through 2026-10-02): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -364,11 +364,13 @@ tranche merged green-only as `b96defe9`. PR #164's TI checked-multiplication
 operand tranche and its file-scope variably-modified-member fuzz repair merged
 green-only as `eb8f5f57`. PR #165's TI anonymous-call and `va_arg` ABI contract
 tranche merged green-only as `8b6d6571`. PR #166's naturally aligned atomic TI
-load/store tranche merged green-only as `46808f16`. The active
-`s56.72-ti-atomic-rmw` tranche starts from that exact merge and completes TI
-compound assignments plus prefix/postfix increment and decrement with one
-strong sequentially consistent compare-exchange loop on every closed target.
-The detailed ledger below records the exact evidence and next boundary order.
+load/store tranche merged green-only as `46808f16`. PR #167's atomic TI
+read-modify-write tranche merged green-only as `ba2388d8`. The active
+`s56.73-ti-enums` tranche starts from that exact merge and completes explicit
+`mode(TI)` plus inferred full-width enum representations while retaining enum
+identity and routing values through the existing two-limb layout, ABI,
+constant, switch, bit-field, and atomic machinery. The detailed ledger below
+records the exact evidence and next boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9057,6 +9059,47 @@ and green post-publication CI.
   pointer-relocation/static-conversion diagnostic against GCC before treating
   it as an implementation gap. Keep `__SIZEOF_INT128__` withheld until these
   advertised surfaces close.
+- PR #167's final exact head `894d42be3a985f73b8900165341d28f7c537c8d4`
+  completed with 28 successful checks and nine intentional skips. It merged
+  green-only as `ba2388d8496483a18bd4f1d57cda045b9bd670a1`; its exact parents
+  are merged #166 `46808f16` and that tested head, and its tree
+  `e9dd12fa045b1d64827c01d60125932639c257b4` is byte-identical to the
+  tested head.
+- The active `s56.73-ti-enums` tranche starts from exact merged PR #167. It
+  removes the targeted `mode(TI)` enum refusal, stores enumerators as exact
+  two-limb values, carries implicit successors across the limb boundary, and
+  extends the representation ladder to signed or unsigned TI when no standard
+  target integer can represent the range. Explicitly attributed enum views
+  retain their own representation without mutating the underlying tag; a mode
+  bound to the definition updates that tag. Out-of-`int` enum constants retain
+  the project's measured GCC-8 typing contract.
+
+  TI-represented enums reuse the existing address-backed TI implementation for
+  layout, static and automatic initialization, arithmetic, named and anonymous
+  call ABI, bit-fields, switches, and naturally aligned atomics. A permanent
+  runtime fixture covers explicit signed/unsigned modes, inferred TI enums,
+  implicit successors, attributed views, records, arrays, promotions,
+  varargs, switch dispatch, 101/102-bit fields, and atomic postfix increment.
+  It passes GCC 16 under `-Werror` and Cgfried natively on Apple ARM64 at
+  O0/O1/O2/O3/Os. A five-target lowering unit pins paired ABI, high-limb
+  materialization, wide switches, atomic compare-exchange, and IR round-trip
+  behavior across all closed targets.
+
+  Focused semantic and lowering units pass 34 and 45 assertions respectively.
+  Complete normal and ASan+UBSan unit baselines match at 998 tests / 4,330,683
+  assertions with the same eight documented Darwin host-assumption failures.
+  Normal and sanitized 2,000-case frontend fuzz runs find zero failures;
+  repeated 5,000-case hashes and both exact smoke gates produce the
+  intentionally repinned digest `c099ae2b219e04ff`. GCC-oracle compilation,
+  all five cross-target assembly emissions, and the local policy gates are
+  green. Pinned clang-format 22 remains authoritative in CI because this host
+  provides clang-format 23.
+
+  After this tranche merges green-only, take reverse scalar storage order for
+  ordinary TI members and arrays. Re-audit the remaining
+  pointer-relocation/static-conversion diagnostic against GCC before treating
+  it as an implementation gap. Keep `__SIZEOF_INT128__` withheld until those
+  advertised boundaries close.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

@@ -95,6 +95,7 @@ predefine.
 | case ranges `case lo ... hi:` | `tests/corpus/x86_64/int/gnu_case_range.c` | character classification, Linux, any dense dispatch over a span |
 | `a ?: b` (omitted middle operand) | `tests/corpus/x86_64/int/gnu_cond_omitted.c` | default-value idioms in glibc and Linux, where the left operand is a call |
 | integer `mode(M)` — `QI`/`HI`/`SI`/`DI`/`TI`/`byte`/`word`/`pointer` | `tests/corpus/x86_64/int/gnu_mode.c` | glibc's `register_t` and Mbed TLS's double-width bignum arithmetic; TI has the full-width differential in `tests/fixtures/gnu/mode_ti_abi.c`, static-image coverage in `tests/programs/gnu/attr_mode_ti_static_init.c`, required-constant coverage in `tests/corpus/x86_64/int/gnu_mode_ti_constexpr.c`, anonymous-varargs coverage in `tests/programs/gnu/attr_mode_ti_varargs.c`, and floating-comparison builtin coverage in `tests/programs/gnu/attr_mode_ti_float_compare.c` |
+| enum integer modes through `mode(TI)` | `tests/programs/gnu/attr_enum_mode_ti.c` | definition-bound modes and attributed enum views preserve enum identity while selecting their compatible integer representation; full-width enumerators also infer signed or unsigned TI without an explicit mode |
 | `vector_size(16)` on signed or unsigned `mode(TI)` | `tests/programs/gnu/attr_vector_size_ti.c` | GCC torture PR105613's one-lane TI comparison, with named parameter and return ABI coverage |
 | GNU 128-bit integer names — `__int128`, `__int128_t`, `__uint128_t` | `tests/corpus/x86_64/int/gnu_int128_spelling.c` | Apple's ARM thread-state headers use `__uint128_t` directly; the GNU spelling shares the implemented `mode(TI)` arithmetic, layout, constant-expression, ABI, bit-field, packed-field, and reverse-storage contracts, with the bit-field surface pinned separately by `tests/corpus/x86_64/int/gnu_int128_bitfields.c` |
 | `may_alias` | `tests/programs/gnu/attr_may_alias.c` | glibc's socket address records; aliasing typedefs used by systems code |
@@ -189,12 +190,21 @@ Apple ARM64 matches the platform compiler's naturally aligned paired access
 and measured barrier placement. Read-modify-write uses a strong sequentially
 consistent generic compare-exchange loop: libatomic supplies it on ELF and
 libSystem's compiler-rt supplies it on Darwin. Atomic/TI compound operations
-whose atomic destination has a narrower type, TI enums, and reverse storage
-order for ordinary TI members or arrays receive targeted errors.
+whose atomic destination has a narrower type and reverse storage order for
+ordinary TI members or arrays receive targeted errors.
+
+Enumerated types may select signed or unsigned TI either through
+`mode(TI)` or because a full-width enumerator exceeds every standard integer
+representation. Enumerator values and implicit successors retain both limbs;
+layout, promotions, constant folding, static initialization, bit-fields,
+switch coverage, named and anonymous call ABI, and naturally aligned atomic
+access then reuse the same address-backed TI contract as `__int128`. A mode
+narrower than any enumerator remains a hard error rather than truncating the
+value.
 
 `__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
 that macro as an effective-target promise for bodies that also exercise
-atomic, enum, and reverse-storage TI surfaces. Anonymous varargs,
+atomic and reverse-storage TI surfaces. Anonymous varargs, enums,
 checked-overflow, and the one-lane vector boundary are implemented, but source
 should continue to use the implemented types directly; the broader feature
 advertisement lands only when every guarded boundary closes.
