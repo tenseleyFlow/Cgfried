@@ -418,7 +418,7 @@ static bool sso_has_atomic_int128_element(const Type *type)
 {
     while (type && type->kind == TY_ARRAY)
         type = type->base;
-    return type_is_int128(type) && (type->quals & CGF_QUAL_ATOMIC);
+    return type && type_is_int128(type) && (type->quals & CGF_QUAL_ATOMIC);
 }
 
 static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
