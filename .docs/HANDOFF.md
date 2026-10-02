@@ -9009,6 +9009,16 @@ and green post-publication CI.
   arrays now use explicit element assignments. The exact merged #165 compiler
   accepts that replacement shape; host GCC/Clang, focused units, and local
   format/diff checks remain green. No target atomic lowering changed.
+
+  Corrected head `a7f8d436` cleared both O0 bootstrap jobs, safe dogfood,
+  native ARM, macOS, toolchain, and both performance lanes. The standard
+  Linux job then found a test-only ordering error: the assembly fixture listed
+  store-before-load checks although its source defines the load function
+  first. The runtime fixture and all other programs passed. The x86 and
+  arm64-linux directives now follow source order; emitted assembly for all
+  five targets and the local runner satisfy the corrected contract. The fuzz
+  digest remains `b8f5fdca1e6bb974` across repeated normal and sanitized
+  checks.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
