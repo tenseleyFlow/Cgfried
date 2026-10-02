@@ -230,7 +230,8 @@ static bool module_uses_libatomic_helpers(const IrModule *m)
         if (strcmp(m->syms[i], "__atomic_load_16") == 0 ||
             strcmp(m->syms[i], "__atomic_store_16") == 0 ||
             strcmp(m->syms[i], "__atomic_load") == 0 ||
-            strcmp(m->syms[i], "__atomic_store") == 0)
+            strcmp(m->syms[i], "__atomic_store") == 0 ||
+            strcmp(m->syms[i], "__atomic_compare_exchange") == 0)
             return true;
     return false;
 }

@@ -363,11 +363,12 @@ merged green-only as `10211b61`. PR #163's TI checked-add/subtract-operand
 tranche merged green-only as `b96defe9`. PR #164's TI checked-multiplication
 operand tranche and its file-scope variably-modified-member fuzz repair merged
 green-only as `eb8f5f57`. PR #165's TI anonymous-call and `va_arg` ABI contract
-tranche merged green-only as `8b6d6571`. The active `s56.71-ti-atomic` tranche
-starts from that exact merge and implements naturally aligned sequentially
-consistent TI loads and stores while keeping read-modify-write operations a
-named fail-closed boundary. The detailed ledger below records the exact
-evidence and next boundary order.
+tranche merged green-only as `8b6d6571`. PR #166's naturally aligned atomic TI
+load/store tranche merged green-only as `46808f16`. The active
+`s56.72-ti-atomic-rmw` tranche starts from that exact merge and completes TI
+compound assignments plus prefix/postfix increment and decrement with one
+strong sequentially consistent compare-exchange loop on every closed target.
+The detailed ledger below records the exact evidence and next boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9019,6 +9020,43 @@ and green post-publication CI.
   five targets and the local runner satisfy the corrected contract. The fuzz
   digest remains `b8f5fdca1e6bb974` across repeated normal and sanitized
   checks.
+
+  Final exact head `60b4fd1b22aa919b983b888c7da6bfe66af13f3a` completed with
+  28 successful checks and nine intentional skips. It merged green-only as
+  `46808f1626b5bdb6af5c73548c3731a86ee17f93`; its exact parents are merged
+  #165 `8b6d6571` and that tested head, and its tree
+  `e0f76ef41a4a2b1381b3e0e10730df86296b6d65` is byte-identical to the tested
+  head.
+- The active `s56.72-ti-atomic-rmw` tranche starts from exact merged PR #166.
+  It accepts every arithmetic, bitwise, and shift compound assignment on an
+  atomic TI object plus prefix/postfix increment and decrement. The
+  address-backed value law remains intact: a strong generic
+  `__atomic_compare_exchange` updates an expected-value buffer on failure, the
+  retry recomputes the desired two-limb value, and the successful path returns
+  the expected or desired buffer according to postfix versus prefix/compound
+  C semantics. ELF discovers the new libatomic dependency automatically;
+  Darwin resolves the same generic compiler-rt entry point from libSystem.
+  The separate narrower-atomic-destination/TI-operand boundary remains a
+  targeted error.
+
+  A five-target lowering unit pins the helper loop and target-specific initial
+  atomic load. Permanent assembly covers all five targets. Native Apple
+  runtime coverage passes every compound operator and signed/unsigned
+  two-limb case at O0/O1/O2/O3/Os, pins destination/RHS single evaluation,
+  and a four-thread contention fixture proves 40,000 postfix increments lose
+  none at O0 or O2. Focused lowering has 40 assertions. The complete normal
+  and ASan+UBSan unit baselines match at 997 tests / 4,330,622 assertions with
+  the same eight documented Darwin host-assumption failures. Normal and
+  sanitized 2,000-case frontend fuzz runs find zero failures; repeated
+  5,000-case hashes produce the intentionally repinned corpus digest
+  `23337a3d68d23284`. Pinned clang-format 22 remains authoritative in CI;
+  local clang-format 23 reports the touched C files clean.
+
+  After this tranche merges green-only, take TI enums next, then reverse
+  scalar storage order for ordinary TI members/arrays. Re-audit the remaining
+  pointer-relocation/static-conversion diagnostic against GCC before treating
+  it as an implementation gap. Keep `__SIZEOF_INT128__` withheld until these
+  advertised surfaces close.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

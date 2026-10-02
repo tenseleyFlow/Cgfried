@@ -1178,6 +1178,83 @@ static IrOperand wide_binary_values(Lower *lo, u16 op, Type *type,
     }
 }
 
+/* A wide value is address-backed, so the scalar cmpxchg IR operation cannot
+ * carry it without teaching every optimizer a second two-result convention.
+ * Use the generic compiler-rt/libatomic ABI instead: on failure it replaces
+ * EXPECTED with the value that defeated the comparison, which is precisely
+ * the loop-carried state needed by the next attempt.  The generic entry point
+ * is available in libatomic on ELF and in libSystem's compiler-rt on Darwin.
+ */
+static IrOperand wide_atomic_compare_exchange(Lower *lo, const Lvalue *lv,
+                                              IrOperand expected,
+                                              IrOperand desired)
+{
+    IrOperand args[6];
+    ValueId success;
+
+    args[0] = ir_op_iconst(IRT_I64, 16);
+    args[1] = lv->addr;
+    args[2] = expected;
+    args[3] = desired;
+    args[4] = ir_op_iconst(IRT_I32, 5); /* __ATOMIC_SEQ_CST */
+    args[5] = ir_op_iconst(IRT_I32, 5); /* __ATOMIC_SEQ_CST */
+    success =
+        ir_build_call(&lo->b, IRT_I8, FUNCREF_EXTERNAL,
+                      ir_sym(lo->m, "__atomic_compare_exchange"), args, 6);
+    success = ir_build1(&lo->b, IR_ZEXT, IRT_I32, ir_op_value(lo->fn, success));
+    return ir_op_value(lo->fn, success);
+}
+
+/* Atomic TI compound assignment and ++/-- share one strong-CAS retry loop.
+ * RHS has already been evaluated exactly once, after the destination address.
+ * EXPECTED is updated in place after a failed compare-exchange; DESIRED is
+ * recomputed from that new value on the retry.  Returning an address preserves
+ * the ordinary address-backed TI value law while selecting old/new implements
+ * postfix versus prefix/compound expression semantics. */
+static IrOperand lower_wide_atomic_update(Lower *lo, Lvalue lv, Type *lt,
+                                          u16 op, IrOperand rhs, Type *rt,
+                                          bool want_old)
+{
+    IrOperand expected = wide_atomic_load(lo, &lv);
+    IrOperand converted_rhs;
+    IrOperand desired;
+    BlockId retry = lower_new_block(lo, "wide.rmw.retry");
+    BlockId done = lower_new_block(lo, "wide.rmw.done");
+
+    if (op == PUNCT_SHL || op == PUNCT_SHR) {
+        converted_rhs = lower_scalar_convert(lo, rhs, rt, type_basic(TY_INT));
+    } else if (type_is_int128(rt)) {
+        converted_rhs = wide_capture(lo, rhs, rt, 0);
+    } else {
+        Type *common = conv_uac_type(lo->sema, lt, rt);
+
+        converted_rhs = wide_from_scalar(lo, rhs, rt, common);
+    }
+
+    ir_build_br(&lo->b, retry, NULL, 0);
+    lower_at(lo, retry);
+    if (op == PUNCT_SHL || op == PUNCT_SHR) {
+        const char *name =
+            op == PUNCT_SHL
+                ? "__ashlti3"
+                : (conv_is_signed(lo->sema, lt) ? "__ashrti3" : "__lshrti3");
+
+        desired = wide_runtime_shift(lo, name, lt, expected, converted_rhs);
+    } else {
+        Type *common = conv_uac_type(lo->sema, lt, rt);
+
+        desired = wide_binary_values(lo, op, common, expected, converted_rhs);
+    }
+    {
+        IrOperand success =
+            wide_atomic_compare_exchange(lo, &lv, expected, desired);
+
+        ir_build_condbr(&lo->b, success, done, NULL, 0, retry, NULL, 0);
+    }
+    lower_at(lo, done);
+    return want_old ? expected : desired;
+}
+
 static IrOperand lower_wide_binary(Lower *lo, AstNode *e)
 {
     Type *lt = sem(e->lhs);
@@ -2287,6 +2364,8 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
             u8 lhs_flags = lv.is_volatile ? IRF_VOLATILE : 0;
 
             rhs = lower_rvalue(lo, e->rhs);
+            if (lv.is_atomic)
+                return lower_wide_atomic_update(lo, lv, lt, op, rhs, rt, false);
             left = lv.is_bitfield
                        ? conv_promote_bitfield_type(lo->sema, lt, lv.bit_width,
                                                     lv.is_signed)
@@ -5471,6 +5550,13 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
         u8 flags = lv.is_volatile ? IRF_VOLATILE : 0;
         IrOperand next;
 
+        if (lv.is_atomic) {
+            u16 op = e->op == PUNCT_PLUSPLUS ? PUNCT_PLUS : PUNCT_MINUS;
+
+            return lower_wide_atomic_update(lo, lv, t, op,
+                                            ir_op_iconst(IRT_I32, 1),
+                                            type_basic(TY_INT), e->is_postfix);
+        }
         old = lv.is_bitfield ? lower_load(lo, lv)
                              : wide_capture(lo, lv.addr, t, flags);
         if (type_is_int128(arith)) {

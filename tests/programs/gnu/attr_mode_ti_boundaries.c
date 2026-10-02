@@ -1,6 +1,4 @@
 // FLAGS: -std=gnu17 -fsyntax-only -fmax-errors=0
-// ERROR_EXPECTED: atomic mode(TI) read-modify-write operations are not yet supported
-// ERROR_EXPECTED: atomic mode(TI) read-modify-write operations are not yet supported
 // ERROR_EXPECTED: the cast to 'unsigned mode(TI) integer' is not pointer-width
 // ERROR_EXPECTED: mode(TI) enumerated types are not yet supported
 // ERROR_EXPECTED: reverse scalar storage order for mode(TI) member
@@ -9,11 +7,11 @@
 // ERROR_EXPECTED: division by zero in a constant expression
 // ERROR_EXPECTED: shift count is out of range for a 128-bit type
 /* Every accepted mode(TI) operation has real two-limb lowering. These are
- * the remaining boundaries where atomic read-modify-write IR or a
- * storage-order transform would otherwise silently produce the wrong
- * program. Floating conversions and comparisons, TI bit-fields, and switch
- * controls are implemented; keep the remaining boundaries named until each
- * separate facility lands. */
+ * the remaining boundaries where a storage-order transform or a narrower
+ * atomic destination would otherwise silently produce the wrong program.
+ * Floating conversions and comparisons, TI bit-fields, switch controls, and
+ * atomic TI read-modify-write are implemented; keep the remaining boundaries
+ * named until each separate facility lands. */
 typedef unsigned int u128 __attribute__((mode(TI)));
 typedef int i128 __attribute__((mode(TI)));
 
