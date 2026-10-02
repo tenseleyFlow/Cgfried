@@ -414,11 +414,11 @@ static bool sso_has_floating_component(const Type *type)
     return type_is_floating(type);
 }
 
-static bool sso_has_int128_element(const Type *type)
+static bool sso_has_atomic_int128_element(const Type *type)
 {
     while (type && type->kind == TY_ARRAY)
         type = type->base;
-    return type_is_int128(type);
+    return type_is_int128(type) && (type->quals & CGF_QUAL_ATOMIC);
 }
 
 static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
@@ -558,12 +558,12 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
             warn_at(s->lang->warnings, WARN_ATTRIBUTES, m->span,
                     "'scalar_storage_order' attribute ignored on a field");
 
-        /* Reverse order is implemented for integral scalars through 64 bits
-         * and for every integral bit-field, including address-backed TI.
-         * Floating representations and ordinary TI members/arrays need a
-         * distinct byte-preserving aggregate lowering; accepting them here
-         * would silently retain native order, so fail closed. Nested records
-         * own their own storage order and are deliberately exempt. */
+        /* Reverse order is implemented for integral scalars and every
+         * integral bit-field, including address-backed TI. Floating
+         * representations and atomic TI members/arrays still need distinct
+         * lowering; accepting either would silently retain native order, so
+         * fail closed. Nested records own their own storage order and are
+         * deliberately exempt. */
         if (sema_scalar_storage_order_reversed(s, tag->scalar_storage_order) &&
             sso_has_floating_component(mt)) {
             s->nerrors++;
@@ -574,11 +574,11 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
             mt = type_basic(TY_ERROR);
         }
         if (sema_scalar_storage_order_reversed(s, tag->scalar_storage_order) &&
-            !m->is_bitfield && sso_has_int128_element(mt)) {
+            !m->is_bitfield && sso_has_atomic_int128_element(mt)) {
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, m->span,
-                      "reverse scalar storage order for mode(TI) member or "
-                      "array '%s' is not yet supported",
+                      "reverse scalar storage order for atomic mode(TI) "
+                      "member or array '%s' is not yet supported",
                       m->name ? m->name : "<anonymous>");
             mt = type_basic(TY_ERROR);
         }

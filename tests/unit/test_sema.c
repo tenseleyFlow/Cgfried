@@ -1709,11 +1709,12 @@ void test_sema_gnu_int128_bitfield_initializer_images(TestCtx *t)
     }
     sfix_free(&f);
 
-    /* The tranche closes reverse order for TI bit-fields only. Ordinary TI
-     * members and arrays retain their targeted diagnostic until their
-     * byte-preserving aggregate transform is implemented independently. */
+    /* Ordinary TI members and arrays have the same 16-byte reverse-order
+     * image as the bit-field path above. Atomic TI still fails closed until
+     * its indivisible access can include that representation transform. */
     run_sema(&f,
-             "struct R { unsigned __int128 value; } "
+             "typedef unsigned __int128 u128; "
+             "struct R { _Atomic(u128) value[2]; } "
              "__attribute__" /* check_bans allow: compiler input */
              "((scalar_storage_order(\"big-endian\")));\n",
              STD_GNU17);
