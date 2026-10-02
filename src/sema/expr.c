@@ -436,6 +436,13 @@ static AstNode *expr_unary(Sema *s, AstNode *e)
                 type_to_str(s->arena, op->sem_type), ast_punct_name(e->op));
             return poison(s, e);
         }
+        if ((op->sem_type->quals & CGF_QUAL_ATOMIC) &&
+            type_is_int128(op->sem_type)) {
+            err(s, e->span,
+                "atomic mode(TI) read-modify-write operations are not yet "
+                "supported (docs/gnu-extensions.md)");
+            return poison(s, e);
+        }
         mark_lvalue_write(op, false);
         e->lhs = op;
         e->sem_type = conv_strip_quals(s, op->sem_type);
@@ -524,6 +531,12 @@ static AstNode *expr_assign(Sema *s, AstNode *e)
 
         e->rhs = conv_decay(s, e->rhs);
         rt = e->rhs->sem_type;
+        if ((lt->quals & CGF_QUAL_ATOMIC) && type_is_int128(lt)) {
+            err(s, e->span,
+                "atomic mode(TI) read-modify-write operations are not yet "
+                "supported (docs/gnu-extensions.md)");
+            return poison(s, e);
+        }
         if ((lt->quals & CGF_QUAL_ATOMIC) && type_is_int128(rt)) {
             err(s, e->span,
                 "compound assignment between an atomic object and a "

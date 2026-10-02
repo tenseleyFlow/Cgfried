@@ -350,6 +350,33 @@ void test_ir_verify_check7_flags(TestCtx *t)
     T_ASSERT(t, !ir_verify(f.dc, m));
     T_ASSERT(t, fired(&f, 7));
     arena_free_all(&f.arena);
+
+    /* v2i64 is the one vector-shaped seq_cst memory carrier: lowering uses
+     * it to preserve all 128 TI bits. Volatile alone remains forbidden, so
+     * this does not admit volatile source vector objects by accident. */
+    vfix_init(&f);
+    fn = scaffold(&f, &m, &b);
+    {
+        ValueId p = ir_build_alloca(&b, ir_op_iconst(IRT_I64, 16), 16);
+
+        ir_build_load(&b, IRT_V2I64, ir_op_value(fn, p), 16, IRF_SEQ_CST);
+    }
+    ir_build_ret(&b, NULL);
+    T_ASSERT(t, ir_verify(f.dc, m));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    arena_free_all(&f.arena);
+
+    vfix_init(&f);
+    fn = scaffold(&f, &m, &b);
+    {
+        ValueId p = ir_build_alloca(&b, ir_op_iconst(IRT_I64, 16), 16);
+
+        ir_build_load(&b, IRT_V2I64, ir_op_value(fn, p), 16, IRF_VOLATILE);
+    }
+    ir_build_ret(&b, NULL);
+    T_ASSERT(t, !ir_verify(f.dc, m));
+    T_ASSERT(t, fired(&f, 7));
+    arena_free_all(&f.arena);
 }
 
 void test_ir_verify_check8_alignment(TestCtx *t)
@@ -408,8 +435,9 @@ void test_ir_verify_check8_alignment(TestCtx *t)
             u32 bad_align;
             bool store;
         } rows[] = {
-            {IRT_F32, 1, false}, {IRT_F64, 1, true},  {IRT_I32, 2, true},
-            {IRT_I64, 1, false}, {IRT_PTR, 4, false}, {IRT_PTR, 4, true},
+            {IRT_F32, 1, false},   {IRT_F64, 1, true},  {IRT_I32, 2, true},
+            {IRT_I64, 1, false},   {IRT_PTR, 4, false}, {IRT_PTR, 4, true},
+            {IRT_V2I64, 8, false},
         };
         size_t row;
 
@@ -444,6 +472,7 @@ void test_ir_verify_check8_alignment(TestCtx *t)
     ir_build_store(&b, ir_op_undef(IRT_I32), ir_op_value(fn, p), 4,
                    IRF_SEQ_CST);
     ir_build_load(&b, IRT_PTR, ir_op_value(fn, p), 8, IRF_SEQ_CST);
+    ir_build_load(&b, IRT_V2I64, ir_op_value(fn, p), 16, IRF_SEQ_CST);
     ir_build_ret(&b, NULL);
     T_ASSERT(t, ir_verify(f.dc, m));
     T_ASSERT_EQ_INT(t, f.errors, 0);

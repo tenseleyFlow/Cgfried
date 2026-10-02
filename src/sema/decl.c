@@ -583,6 +583,19 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         if (m->is_bitfield) {
             i64 wv = 0;
 
+            /* GCC and Clang both reject atomic-qualified bit-fields. More
+             * importantly, lowering a bit-field write is a container
+             * read/modify/write; merely putting seq_cst on its separate load
+             * and store would not make that update atomic. Keep the invalid
+             * type from reaching layout/lowering after the diagnostic. */
+            if (mt && (mt->quals & CGF_QUAL_ATOMIC)) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, m->span,
+                          "bit-field '%s' has atomic type",
+                          m->name ? m->name : "<anonymous>");
+                mt = mem->type = type_basic(TY_ERROR);
+            }
+
             /* gcc's implementation-defined enum-bitfield representation is
              * unsigned when the enum has no negative enumerator. This is
              * deliberately member metadata: Cgfried's existing compatible-
@@ -3566,11 +3579,6 @@ static void declare_one(Sema *s, AstNode *d)
                 diag_emit(s->dc, DIAG_ERROR, d->span,
                           "atomic struct/union types are outside v0.1.0 "
                           "scope");
-            } else if (type_is_int128(elem)) {
-                s->nerrors++;
-                diag_emit(s->dc, DIAG_ERROR, d->span,
-                          "atomic mode(TI) objects are not yet supported "
-                          "(docs/gnu-extensions.md)");
             } else if (type_is_vector(elem)) {
                 s->nerrors++;
                 diag_emit(s->dc, DIAG_ERROR, d->span,

@@ -180,9 +180,15 @@ same model and accept signed and unsigned TI selectors, including their exact
 unpromoted bit-field precision; their ignored selector value is still
 evaluated once. Constant folding uses matching host-portable two-limb
 arithmetic.
-Atomic TI objects and atomic/TI compound operations, TI enums, and reverse
-storage order for ordinary TI members or arrays likewise receive targeted
-errors.
+Naturally aligned atomic TI objects support initialization plus sequentially
+consistent loads, stores, and simple assignment. The target lowering follows
+each platform contract: x86-64 uses the sized libatomic entry points,
+arm64-linux uses libatomic's generic out-pointer entry points, and Apple ARM64
+matches the platform compiler's naturally aligned paired access and measured
+barrier placement. Atomic TI read-modify-write operations (compound assignment
+and increment/decrement), atomic/TI compound operations whose atomic
+destination has a narrower type, TI enums, and reverse storage order for
+ordinary TI members or arrays receive targeted errors.
 
 `__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
 that macro as an effective-target promise for bodies that also exercise

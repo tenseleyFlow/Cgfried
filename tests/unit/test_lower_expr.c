@@ -1996,6 +1996,48 @@ void test_lower_gnu_mode_ti_floating_conversions(TestCtx *t)
     }
 }
 
+void test_lower_gnu_mode_ti_atomic_access_target_contract(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    static const char source[] =
+        "typedef unsigned __int128 u128;\n"
+        "_Atomic(u128) cell;\n"
+        "u128 read_cell(void) { return cell; }\n"
+        "u128 write_cell(u128 value) { return cell = value; }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        if (targets[i] == CGF_TARGET_ARM64_LINUX) {
+            T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @__atomic_load("),
+                            1);
+            T_ASSERT_EQ_INT(t, count_of(txt(&f), "call void @__atomic_store("),
+                            1);
+            T_ASSERT_EQ_INT(t, count_of(txt(&f), "v2i64"), 0);
+        } else {
+            T_ASSERT_EQ_INT(
+                t, count_of(txt(&f), "load v2i64, @cell, align 16, seq_cst"),
+                1);
+            T_ASSERT_EQ_INT(t, count_of(txt(&f), "align 16, seq_cst"), 2);
+            T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__atomic_load("), 0);
+            T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__atomic_store("), 0);
+        }
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<atomic-ti-rt>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_fixed_checked_overflow_store_family(TestCtx *t)
 {
     static const char source[] =

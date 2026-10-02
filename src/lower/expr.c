@@ -762,6 +762,78 @@ static IrOperand wide_capture(Lower *lo, IrOperand src, Type *t,
     return dst;
 }
 
+/* A source mode(TI) value is address-backed, but an atomic TI lvalue
+ * conversion is a real indivisible 16-byte read rather than permission to
+ * copy its two limbs separately later.  v2i64 is only a bit-preserving IR
+ * carrier here: sema still refuses atomic source vectors.
+ *
+ * ARMv8.0 Linux deliberately takes libatomic's generic out-pointer ABI.  It
+ * avoids inventing an LSE requirement and avoids reserving a third backend
+ * scratch solely for an ldaxp/stlxp load loop.  x86 uses its established
+ * __atomic_*_16 selection, while Apple arm64 has a measured platform paired
+ * access contract emitted by the backend. */
+static bool wide_atomic_uses_generic_helper(const Lower *lo)
+{
+    return lo->sema->target.kind == CGF_TARGET_ARM64_LINUX;
+}
+
+static IrOperand wide_atomic_load(Lower *lo, const Lvalue *lv)
+{
+    ValueId tmp = lower_temp(lo, lv->type);
+    IrOperand dst = ir_op_value(lo->fn, tmp);
+
+    if (wide_atomic_uses_generic_helper(lo)) {
+        IrOperand args[4];
+
+        /* Keep these explicit assignments bootstrap-compatible: the previous
+         * stage still mislowers aggregate-valued expressions in brace-elided
+         * array initialization. */
+        args[0] = ir_op_iconst(IRT_I64, 16);
+        args[1] = lv->addr;
+        args[2] = dst;
+        args[3] = ir_op_iconst(IRT_I32, 5); /* __ATOMIC_SEQ_CST */
+
+        (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL,
+                            ir_sym(lo->m, "__atomic_load"), args, 4);
+    } else {
+        u8 flags = (u8)(IRF_SEQ_CST | (lv->is_volatile ? IRF_VOLATILE : 0));
+        ValueId bits = ir_build_load_typed(&lo->b, IRT_V2I64, lv->addr, 16,
+                                           flags, lv->etype);
+
+        ir_build_store_typed(&lo->b, ir_op_value(lo->fn, bits), dst, 16, 0,
+                             lower_efftype(lo, lv->type));
+    }
+    return dst;
+}
+
+static IrOperand wide_atomic_store(Lower *lo, const Lvalue *lv, IrOperand src,
+                                   Type *t, u8 access_flags)
+{
+    IrOperand captured = wide_capture(lo, src, t, access_flags);
+
+    if (wide_atomic_uses_generic_helper(lo)) {
+        IrOperand args[4];
+
+        args[0] = ir_op_iconst(IRT_I64, 16);
+        args[1] = lv->addr;
+        args[2] = captured;
+        args[3] = ir_op_iconst(IRT_I32, 5); /* __ATOMIC_SEQ_CST */
+
+        (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL,
+                            ir_sym(lo->m, "__atomic_store"), args, 4);
+    } else {
+        ValueId bits = ir_build_load_typed(&lo->b, IRT_V2I64, captured, 16, 0,
+                                           lower_efftype(lo, t));
+        u8 flags = (u8)(IRF_SEQ_CST | (lv->is_volatile ? IRF_VOLATILE : 0));
+
+        ir_build_store_typed(&lo->b, ir_op_value(lo->fn, bits), lv->addr, 16,
+                             flags, lv->etype);
+    }
+    /* The assignment expression's value is the captured RHS.  Returning the
+     * destination address would make a later consumer reread the atomic. */
+    return captured;
+}
+
 static IrOperand wide_truth_ne(Lower *lo, IrOperand addr, Type *t,
                                u8 access_flags)
 {
@@ -2167,6 +2239,9 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
             IrOperand src = lower_rvalue(lo, e->rhs);
             TypeLayout l = layout_of(lo->sema, sem(e->lhs));
             u8 flags = lower_aggregate_access_flags(e->rhs);
+
+            if (type_is_int128(sem(e->lhs)) && lv.is_atomic)
+                return wide_atomic_store(lo, &lv, src, sem(e->lhs), flags);
 
             lower_memcpy_aggregate(
                 lo, lv.addr, src, sem(e->lhs), (u32)l.align,
@@ -5506,8 +5581,14 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
             return ir_op_undef(IRT_I32);
         }
         if (lower_is_aggregate(sem(e)) || (sem(e) && sem(e)->kind == TY_FUNC)) {
-            /* *f on a function or *p on an aggregate: the VALUE is the
-             * address itself. */
+            /* *f on a function or *p on an ordinary aggregate: the VALUE is
+             * the address itself. Atomic TI is aggregate-shaped internally,
+             * but its lvalue conversion must perform the access here. */
+            if (type_is_int128(sem(e))) {
+                lv = lower_lvalue(lo, e);
+                if (lv.is_atomic)
+                    return wide_atomic_load(lo, &lv);
+            }
             return lower_rvalue(lo, e->lhs);
         }
         lv = lower_lvalue(lo, e);
@@ -5685,6 +5766,8 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
             return lower_sym_addr(lo, sym);
         if (lower_is_aggregate(sem(e)) || (sem(e) && sem(e)->kind == TY_FUNC)) {
             lv = lower_lvalue(lo, e);
+            if (type_is_int128(sem(e)) && lv.is_atomic)
+                return wide_atomic_load(lo, &lv);
             return lv.addr;
         }
         lv = lower_lvalue(lo, e);
@@ -5775,15 +5858,21 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
     case AST_EXPR_MEMBER: {
         Lvalue lv = lower_lvalue(lo, e);
 
-        if (lower_is_aggregate(sem(e)) && !lv.is_bitfield)
+        if (lower_is_aggregate(sem(e)) && !lv.is_bitfield) {
+            if (type_is_int128(sem(e)) && lv.is_atomic)
+                return wide_atomic_load(lo, &lv);
             return lv.addr;
+        }
         return lower_load(lo, lv);
     }
     case AST_EXPR_COMPOUND_LIT: {
         Lvalue lv = lower_lvalue(lo, e);
 
-        if (lower_is_aggregate(sem(e)))
+        if (lower_is_aggregate(sem(e))) {
+            if (type_is_int128(sem(e)) && lv.is_atomic)
+                return wide_atomic_load(lo, &lv);
             return lv.addr;
+        }
         return lower_load(lo, lv);
     }
     case AST_EXPR_SIZEOF:

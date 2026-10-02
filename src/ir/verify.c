@@ -19,7 +19,7 @@
  *   6  no orphan blocks — unreachable-from-entry is REJECTED
  *   7  instruction flags only on ops that can carry their semantics
  *   8  alignments nonzero powers of two; load/store never over-aligned;
- *      seq_cst scalar load/store naturally aligned
+ *      seq_cst load/store naturally aligned
  *   9  FuncRef/symbol indices in range; internal call arity/types match
  *   10 reserved opcodes absent */
 
@@ -492,7 +492,14 @@ static void check_inst_misc(V *v, const IrInst *in)
         verr(v, 7, "'nsw' is not defined on vector arithmetic");
     if ((in->op == IR_LOAD && ir_type_is_vector((IrType)in->type)) ||
         (in->op == IR_STORE && ir_type_is_vector((IrType)in->ops[0].type))) {
-        if (in->flags & (IRF_VOLATILE | IRF_SEQ_CST))
+        u8 vt = in->op == IR_LOAD ? in->type : in->ops[0].type;
+        bool atomic_ti_carrier =
+            vt == IRT_V2I64 && (in->flags & IRF_SEQ_CST) != 0;
+
+        /* v2i64 is also the internal, bit-preserving carrier for an atomic
+         * mode(TI) access.  No source vector atomic is admitted, so this
+         * single seq_cst shape does not widen the vector-language surface. */
+        if ((in->flags & (IRF_VOLATILE | IRF_SEQ_CST)) && !atomic_ti_carrier)
             verr(v, 7, "vector load/store cannot be volatile or atomic");
     }
     if ((in->flags & IRF_BOUNDS_CHECK) && in->op != IR_ICMP)
@@ -518,8 +525,7 @@ static void check_inst_misc(V *v, const IrInst *in)
              * it carries the type's natural-alignment guarantee. Both
              * backends rely on that guarantee when selecting machine atomic
              * loads and stores. */
-            if ((in->flags & IRF_SEQ_CST) && !ir_type_is_vector((IrType)vt) &&
-                in->align != natural_align(vt))
+            if ((in->flags & IRF_SEQ_CST) && in->align != natural_align(vt))
                 verr(v, 8,
                      "'%s' of %s with seq_cst requires natural alignment "
                      "%u, got alignment %u",

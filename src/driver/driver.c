@@ -222,13 +222,15 @@ typedef struct {
     bool plan_only;         /* internal -### dependency discovery, no output */
 } CompileJob;
 
-static bool module_uses_atomic16_helpers(const IrModule *m)
+static bool module_uses_libatomic_helpers(const IrModule *m)
 {
     u32 i;
 
     for (i = 0; i < m->nsyms; i++)
         if (strcmp(m->syms[i], "__atomic_load_16") == 0 ||
-            strcmp(m->syms[i], "__atomic_store_16") == 0)
+            strcmp(m->syms[i], "__atomic_store_16") == 0 ||
+            strcmp(m->syms[i], "__atomic_load") == 0 ||
+            strcmp(m->syms[i], "__atomic_store") == 0)
             return true;
     return false;
 }
@@ -1134,8 +1136,6 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
             x64_mir_print(xf, &mir_dump);
         x64_emit_function(xf, m, i, m->funcs[i].linkage, &b);
     }
-    if (job->needs_libatomic && module_uses_atomic16_helpers(m))
-        *job->needs_libatomic = true;
     x64_emit_globals(m, &b, data_is_pic(a));
     comp_dir[0] = '\0';
     if (a->debug_level && !debug_comp_dir(comp_dir, sizeof(comp_dir))) {
@@ -1151,6 +1151,11 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
                             job->path, comp_dir, a->debug_level != 0, &b);
 
 emit_tail:
+    /* x86 selection interns the sized helper names; arm64-linux TI lowering
+     * interns the generic names earlier.  Inspect only after target selection
+     * has therefore had its chance to add either family. */
+    if (job->needs_libatomic && module_uses_libatomic_helpers(m))
+        *job->needs_libatomic = true;
     if (job->plan_only) {
         if (dump_dir)
             buf_free(&mir_dump);

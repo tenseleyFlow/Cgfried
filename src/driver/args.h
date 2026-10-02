@@ -96,7 +96,7 @@ typedef struct {
     bool emit_asm;    /* -S: stop after codegen, <base>.s per input */
     bool compile_obj; /* -c: stop after assemble, one .o per input (cwd) */
     bool link_exe;    /* set by the driver when no stop-mode is given */
-    bool needs_libatomic; /* x86 wide atomic helpers were selected */
+    bool needs_libatomic; /* a target's wide atomic helpers were selected */
     bool syntax_only;     /* -fsyntax-only */
     bool dump_macros;     /* -dM (with -E) */
     bool no_linemarkers;  /* -P */
