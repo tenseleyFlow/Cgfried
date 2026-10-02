@@ -360,11 +360,12 @@ green-only as `67c7d31a`; PR #160's narrow TI-vector boundary merged green-only
 as `12435595`; and PR #161's TI overflow-predicate-selector tranche merged
 green-only as `0ddd086f`. PR #162's TI floating-comparison-builtin tranche
 merged green-only as `10211b61`. PR #163's TI checked-add/subtract-operand
-tranche merged green-only as `b96defe9`. The active
-`s56.69-ti-checked-overflow-mul-operands` tranche starts from that exact merge
-and admits TI operands to generic checked multiplication without introducing
-a host-dependent 256-bit value. The detailed ledger below records the exact
-evidence and next boundary order.
+tranche merged green-only as `b96defe9`. PR #164's TI checked-multiplication
+operand tranche and its file-scope variably-modified-member fuzz repair merged
+green-only as `eb8f5f57`. The active `s56.70-ti-anonymous-varargs` tranche
+starts from that exact merge and permanently pins the already-correct TI
+anonymous-call and `va_arg` ABI across all three closed psABIs. The detailed
+ledger below records the exact evidence and next boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -8921,17 +8922,49 @@ and green post-publication CI.
   findings. The pinned digest remains `cb74ac49d46cbc41`, the crash directory
   is empty, and clang-format 22 plus the unit-registry and diff checks pass.
 
-  After green-only merge, audit and permanently pin TI anonymous variadic
-  calls and `va_arg` first: the ABI machinery already classifies TI as an
-  address-backed two-eightbyte value, and forced `pr92904.c` passes
-  arm64-macos and emits/assembles for both Linux targets. The contract still
-  lacks a dedicated fixture and forced native Linux execution; the older
-  target-complete `pr92904.c` publication exercised its macro fallback. Then
-  address atomic TI, TI enums, and reverse scalar storage order for ordinary
-  TI members/arrays. Re-audit the pointer-relocation/static-conversion
-  diagnostic against GCC rather than assuming it is an implementation gap.
-  Do not define `__SIZEOF_INT128__` until every advertised surface is either
-  implemented or receives an explicit fail-closed boundary.
+  Final PR #164 CI reported 28 successful checks and nine intentional skips.
+  It merged green-only as `eb8f5f57b2c81d60f92715ff9663fcc045008e22`;
+  its exact parents are merged #163 `b96defe9` and tested head `b0fe2ec4`, and
+  its tree `4798aa276df9519ac932da4f5e07c057f368abc6` is byte-identical to that
+  tested head.
+- The active `s56.70-ti-anonymous-varargs` tranche starts from exact merged PR
+  #164. This is a contract-closure tranche rather than an ABI behavior change:
+  forced-advertisement `pr92904.c` passes the exact #164 compiler natively on
+  arm64-macos at O0/O1/O2/O3/Os, and the permanent mixed-compiler probe also
+  passes that compiler. The existing ABI machinery already classifies TI as
+  one 16-byte integer value represented internally by two address-backed
+  eightbyte leaves.
+
+  `tests/programs/gnu/attr_mode_ti_varargs.c` now pins signed and unsigned high
+  limbs, the signed-minimum vicinity, volatile TI sources, the 0/3/4/5/6/7/9
+  GP-register boundaries, stack overflow placement, and a mixed
+  `int, TI, double, TI, int` stream. Cgfried passes it natively on arm64-macos
+  at all five optimization levels; Homebrew GCC 16 agrees under
+  `-Wall -Wextra -Werror`; and both Linux targets emit and assemble at all five
+  levels. A target-parameterized unit pins the SysV x86-64, Linux AAPCS64, and
+  Apple ARM64 anonymous-call and `va_arg` IR contracts.
+
+  The fixed ABI differential links Cgfried and the reference compiler in both
+  directions. It covers signed and unsigned TI after 0/4/5/6/9 GP arguments
+  plus the mixed GP/FP stream; the reduced arm64-macos lane passes with both
+  the #164 and current compilers. The existing forced Linux ABI-differential
+  CI lanes run the same probe before their generated signatures, so it cannot
+  disappear behind a missing effective-target macro or a random seed.
+
+  Focused normal and ASan+UBSan ABI units pass 24 assertions. The complete
+  normal and sanitized baselines report 995 tests / 4,330,536 assertions with
+  exactly the same eight Darwin host-assumption failures. Normal and sanitized
+  2,000-case frontend fuzz runs find zero failures; repeated normal and
+  sanitized 5,000-case hashes produce the intentionally repinned corpus digest
+  `40a45e139643af0b`, and both exact smoke targets pass. The contract commit is
+  `80367702de7c2c78266b63b656f6ad02ea1bdee4`.
+
+  After green-only merge, address atomic TI first, then TI enums and reverse
+  scalar storage order for ordinary TI members/arrays. Re-audit the
+  pointer-relocation/static-conversion diagnostic against GCC rather than
+  assuming it is an implementation gap. Do not define `__SIZEOF_INT128__`
+  until every advertised surface is either implemented or receives an
+  explicit fail-closed boundary.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
