@@ -181,6 +181,13 @@ same model and accept signed and unsigned TI selectors, including their exact
 unpromoted bit-field precision; their ignored selector value is still
 evaluated once. Constant folding uses matching host-portable two-limb
 arithmetic.
+
+GCC does not treat a symbol address converted to TI as a static integer
+constant, even when the conversion first passes through a pointer-width
+integer; direct signed/unsigned and addended forms are rejected as well.
+Cgfried matches that boundary. Pointer-width integer relocations, null-to-TI
+static conversions, and run-time pointer/TI conversions remain accepted.
+
 Naturally aligned atomic TI objects support initialization, sequentially
 consistent loads, stores, simple assignment, every arithmetic/bitwise/shift
 compound assignment, and prefix/postfix increment and decrement. Loads and
@@ -191,7 +198,9 @@ and measured barrier placement. Read-modify-write uses a strong sequentially
 consistent generic compare-exchange loop: libatomic supplies it on ELF and
 libSystem's compiler-rt supplies it on Darwin. Atomic/TI compound operations
 whose atomic destination has a narrower type and reverse storage order for
-ordinary TI members or arrays receive targeted errors.
+atomic TI members or arrays receive targeted errors. Ordinary TI members and
+arrays support reverse storage order, including packed, union, volatile, enum,
+static-image, and read-modify-write cases.
 
 Enumerated types may select signed or unsigned TI either through
 `mode(TI)` or because a full-width enumerator exceeds every standard integer
@@ -202,18 +211,18 @@ access then reuse the same address-backed TI contract as `__int128`. A mode
 narrower than any enumerator remains a hard error rather than truncating the
 value.
 
-`__SIZEOF_INT128__` remains deliberately undefined. GCC torture sources use
-that macro as an effective-target promise for bodies that also exercise
-atomic and reverse-storage TI surfaces. Anonymous varargs, enums,
-checked-overflow, and the one-lane vector boundary are implemented, but source
-should continue to use the implemented types directly; the broader feature
-advertisement lands only when every guarded boundary closes.
+`__SIZEOF_INT128__` is defined as 16 on all supported targets. Its imported
+GCC torture guards cover arithmetic, shifts, comparisons, switches, floating
+conversion, volatile objects, and anonymous varargs; those guarded paths run
+through the same implemented two-limb contracts described above. Unsupported
+combinations remain explicit targeted diagnostics rather than silently
+miscompiled advertised operations.
 
 The torture harness's narrower DejaGNU `int128` capability is enabled: that
 effective-target test asks whether the source type exists. It therefore runs
 direct `__int128` cases such as `pr84748.c` and the TI bit-field compile cases
-while continuing to expose separately named atomic, enum, and ordinary-member
-reverse-storage boundaries instead of hiding them as unsupported-type skips.
+while separately named atomic-storage-order and narrower-atomic-destination
+boundaries remain visible instead of hiding behind unsupported-type skips.
 
 `__builtin_classify_type` is an integer constant expression and never
 evaluates an expression operand. Expression operands undergo GCC's ordinary

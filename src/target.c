@@ -155,6 +155,7 @@ void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
                "#define __CHAR_BIT__ 8\n"
                "#define __SIZEOF_SHORT__ 2\n#define __SIZEOF_INT__ 4\n"
                "#define __SIZEOF_LONG__ 8\n#define __SIZEOF_LONG_LONG__ 8\n"
+               "#define __SIZEOF_INT128__ 16\n"
                "#define __SIZEOF_POINTER__ 8\n#define __SIZEOF_SIZE_T__ 8\n"
                "#define __SIZEOF_PTRDIFF_T__ 8\n#define __SIZEOF_FLOAT__ 4\n"
                "#define __SIZEOF_DOUBLE__ 8\n"

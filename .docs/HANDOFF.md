@@ -365,12 +365,15 @@ operand tranche and its file-scope variably-modified-member fuzz repair merged
 green-only as `eb8f5f57`. PR #165's TI anonymous-call and `va_arg` ABI contract
 tranche merged green-only as `8b6d6571`. PR #166's naturally aligned atomic TI
 load/store tranche merged green-only as `46808f16`. PR #167's atomic TI
-read-modify-write tranche merged green-only as `ba2388d8`. The active
-`s56.73-ti-enums` tranche starts from that exact merge and completes explicit
-`mode(TI)` plus inferred full-width enum representations while retaining enum
-identity and routing values through the existing two-limb layout, ABI,
-constant, switch, bit-field, and atomic machinery. The detailed ledger below
-records the exact evidence and next boundary order.
+read-modify-write tranche merged green-only as `ba2388d8`; PR #168's TI-enum
+tranche merged green-only as `ecf2a28b`; and PR #169's ordinary TI reverse
+scalar-storage-order tranche merged green-only as `90d7ccbc`. The active
+`s56.75-ti-int128-predefine` tranche starts from that exact merge. A measured
+GCC 16 audit proves that static pointer-to-TI relocations are a GCC boundary,
+not a Cgfried gap. With every guarded TI surface either implemented or
+explicitly fail-closed, the tranche defines `__SIZEOF_INT128__` as 16 and
+runs the twelve imported torture executables that it activates. The detailed
+ledger below records the exact evidence and next boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9139,6 +9142,36 @@ and green post-publication CI.
   relocation/static-conversion diagnostic against GCC before deciding whether
   it is a compiler gap. Keep `__SIZEOF_INT128__` withheld until every remaining
   advertised boundary is either implemented or explicitly fail-closed.
+- PR #169's final exact head `bfaa1377f8e04347fba88dbaae238763e8605561`
+  completed with 28 successful checks and nine intentional skips. It merged
+  green-only as `90d7ccbc204ebde4d051e45bf218deef0a1375c4`; its exact parents
+  are merged #168 `ecf2a28b` and that tested head, and its tree
+  `44c0d91b9d5ecfdc9f5a8b593072090d507cc1aa` is byte-identical to the tested
+  head.
+- The active `s56.75-ti-int128-predefine` tranche starts from exact merged PR
+  #169. GCC 16 rejects direct signed/unsigned, addended, and pointer-width-
+  mediated static pointer-to-TI initializers even with warnings disabled. It
+  accepts a pointer-width integer relocation, null-to-TI static conversion,
+  and run-time pointer-to-TI conversion; Cgfried matches that full matrix.
+  The residual diagnostic is therefore a measured GCC boundary rather than a
+  compiler gap, and a semantic unit now pins the distinction.
+
+  `__SIZEOF_INT128__` is now predefined as 16 on all five supported targets.
+  An exact predefine unit and permanent native runtime fixture pin the value
+  against both signed and unsigned TI sizes. All 25 target/optimization
+  assembly cells are nonempty with warnings-as-errors. More importantly, all
+  twelve imported GCC torture executables guarded by the macro pass natively
+  on Apple ARM64 at O0/O1/O2/O3/Os, for 60/60 newly activated executions.
+
+  Focused normal and ASan+UBSan semantic/predefine units pass. Complete normal
+  and sanitized baselines match at 999 tests / 4,330,735 assertions with the
+  same eight documented Darwin host-assumption failures. Normal and sanitized
+  2,000-case frontend fuzz runs find zero failures; two normal and two
+  sanitized 5,000-case hashes produce the intentionally repinned corpus
+  digest `72c27ba3e01881b4`. Local policy, target-seam, GNU-tier, warning-
+  matrix, semantic-format-matrix, and unit-registry gates are green. Pinned
+  clang-format 22 remains authoritative in CI because this host does not
+  provide it.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

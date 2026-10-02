@@ -5,10 +5,12 @@
 // ERROR_EXPECTED: overflow in constant expression
 // ERROR_EXPECTED: division by zero in a constant expression
 // ERROR_EXPECTED: shift count is out of range for a 128-bit type
-/* Every accepted mode(TI) operation has real two-limb lowering. These are
- * the remaining boundaries where an atomic storage-order transform or a
- * narrower atomic destination would otherwise silently produce the wrong
- * program.
+/* Every accepted mode(TI) operation has real two-limb lowering. The static
+ * address conversion is a measured GCC boundary rather than a Cgfried gap:
+ * a pointer relocation cannot initialize an integer wider than the pointer.
+ * The other remaining boundaries are cases where an atomic storage-order
+ * transform or a narrower atomic destination would silently produce the
+ * wrong program.
  * Floating conversions and comparisons, TI bit-fields, switch controls, and
  * atomic TI read-modify-write are implemented; keep the remaining boundaries
  * named until each separate facility lands. */
