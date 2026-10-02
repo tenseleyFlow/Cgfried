@@ -328,9 +328,11 @@ struct Symbol {
     AstNode *func_def;
     bool uses_va_arg_pack;
     bool uses_builtin_constant_p;
-    u8 inline_kind; /* InlineKind, valid after sema_finish */
-    u8 def_kind;    /* DefKind, valid after sema_finish */
-    i64 enum_value; /* SYM_ENUM_CONST */
+    u8 inline_kind;    /* InlineKind, valid after sema_finish */
+    u8 def_kind;       /* DefKind, valid after sema_finish */
+    i64 enum_value;    /* SYM_ENUM_CONST: low 64 bits */
+    u64 enum_value_hi; /* high 64 bits, sign-extended for negative values */
+    bool enum_value_negative; /* mathematical sign before enum conversion */
     /* GNU folds the already-validated initializer of a non-volatile,
      * top-level const scalar object when that object's VALUE appears in a
      * later constant initializer. This does not make the identifier an ICE:

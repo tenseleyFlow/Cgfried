@@ -52,6 +52,15 @@ static bool enum_fold(Sema *s, AstNode *e, i64 *out)
     return sema_require_ice(s, e, out, "this");
 }
 
+static bool enum_fold_wide(Sema *s, AstNode *e, u64 *lo, u64 *hi,
+                           bool *negative)
+{
+    if (!sema_require_ice_wide(s, e, lo, hi, "this"))
+        return false;
+    *negative = conv_is_signed(s, e->sem_type) && (*hi >> 63) != 0;
+    return true;
+}
+
 static void reject_nonfunction_attrs(Sema *s, const CgfAttr *attrs)
 {
     const CgfAttr *a;
@@ -683,28 +692,67 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
     }
 }
 
-/* gcc's underlying-type ladder: the first of int, unsigned int, long,
- * unsigned long that represents every enumerator. A negative enumerator
- * forces a signed choice. The enum's underlying type is NOT the type of
- * its constants — those are `int` (6.7.2.2p3). */
-static Type *enum_underlying(Sema *s, i64 lo, i64 hi, bool any_negative)
+static bool enum_value_fits(const Symbol *sym, u32 bits, bool is_signed)
+{
+    u64 lo;
+    u64 hi;
+
+    if (!sym)
+        return true;
+    lo = (u64)sym->enum_value;
+    hi = sym->enum_value_hi;
+    if (!is_signed) {
+        if (sym->enum_value_negative)
+            return false;
+        if (bits >= 128)
+            return true;
+        if (bits == 64)
+            return hi == 0;
+        return hi == 0 && lo <= ((1ull << bits) - 1);
+    }
+    if (bits >= 128)
+        return sym->enum_value_negative || (hi >> 63) == 0;
+    if (sym->enum_value_negative) {
+        i64 min = -((i64)1 << (bits - 1));
+
+        return hi == ~0ull && (i64)lo >= min;
+    }
+    return hi == 0 && lo <= ((1ull << (bits - 1)) - 1);
+}
+
+static bool enum_values_fit(const AstNode *rec, u32 bits, bool is_signed)
+{
+    u32 i;
+
+    if (!rec)
+        return false;
+    for (i = 0; i < rec->nmembers; i++) {
+        const AstNode *m = rec->members[i];
+
+        if (m && m->sym && !enum_value_fits(m->sym, bits, is_signed))
+            return false;
+    }
+    return true;
+}
+
+/* gcc's underlying-type ladder through the standard target integers. Values
+ * beyond unsigned long select GNU's signed or unsigned TI representation.
+ * The enum's compatible type is NOT automatically the type of each constant:
+ * constants inside int retain int, matching the GCC-8 contract used by this
+ * compiler, while out-of-int constants take the selected representation. */
+static Type *enum_underlying(Sema *s, const AstNode *rec, bool any_negative)
 {
     IntWidths w = cgf_target_int_widths(s->target);
-    i64 int_max = ((i64)1 << (w.int_bits - 1)) - 1;
-    i64 int_min = -((i64)1 << (w.int_bits - 1));
-    u64 uint_max = (w.int_bits >= 64) ? ~0ull : ((1ull << w.int_bits) - 1);
-    i64 long_max = (w.long_bits >= 64) ? (i64)0x7fffffffffffffffLL
-                                       : (((i64)1 << (w.long_bits - 1)) - 1);
-    i64 long_min = (w.long_bits >= 64) ? (-(i64)0x7fffffffffffffffLL - 1)
-                                       : -((i64)1 << (w.long_bits - 1));
 
-    if (lo >= int_min && hi <= int_max)
+    if (enum_values_fit(rec, w.int_bits, true))
         return type_basic(TY_INT);
-    if (!any_negative && (u64)hi <= uint_max)
+    if (!any_negative && enum_values_fit(rec, w.int_bits, false))
         return type_basic(TY_UINT);
-    if (lo >= long_min && hi <= long_max)
+    if (enum_values_fit(rec, w.long_bits, true))
         return type_basic(TY_LONG);
-    return type_basic(TY_ULONG);
+    if (!any_negative && enum_values_fit(rec, w.long_bits, false))
+        return type_basic(TY_ULONG);
+    return type_basic(any_negative ? TY_INT128 : TY_UINT128);
 }
 
 static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
@@ -712,9 +760,9 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
     IntWidths w = cgf_target_int_widths(s->target);
     i64 int_max = ((i64)1 << (w.int_bits - 1)) - 1;
     i64 int_min = -((i64)1 << (w.int_bits - 1));
-    i64 next = 0, lo = 0, hi = 0;
+    u64 next_lo = 0, next_hi = 0;
+    bool next_negative = false;
     bool any_negative = false;
-    bool have_any = false;
     bool any_out_of_int = false;
     Symbol *before = s->scope->ordinary;
     Symbol *sym_it;
@@ -726,20 +774,28 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
         const AstNode *m = rec->members[i];
         Symbol *prev;
         Symbol *sym;
-        i64 value = next;
+        u64 value_lo = next_lo;
+        u64 value_hi = next_hi;
+        bool value_negative = next_negative;
 
         if (!m)
             continue;
         if (m->init) {
-            if (!enum_fold(s, m->init, &value))
-                value = next; /* already diagnosed; keep going */
+            if (!enum_fold_wide(s, m->init, &value_lo, &value_hi,
+                                &value_negative)) {
+                value_lo = next_lo; /* already diagnosed; keep going */
+                value_hi = next_hi;
+                value_negative = next_negative;
+            }
         }
 
         /* 6.7.2.2p2 makes an enumerator outside int's range a constraint
          * violation. gcc accepts it as an extension and gives the constant
          * the enum's type, so we pedwarn rather than reject — the value is
          * still usable and rejecting would break real code. */
-        if (value > int_max || value < int_min) {
+        if (value_hi != (value_negative ? ~0ull : 0) ||
+            (value_negative ? (i64)value_lo < int_min
+                            : value_lo > (u64)int_max)) {
             any_out_of_int = true;
             /* gcc only warns under -pedantic here, so we do too — this is
              * a constraint the standard states and every real toolchain
@@ -762,40 +818,36 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
          * typedefs — that is why `enum { x }; int x;` collides. */
         sym = sym_new(s, m->name, SYM_ENUM_CONST, NS_ORDINARY,
                       type_basic(TY_INT), m->span);
-        sym->enum_value = value;
+        sym->enum_value = (i64)value_lo;
+        sym->enum_value_hi = value_hi;
+        sym->enum_value_negative = value_negative;
         sym->defined = true;
         gnu_attrs_merge(&sym->gnu, &m->gnu);
         scope_declare(s, sym);
         ((AstNode *)m)->sym = sym;
 
-        if (!have_any) {
-            lo = hi = value;
-            have_any = true;
-        } else {
-            if (value < lo)
-                lo = value;
-            if (value > hi)
-                hi = value;
-        }
-        if (value < 0)
+        if (value_negative)
             any_negative = true;
 
         /* The NEXT implicit value is previous + 1; overflowing there with
          * no explicit `=` has no defined value to give. */
-        if (value == (i64)0x7fffffffffffffffLL) {
+        if (!value_negative && value_lo == ~0ull && value_hi == ~0ull) {
             if (i + 1 < rec->nmembers && rec->members[i + 1] &&
                 !rec->members[i + 1]->init) {
                 s->nerrors++;
                 diag_emit(s->dc, DIAG_ERROR, rec->members[i + 1]->span,
                           "overflow in enumeration values");
             }
-            next = 0;
+            next_lo = next_hi = 0;
+            next_negative = false;
         } else {
-            next = value + 1;
+            next_lo = value_lo + 1;
+            next_hi = value_hi + (next_lo == 0);
+            next_negative = value_negative && (next_hi >> 63) != 0;
         }
     }
 
-    tag->enum_underlying = enum_underlying(s, lo, hi, any_negative);
+    tag->enum_underlying = enum_underlying(s, rec, any_negative);
     tag->enum_has_negative = any_negative;
     tag->complete = true;
 
@@ -809,7 +861,11 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
              sym_it = sym_it->next) {
             if (sym_it->kind != SYM_ENUM_CONST)
                 continue;
-            if (sym_it->enum_value > int_max || sym_it->enum_value < int_min)
+            if (sym_it->enum_value_hi !=
+                    (sym_it->enum_value_negative ? ~0ull : 0) ||
+                (sym_it->enum_value_negative
+                     ? sym_it->enum_value < int_min
+                     : (u64)sym_it->enum_value > (u64)int_max))
                 sym_it->type = tag->enum_underlying;
         }
     }
@@ -2505,35 +2561,10 @@ static bool enum_mode_values_fit(Sema *s, const Type *t, const Type *repr)
     const AstNode *rec = t && t->tag ? t->tag->enum_ast : NULL;
     u32 bits = conv_int_bits(s, repr);
     bool is_signed = conv_is_signed(s, repr);
-    u32 i;
 
     if (!rec)
         return false;
-    for (i = 0; i < rec->nmembers; i++) {
-        const AstNode *m = rec->members[i];
-        i64 value;
-
-        if (!m || !m->sym)
-            continue;
-        value = m->sym->enum_value;
-        if (is_signed) {
-            i64 min;
-            i64 max;
-
-            if (bits >= 64)
-                continue;
-            min = -((i64)1 << (bits - 1));
-            max = ((i64)1 << (bits - 1)) - 1;
-            if (value < min || value > max)
-                return false;
-        } else {
-            u64 max = bits >= 64 ? ~0ull : ((1ull << bits) - 1);
-
-            if (value < 0 || (u64)value > max)
-                return false;
-        }
-    }
-    return true;
+    return enum_values_fit(rec, bits, is_signed);
 }
 
 static void enum_mode_retype_constants(Sema *s, Type *t, Type *repr)
@@ -2550,7 +2581,11 @@ static void enum_mode_retype_constants(Sema *s, Type *t, Type *repr)
         AstNode *m = rec->members[i];
 
         if (m && m->sym &&
-            (m->sym->enum_value < int_min || m->sym->enum_value > int_max))
+            (m->sym->enum_value_hi !=
+                 (m->sym->enum_value_negative ? ~0ull : 0) ||
+             (m->sym->enum_value_negative
+                  ? m->sym->enum_value < int_min
+                  : (u64)m->sym->enum_value > (u64)int_max)))
             m->sym->type = repr;
     }
 }
@@ -2588,13 +2623,6 @@ static Type *gnu_mode_apply(Sema *s, Type *t, const GnuDeclAttrs *g,
         diag_emit(s->dc, DIAG_ERROR, span,
                   "the 'mode' attribute on an incomplete enumerated type is "
                   "not supported");
-        return t;
-    }
-    if (t->kind == TY_ENUM && g->mode == GNU_MODE_TI) {
-        s->nerrors++;
-        diag_emit(s->dc, DIAG_ERROR, span,
-                  "mode(TI) enumerated types are not yet supported "
-                  "(docs/gnu-extensions.md)");
         return t;
     }
     if (!type_is_integer(t) || t->kind == TY_BOOL) {

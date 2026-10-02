@@ -748,7 +748,8 @@ static void warn_switch_fallthrough(Sema *s, Preprocessor *pp, AstNode *sw)
     }
 }
 
-static bool switch_case_value(Sema *s, const CaseEntry *entry, i64 *out)
+static bool switch_case_value(Sema *s, const CaseEntry *entry, u64 *out_lo,
+                              u64 *out_hi, bool *out_negative)
 {
     ConstValue cv;
 
@@ -758,24 +759,31 @@ static bool switch_case_value(Sema *s, const CaseEntry *entry, i64 *out)
     cv = constexpr_eval(s, entry->node->lhs, CE_FOLD);
     if (cv.kind != CV_INT)
         return false;
-    *out = (i64)cv.i;
+    *out_lo = cv.i;
+    *out_hi = cv.i_hi;
+    *out_negative = conv_is_signed(s, cv.type) && (cv.i_hi >> 63) != 0;
     return true;
 }
 
-static bool switch_has_enum_value(Sema *s, const CaseEntry *head, i64 value)
+static bool switch_has_enum_value(Sema *s, const CaseEntry *head, u64 value_lo,
+                                  u64 value_hi)
 {
     const CaseEntry *entry;
 
     for (entry = head; entry; entry = entry->next) {
-        i64 cv;
+        u64 lo;
+        u64 hi;
+        bool negative;
 
-        if (switch_case_value(s, entry, &cv) && cv == value)
+        if (switch_case_value(s, entry, &lo, &hi, &negative) &&
+            lo == value_lo && hi == value_hi)
             return true;
     }
     return false;
 }
 
-static bool enum_contains_value(const AstNode *enum_ast, i64 value)
+static bool enum_contains_value(const AstNode *enum_ast, u64 value_lo,
+                                u64 value_hi)
 {
     u32 i;
 
@@ -784,7 +792,8 @@ static bool enum_contains_value(const AstNode *enum_ast, i64 value)
     for (i = 0; i < enum_ast->nmembers; i++) {
         const AstNode *item = enum_ast->members[i];
 
-        if (item && item->sym && item->sym->enum_value == value)
+        if (item && item->sym && (u64)item->sym->enum_value == value_lo &&
+            item->sym->enum_value_hi == value_hi)
             return true;
     }
     return false;
@@ -832,19 +841,29 @@ static void warn_switch_coverage(Sema *s, AstNode *sw)
             AstNode *item = enum_ast->members[i];
 
             if (!item || !item->sym ||
-                switch_has_enum_value(s, head, item->sym->enum_value))
+                switch_has_enum_value(s, head, (u64)item->sym->enum_value,
+                                      item->sym->enum_value_hi))
                 continue;
             warn_at(s->lang->warnings, missing_id, sw->span,
                     "enumeration value '%s' not handled in switch", item->name);
         }
     }
     for (entry = head; entry; entry = entry->next) {
-        i64 cv;
+        u64 lo;
+        u64 hi;
+        bool negative;
 
-        if (switch_case_value(s, entry, &cv) &&
-            !enum_contains_value(enum_ast, cv))
+        if (!switch_case_value(s, entry, &lo, &hi, &negative) ||
+            enum_contains_value(enum_ast, lo, hi))
+            continue;
+        if ((!negative && hi == 0 && lo <= 0x7fffffffffffffffull) ||
+            (negative && hi == ~0ull && lo >= 0x8000000000000000ull))
             warn_at(s->lang->warnings, missing_id, entry->node->span,
-                    "case value '%lld' not in enumerated type", (long long)cv);
+                    "case value '%lld' not in enumerated type", (long long)lo);
+        else
+            warn_at(s->lang->warnings, missing_id, entry->node->span,
+                    "case value '0x%llx%016llx' not in enumerated type",
+                    (unsigned long long)hi, (unsigned long long)lo);
     }
 }
 

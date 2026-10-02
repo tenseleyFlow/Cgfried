@@ -193,8 +193,18 @@ static void dump_chain(Sema *s, const Symbol *sym, FILE *f)
         return;
     }
     if (sym->kind == SYM_ENUM_CONST) {
-        fprintf(f, "ENUMCONST %s = %lld: %s\n", sym->name,
-                (long long)sym->enum_value, type_to_str(s->arena, sym->type));
+        if ((!sym->enum_value_negative && sym->enum_value_hi == 0 &&
+             (u64)sym->enum_value <= 0x7fffffffffffffffull) ||
+            (sym->enum_value_negative && sym->enum_value_hi == ~0ull &&
+             (u64)sym->enum_value >= 0x8000000000000000ull))
+            fprintf(f, "ENUMCONST %s = %lld: %s\n", sym->name,
+                    (long long)sym->enum_value,
+                    type_to_str(s->arena, sym->type));
+        else
+            fprintf(f, "ENUMCONST %s = 0x%llx%016llx: %s\n", sym->name,
+                    (unsigned long long)sym->enum_value_hi,
+                    (unsigned long long)(u64)sym->enum_value,
+                    type_to_str(s->arena, sym->type));
         return;
     }
     fprintf(f, "%s %s: %s [%s]", kind_name[sym->kind], sym->name,

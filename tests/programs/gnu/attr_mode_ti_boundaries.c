@@ -1,6 +1,5 @@
 // FLAGS: -std=gnu17 -fsyntax-only -fmax-errors=0
 // ERROR_EXPECTED: the cast to 'unsigned mode(TI) integer' is not pointer-width
-// ERROR_EXPECTED: mode(TI) enumerated types are not yet supported
 // ERROR_EXPECTED: reverse scalar storage order for mode(TI) member
 // ERROR_EXPECTED: compound assignment between an atomic object
 // ERROR_EXPECTED: overflow in constant expression

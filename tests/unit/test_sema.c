@@ -3904,12 +3904,69 @@ void test_sema_enum_mode_attributes(TestCtx *t)
     sfix_free(&f);
 
     run_sema(&f,
+             "typedef unsigned __int128 u128; typedef __int128 i128; "
+             "typedef enum { T0, TB = (u128)1 << 100, TN } "
+             "__attribute__" /* check_bans allow */
+             "((mode(TI))) TU; "
+             "typedef enum { SL = -((i128)1 << 100), SN } "
+             "__attribute__" /* check_bans allow */
+             "((mode(TI))) TS; "
+             "typedef enum { CP = ((u128)1 << 64) - 1, CN } "
+             "__attribute__" /* check_bans allow */
+             "((mode(TI))) TC; "
+             "enum AutoU { AU = (u128)1 << 120 }; "
+             "enum AutoS { AS = -((i128)1 << 100) }; "
+             "enum Small { SM0, SM1 }; "
+             "typedef enum Small "
+             "__attribute__" /* check_bans allow */
+             "((mode(TI))) SmallWide;\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sym = lookup(&f, "TU");
+    T_ASSERT(t, sym && sym->type && sym->type->kind == TY_ENUM);
+    T_ASSERT(t, sym && type_is_int128(sym->type));
+    T_ASSERT(t,
+             sym && type_enum_underlying(sym->type) == type_basic(TY_UINT128));
+    sym = lookup(&f, "TS");
+    T_ASSERT(t, sym && type_is_int128(sym->type));
+    T_ASSERT(t,
+             sym && type_enum_underlying(sym->type) == type_basic(TY_INT128));
+    sym = lookup(&f, "TB");
+    T_ASSERT(t, sym && (u64)sym->enum_value == 0);
+    T_ASSERT(t, sym && sym->enum_value_hi == (1ull << 36));
+    T_ASSERT(t, sym && sym->type == type_basic(TY_UINT128));
+    sym = lookup(&f, "TN");
+    T_ASSERT(t, sym && (u64)sym->enum_value == 1);
+    T_ASSERT(t, sym && sym->enum_value_hi == (1ull << 36));
+    sym = lookup(&f, "T0");
+    T_ASSERT(t, sym && sym->type == type_basic(TY_INT));
+    sym = lookup(&f, "CN");
+    T_ASSERT(t, sym && (u64)sym->enum_value == 0);
+    T_ASSERT(t, sym && sym->enum_value_hi == 1);
+    tag = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "AutoU")), NS_TAG);
+    T_ASSERT(t, tag && tag->tag &&
+                    tag->tag->enum_underlying == type_basic(TY_UINT128));
+    tag = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "AutoS")), NS_TAG);
+    T_ASSERT(t, tag && tag->tag &&
+                    tag->tag->enum_underlying == type_basic(TY_INT128));
+    sym = lookup(&f, "SmallWide");
+    T_ASSERT(t, sym && type_is_int128(sym->type));
+    T_ASSERT(t,
+             sym && type_enum_underlying(sym->type) == type_basic(TY_UINT128));
+    sfix_free(&f);
+
+    run_sema(&f,
              "typedef enum { TOO_HIGH = 256 } "
              "__attribute__((mode(QI))) TooHigh;\n" /* check_bans allow */
              "typedef enum { TOO_LOW = -129 } "
-             "__attribute__((mode(QI))) TooLow;\n", /* check_bans allow */
+             "__attribute__((mode(QI))) TooLow;\n" /* check_bans allow */
+             "typedef unsigned __int128 u128; "
+             "typedef enum { TOO_WIDE = (u128)1 << 100 } "
+             "__attribute__((mode(DI))) TooWide;\n", /* check_bans allow */
              STD_GNU17);
-    T_ASSERT_EQ_INT(t, f.errors, 2);
+    T_ASSERT_EQ_INT(t, f.errors, 3);
     sfix_free(&f);
 }
 

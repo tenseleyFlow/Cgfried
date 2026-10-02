@@ -232,6 +232,13 @@ bool type_is_integer(const Type *t)
 
 bool type_is_int128(const Type *t)
 {
+    /* GNU mode(TI) may select a 128-bit compatible type for an enum while
+     * the Type node deliberately retains TY_ENUM and its tag identity.  The
+     * expression and ABI layers care about the representation here: those
+     * values must follow the same address-backed two-limb paths as a directly
+     * spelled __int128. */
+    if (t && t->kind == TY_ENUM)
+        t = type_enum_underlying(t);
     return t && (t->kind == TY_INT128 || t->kind == TY_UINT128);
 }
 

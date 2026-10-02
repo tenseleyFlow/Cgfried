@@ -2078,6 +2078,46 @@ void test_lower_gnu_mode_ti_atomic_rmw_target_contract(TestCtx *t)
     }
 }
 
+void test_lower_gnu_mode_ti_enum_target_contract(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    static const char source[] =
+        "typedef unsigned __int128 u128; "
+        "typedef enum { ZERO, BIG = (u128)1 << 100, NEXT } "
+        "__attribute__" /* check_bans allow */
+        "((mode(TI))) E; "
+        "_Atomic(E) cell; "
+        "E round(E value) { return value; } "
+        "E add(E left, E right) { return (E)(left + right); } "
+        "int classify(E value) { switch (value) { case ZERO: return 1; "
+        "case BIG: return 2; case NEXT: return 3; } return 0; } "
+        "E update(E value) { cell += value; return cell++; }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        T_ASSERT(t, strstr(txt(&f), "func void @round(") != NULL);
+        T_ASSERT(t, strstr(txt(&f), "abi(pair_ii)") != NULL);
+        T_ASSERT(t, strstr(txt(&f), "68719476736") != NULL);
+        T_ASSERT(t, strstr(txt(&f), "sw.wide.next") != NULL);
+        T_ASSERT_EQ_INT(
+            t, count_of(txt(&f), "call i8 @__atomic_compare_exchange("), 2);
+        round = ir_parse_module(&f.arena, f.dc, txt(&f), "<mode-ti-enum>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_fixed_checked_overflow_store_family(TestCtx *t)
 {
     static const char source[] =

@@ -422,6 +422,12 @@ EffTypeId lower_efftype(Lower *lo, const Type *t)
     case TY_VECTOR:
         return ETYPE_AGGREGATE;
     case TY_ENUM:
+        /* A TI-represented enum is address-backed just like __int128.  It
+         * reaches effective-type classification for aggregate temporaries,
+         * but must never be forced through scalar IR merely because its
+         * source kind remains TY_ENUM. */
+        if (type_is_int128(t))
+            return ETYPE_UNKNOWN;
         switch (lower_irtype(lo, t)) {
         case IRT_I8:
             return ETYPE_I8;
