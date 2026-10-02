@@ -346,10 +346,14 @@ unaffected, matching GCC's type-attribute boundary. Taking the address of a
 reverse-order scalar is an error; array decay is permitted with the default-on
 `-Wscalar-storage-order` warning, which can be disabled independently.
 
-Address-backed TI bit-fields are included in the MSB-first path. Ordinary TI
-members and arrays still fail closed because reversing a whole 16-byte scalar
-or each element needs a separate aggregate-value transform; they are never
-accepted and silently stored in native order.
+Address-backed TI integers are included in the reverse path. Bit-fields use
+the same MSB-first allocation as narrower fields; ordinary members and every
+array element swap both 64-bit limbs and the bytes within each limb. Static
+images, runtime initialization, assignment, compound assignment,
+increment/decrement, packed members, unions, enums, and volatile access all
+preserve that logical/physical split. Atomic TI members and arrays still fail
+closed: their indivisible access needs a separate representation transform and
+is never accepted and silently stored in native order.
 
 This tranche deliberately fails closed on reverse-order floating members and
 on attaching the attribute through a typedef. Those GCC-supported forms need

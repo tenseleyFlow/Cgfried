@@ -626,6 +626,8 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
 
     if (lv.is_bitfield && type_is_int128(lv.type))
         return wide_bitfield_load(lo, &lv);
+    if (!lv.is_bitfield && type_is_int128(lv.type))
+        return lower_int128_lvalue_load(lo, &lv);
     if (lv.reverse_storage_order && lv.is_bitfield)
         return reverse_bitfield_load(lo, &lv);
     if (lv.packed_bitfield)
@@ -644,6 +646,8 @@ IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
 {
     if (lv.is_bitfield && type_is_int128(lv.type))
         return wide_bitfield_store(lo, &lv, v);
+    if (!lv.is_bitfield && type_is_int128(lv.type))
+        return lower_int128_lvalue_store(lo, &lv, v, 0);
     if (lv.reverse_storage_order && lv.is_bitfield)
         return reverse_bitfield_store(lo, &lv, v);
     if (lv.packed_bitfield)
@@ -831,6 +835,72 @@ static IrOperand wide_atomic_store(Lower *lo, const Lvalue *lv, IrOperand src,
     }
     /* The assignment expression's value is the captured RHS.  Returning the
      * destination address would make a later consumer reread the atomic. */
+    return captured;
+}
+
+IrOperand lower_int128_lvalue_load(Lower *lo, const Lvalue *lv)
+{
+    WideInt physical;
+    WideInt logical;
+    u8 flags;
+    u32 align;
+
+    if (lv->is_atomic)
+        return wide_atomic_load(lo, lv);
+    if (!lv->reverse_storage_order)
+        return lv->addr;
+
+    flags = lv->is_volatile ? IRF_VOLATILE : 0;
+    align = lv->align < 8 ? lv->align : 8;
+    if (!align)
+        align = 1;
+    physical.lo =
+        ir_op_value(lo->fn, ir_build_load_typed(&lo->b, IRT_I64, lv->addr,
+                                                align, flags, lv->etype));
+    physical.hi =
+        ir_op_value(lo->fn, ir_build_load_typed(&lo->b, IRT_I64,
+                                                wide_limb_addr(lo, lv->addr, 1),
+                                                align, flags, lv->etype));
+    logical.lo = reverse_integer_bytes(lo, physical.hi);
+    logical.hi = reverse_integer_bytes(lo, physical.lo);
+    return wide_materialize(lo, lv->type, logical);
+}
+
+IrOperand lower_int128_lvalue_store(Lower *lo, const Lvalue *lv, IrOperand src,
+                                    u8 access_flags)
+{
+    TypeLayout layout;
+    IrOperand captured;
+    WideInt logical;
+    WideInt physical;
+    u8 flags;
+    u32 align;
+
+    if (lv->is_atomic)
+        return wide_atomic_store(lo, lv, src, lv->type, access_flags);
+    if (!lv->reverse_storage_order) {
+        layout = layout_of(lo->sema, lv->type);
+        lower_memcpy_aggregate(
+            lo, lv->addr, src, lv->type, (u32)layout.align,
+            (u8)(access_flags | (lv->is_volatile ? IRF_VOLATILE : 0)));
+        return lv->addr;
+    }
+
+    /* Preserve the logical assignment value independently of its physical
+     * big-endian destination image. This also evaluates a volatile source
+     * exactly once before the two destination limb stores. */
+    captured = wide_capture(lo, src, lv->type, access_flags);
+    logical = wide_load(lo, captured, lv->type, 0);
+    physical.lo = reverse_integer_bytes(lo, logical.hi);
+    physical.hi = reverse_integer_bytes(lo, logical.lo);
+    flags = lv->is_volatile ? IRF_VOLATILE : 0;
+    align = lv->align < 8 ? lv->align : 8;
+    if (!align)
+        align = 1;
+    ir_build_store_typed(&lo->b, physical.lo, lv->addr, align, flags,
+                         lv->etype);
+    ir_build_store_typed(&lo->b, physical.hi, wide_limb_addr(lo, lv->addr, 1),
+                         align, flags, lv->etype);
     return captured;
 }
 
@@ -2317,8 +2387,8 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
             TypeLayout l = layout_of(lo->sema, sem(e->lhs));
             u8 flags = lower_aggregate_access_flags(e->rhs);
 
-            if (type_is_int128(sem(e->lhs)) && lv.is_atomic)
-                return wide_atomic_store(lo, &lv, src, sem(e->lhs), flags);
+            if (type_is_int128(sem(e->lhs)))
+                return lower_int128_lvalue_store(lo, &lv, src, flags);
 
             lower_memcpy_aggregate(
                 lo, lv.addr, src, sem(e->lhs), (u32)l.align,
@@ -2374,7 +2444,7 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
                          ? left
                          : conv_uac_type(lo->sema, left, rt);
             old = lv.is_bitfield ? lower_load(lo, lv)
-                                 : wide_capture(lo, lv.addr, lt, lhs_flags);
+                                 : lower_int128_lvalue_load(lo, &lv);
             if (!type_is_int128(common)) {
                 IrOperand a = wide_to_scalar(lo, old, lt, common, 0);
                 IrOperand b = lower_scalar_convert_access(
@@ -2387,13 +2457,7 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
                     lo, ir_op_value(lo->fn, scalar_result), common, lt);
                 if (lv.is_bitfield)
                     return lower_store(lo, lv, result);
-                {
-                    TypeLayout l = layout_of(lo->sema, lt);
-
-                    lower_memcpy_aggregate(lo, lv.addr, result, lt,
-                                           (u32)l.align, lhs_flags);
-                    return lv.addr;
-                }
+                return lower_int128_lvalue_store(lo, &lv, result, lhs_flags);
             }
             if (e->op == PUNCT_SHL_ASSIGN || e->op == PUNCT_SHR_ASSIGN) {
                 const char *name =
@@ -2414,13 +2478,7 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
             }
             if (lv.is_bitfield)
                 return lower_store(lo, lv, result);
-            {
-                TypeLayout l = layout_of(lo->sema, lt);
-
-                lower_memcpy_aggregate(lo, lv.addr, result, lt, (u32)l.align,
-                                       lhs_flags);
-                return lv.addr;
-            }
+            return lower_int128_lvalue_store(lo, &lv, result, lhs_flags);
         }
         if (lv.is_atomic) {
             rhs = lower_rvalue(lo, e->rhs);
@@ -5558,7 +5616,7 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
                                             type_basic(TY_INT), e->is_postfix);
         }
         old = lv.is_bitfield ? lower_load(lo, lv)
-                             : wide_capture(lo, lv.addr, t, flags);
+                             : lower_int128_lvalue_load(lo, &lv);
         if (type_is_int128(arith)) {
             IrOperand one = wide_materialize(
                 lo, arith,
@@ -5583,10 +5641,9 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
             return e->is_postfix ? old : stored;
         }
         {
-            TypeLayout l = layout_of(lo->sema, t);
+            IrOperand stored = lower_int128_lvalue_store(lo, &lv, next, flags);
 
-            lower_memcpy_aggregate(lo, lv.addr, next, t, (u32)l.align, flags);
-            return e->is_postfix ? old : lv.addr;
+            return e->is_postfix ? old : stored;
         }
     }
 
@@ -5672,8 +5729,7 @@ static IrOperand lower_unary(Lower *lo, AstNode *e)
              * but its lvalue conversion must perform the access here. */
             if (type_is_int128(sem(e))) {
                 lv = lower_lvalue(lo, e);
-                if (lv.is_atomic)
-                    return wide_atomic_load(lo, &lv);
+                return lower_int128_lvalue_load(lo, &lv);
             }
             return lower_rvalue(lo, e->lhs);
         }
@@ -5857,8 +5913,8 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
             return lower_sym_addr(lo, sym);
         if (lower_is_aggregate(sem(e)) || (sem(e) && sem(e)->kind == TY_FUNC)) {
             lv = lower_lvalue(lo, e);
-            if (type_is_int128(sem(e)) && lv.is_atomic)
-                return wide_atomic_load(lo, &lv);
+            if (type_is_int128(sem(e)))
+                return lower_int128_lvalue_load(lo, &lv);
             return lv.addr;
         }
         lv = lower_lvalue(lo, e);
@@ -5950,8 +6006,8 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
         Lvalue lv = lower_lvalue(lo, e);
 
         if (lower_is_aggregate(sem(e)) && !lv.is_bitfield) {
-            if (type_is_int128(sem(e)) && lv.is_atomic)
-                return wide_atomic_load(lo, &lv);
+            if (type_is_int128(sem(e)))
+                return lower_int128_lvalue_load(lo, &lv);
             return lv.addr;
         }
         return lower_load(lo, lv);
@@ -5960,8 +6016,8 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
         Lvalue lv = lower_lvalue(lo, e);
 
         if (lower_is_aggregate(sem(e))) {
-            if (type_is_int128(sem(e)) && lv.is_atomic)
-                return wide_atomic_load(lo, &lv);
+            if (type_is_int128(sem(e)))
+                return lower_int128_lvalue_load(lo, &lv);
             return lv.addr;
         }
         return lower_load(lo, lv);

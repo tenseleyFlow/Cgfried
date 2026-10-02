@@ -210,6 +210,13 @@ u8 lower_aggregate_access_flags(const AstNode *e)
 {
     if (!e || e->sem_is_bitfield || !lower_is_aggregate(e->sem_type))
         return 0;
+    /* These address-backed scalar lvalue conversions perform their memory
+     * access immediately and return an ordinary temporary. Do not carry the
+     * source's volatile marker onto later reads of that temporary. */
+    if (e->is_lvalue && type_is_int128(e->sem_type) &&
+        ((e->sem_type->quals & CGF_QUAL_ATOMIC) ||
+         e->sem_reverse_storage_order))
+        return 0;
     if (e->is_lvalue && (e->sem_type->quals & CGF_QUAL_VOLATILE))
         return IRF_VOLATILE;
     switch (e->kind) {
@@ -235,11 +242,13 @@ static bool discarded_value_is_already_materialized(const AstNode *e)
 {
     if (!e)
         return false;
-    /* Atomic TI lvalue conversion is materialized by lower_rvalue itself;
-     * the address-backed aggregate rule below must not synthesize a second
-     * volatile copy of that temporary for a discarded expression. */
+    /* Atomic and reverse-order TI lvalue conversion is materialized by
+     * lower_rvalue itself; the address-backed aggregate rule below must not
+     * synthesize a second volatile copy of that temporary for a discarded
+     * expression. */
     if (e->is_lvalue && type_is_int128(e->sem_type) &&
-        (e->sem_type->quals & CGF_QUAL_ATOMIC))
+        ((e->sem_type->quals & CGF_QUAL_ATOMIC) ||
+         e->sem_reverse_storage_order))
         return true;
     switch (e->kind) {
     case AST_EXPR_PAREN:

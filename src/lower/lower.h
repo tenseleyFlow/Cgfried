@@ -301,6 +301,12 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e);
 /* Load the two limbs of one address-backed TI value exactly once. */
 void lower_int128_parts(Lower *lo, IrOperand addr, Type *type, u8 access_flags,
                         IrOperand *low, IrOperand *high);
+/* Convert an address-backed TI lvalue to/from the compiler's native-order
+ * temporary representation. Reverse scalar-storage-order objects swap both
+ * the limb order and the bytes within each limb. */
+IrOperand lower_int128_lvalue_load(Lower *lo, const Lvalue *lv);
+IrOperand lower_int128_lvalue_store(Lower *lo, const Lvalue *lv, IrOperand src,
+                                    u8 access_flags);
 /* Stores through an lvalue; returns the RESULT VALUE of an assignment,
  * which for a bitfield is the stored value re-narrowed (masked and, for
  * signed fields, sign-extended) — never the raw RHS. */

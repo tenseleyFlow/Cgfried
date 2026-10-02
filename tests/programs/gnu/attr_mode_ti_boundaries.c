@@ -1,13 +1,14 @@
 // FLAGS: -std=gnu17 -fsyntax-only -fmax-errors=0
 // ERROR_EXPECTED: the cast to 'unsigned mode(TI) integer' is not pointer-width
-// ERROR_EXPECTED: reverse scalar storage order for mode(TI) member
+// ERROR_EXPECTED: reverse scalar storage order for atomic mode(TI) member
 // ERROR_EXPECTED: compound assignment between an atomic object
 // ERROR_EXPECTED: overflow in constant expression
 // ERROR_EXPECTED: division by zero in a constant expression
 // ERROR_EXPECTED: shift count is out of range for a 128-bit type
 /* Every accepted mode(TI) operation has real two-limb lowering. These are
- * the remaining boundaries where a storage-order transform or a narrower
- * atomic destination would otherwise silently produce the wrong program.
+ * the remaining boundaries where an atomic storage-order transform or a
+ * narrower atomic destination would otherwise silently produce the wrong
+ * program.
  * Floating conversions and comparisons, TI bit-fields, switch controls, and
  * atomic TI read-modify-write are implemented; keep the remaining boundaries
  * named until each separate facility lands. */
@@ -54,7 +55,7 @@ _Static_assert(UONE << 128, "wide shift count must fail");
 enum WideEnum { WIDE_ZERO } __attribute__((mode(TI)));
 
 struct __attribute__((scalar_storage_order("big-endian"))) ReverseWide {
-    u128 value[2];
+    _Atomic(u128) value[2];
 };
 
 _Atomic(unsigned long) atomic_word;

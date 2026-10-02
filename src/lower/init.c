@@ -1014,6 +1014,26 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
         lower_store(lo, lv, v);
         return;
     }
+    if (type_is_int128(r->t)) {
+        IrOperand src = materialize_rt_value(lo, r);
+        TypeLayout l = layout_of(lo->sema, r->t);
+        Lvalue lv;
+
+        memset(&lv, 0, sizeof(lv));
+        lv.addr = off_addr(lo, base, r->off);
+        lv.type = r->t;
+        lv.unit = IRT_PTR;
+        lv.etype = lower_efftype(lo, r->t);
+        lv.align = (u32)(l.align ? l.align : 1);
+        lv.is_volatile = (p->access_flags & IRF_VOLATILE) != 0 ||
+                         (r->t->quals & CGF_QUAL_VOLATILE) != 0;
+        lv.is_atomic = (r->t->quals & CGF_QUAL_ATOMIC) != 0;
+        lv.reverse_storage_order = sema_scalar_storage_order_reversed(
+            lo->sema, r->scalar_storage_order);
+        (void)lower_int128_lvalue_store(lo, &lv, src,
+                                        lower_aggregate_access_flags(r->e));
+        return;
+    }
     if (lower_is_aggregate(r->t)) {
         IrOperand src = materialize_rt_value(lo, r);
         TypeLayout l = layout_of(lo->sema, r->t);

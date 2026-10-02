@@ -9100,6 +9100,45 @@ and green post-publication CI.
   pointer-relocation/static-conversion diagnostic against GCC before treating
   it as an implementation gap. Keep `__SIZEOF_INT128__` withheld until those
   advertised boundaries close.
+- PR #168's final exact head `6bdb7f84138bb736aa3dcd4d529f9cc6322b00e9`
+  completed with 28 successful checks and nine intentional skips. It merged
+  green-only as `ecf2a28bf3fda0537e443fcdcde1504f9f614cf5`; its exact parents
+  are merged #167 `ba2388d` and that tested head, and its tree
+  `cc23f591e79c8b612bc9dc3e6169f9f4f383199c` is byte-identical to the tested
+  head.
+- The active `s56.74-ti-reverse-sso` tranche starts from exact merged PR #168.
+  It admits ordinary signed, unsigned, and enum-represented TI members and
+  arrays in reverse `scalar_storage_order` records. Lvalue conversion swaps
+  the two physical 64-bit limbs and reverses each limb's bytes into a native-
+  order temporary; stores apply the inverse transform while retaining the
+  logical assignment result. Static image construction already supported the
+  full 16-byte width. Dynamic initialization now shares the same lvalue-store
+  contract. Whole-record assignment remains one raw bytewise copy, preserving
+  padding, union state, and the already encoded physical representation.
+
+  The GCC-oracle/runtime fixture covers exact static and automatic byte
+  images, signed and unsigned values, TI arrays, packed members, unions,
+  volatile access, TI enums, assignment results, compound assignment, shifts,
+  prefix/postfix increment, and whole-record copies. It passes Homebrew GCC 16
+  under `-Werror` and Cgfried natively on Apple ARM64 at O0/O1/O2/O3/Os. All
+  five closed targets emit assembly at all five optimization levels. A five-
+  target lowering unit pins the limb/byte transform, volatile access count,
+  absence of atomic helpers, IR verification, and textual round trip.
+
+  Atomic reverse-order TI arrays retain a narrower targeted diagnostic because
+  their indivisible access cannot yet include the representation transform.
+  Focused normal and ASan+UBSan units are green; complete baselines match at
+  999 tests / 4,330,735 assertions with the same eight documented Darwin host-
+  assumption failures. Normal and sanitized 2,000-case frontend fuzz runs
+  find zero failures; repeated 5,000-case hashes produce the intentionally
+  repinned digest `4796eea232716e60`. Local policy checks are green; pinned
+  clang-format 22 remains authoritative in CI because this host provides
+  clang-format 23.
+
+  After this tranche merges green-only, measure the remaining TI pointer-
+  relocation/static-conversion diagnostic against GCC before deciding whether
+  it is a compiler gap. Keep `__SIZEOF_INT128__` withheld until every remaining
+  advertised boundary is either implemented or explicitly fail-closed.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
