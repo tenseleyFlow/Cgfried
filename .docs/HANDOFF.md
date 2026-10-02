@@ -9000,6 +9000,15 @@ and green post-publication CI.
   After this access tranche merges green-only, complete atomic TI
   read-modify-write operations before moving to TI enums and reverse scalar
   storage order for ordinary TI members/arrays.
+
+  Initial PR #166 head `40a1b65b` exposed one self-hosting-only issue shared
+  by both bootstrap workflows, safe dogfood, and both performance lanes. The
+  previous compiler mislowers aggregate-valued expressions inside a
+  brace-elided array initializer, so the new local `IrOperand args[4]`
+  initializers were read as scalar field initialization. The helper argument
+  arrays now use explicit element assignments. The exact merged #165 compiler
+  accepts that replacement shape; host GCC/Clang, focused units, and local
+  format/diff checks remain green. No target atomic lowering changed.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

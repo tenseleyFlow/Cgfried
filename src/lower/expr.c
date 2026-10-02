@@ -783,12 +783,15 @@ static IrOperand wide_atomic_load(Lower *lo, const Lvalue *lv)
     IrOperand dst = ir_op_value(lo->fn, tmp);
 
     if (wide_atomic_uses_generic_helper(lo)) {
-        IrOperand args[4] = {
-            ir_op_iconst(IRT_I64, 16),
-            lv->addr,
-            dst,
-            ir_op_iconst(IRT_I32, 5), /* __ATOMIC_SEQ_CST */
-        };
+        IrOperand args[4];
+
+        /* Keep these explicit assignments bootstrap-compatible: the previous
+         * stage still mislowers aggregate-valued expressions in brace-elided
+         * array initialization. */
+        args[0] = ir_op_iconst(IRT_I64, 16);
+        args[1] = lv->addr;
+        args[2] = dst;
+        args[3] = ir_op_iconst(IRT_I32, 5); /* __ATOMIC_SEQ_CST */
 
         (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL,
                             ir_sym(lo->m, "__atomic_load"), args, 4);
@@ -809,12 +812,12 @@ static IrOperand wide_atomic_store(Lower *lo, const Lvalue *lv, IrOperand src,
     IrOperand captured = wide_capture(lo, src, t, access_flags);
 
     if (wide_atomic_uses_generic_helper(lo)) {
-        IrOperand args[4] = {
-            ir_op_iconst(IRT_I64, 16),
-            lv->addr,
-            captured,
-            ir_op_iconst(IRT_I32, 5), /* __ATOMIC_SEQ_CST */
-        };
+        IrOperand args[4];
+
+        args[0] = ir_op_iconst(IRT_I64, 16);
+        args[1] = lv->addr;
+        args[2] = captured;
+        args[3] = ir_op_iconst(IRT_I32, 5); /* __ATOMIC_SEQ_CST */
 
         (void)ir_build_call(&lo->b, IRT_VOID, FUNCREF_EXTERNAL,
                             ir_sym(lo->m, "__atomic_store"), args, 4);
