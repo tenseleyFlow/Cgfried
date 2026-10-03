@@ -375,10 +375,13 @@ explicitly fail-closed, the tranche defines `__SIZEOF_INT128__` as 16 and
 runs the twelve imported torture executables that it activates. PR #170
 merged green-only as `2e211308de7490c03f8556f85883fcac3c971b83`; the merge
 tree is byte-identical to tested head `cf7aa96b09daddd69900ca967c4a05f282cf6476`.
-The active `s56.76-ti-atomic-reverse-sso` tranche starts from that exact merge
-and closes the remaining targeted reverse-order atomic-TI boundary while
-preserving the existing platform atomic contracts. The detailed ledger below
-records the exact evidence and next boundary order.
+PR #171's reverse-order atomic-TI tranche merged green-only as
+`1d262282dc82370815723afb98b94acea1067bb2`; its merge tree is byte-identical
+to tested head `1853aa02f44f2154bddf2c87845f57e16615eb49`. The active
+`s56.77-narrow-atomic-reverse-sso` tranche starts from that exact merge and
+repairs the narrower reverse-order atomic read-modify-write path before the
+floating-member boundary builds on it. The detailed ledger below records the
+exact evidence and next boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9184,8 +9187,8 @@ and green post-publication CI.
   #169 `90d7ccbc` and that tested head, and its tree
   `3263af65441a81c5ea6354488bcc4253b75861ac` is byte-identical to the tested
   head.
-- The active `s56.76-ti-atomic-reverse-sso` tranche starts from exact merged
-  PR #170 and is open as PR #171. A decomposed Homebrew GCC 16 oracle audit
+- The `s56.76-ti-atomic-reverse-sso` tranche started from exact merged PR
+  #170. A decomposed Homebrew GCC 16 oracle audit
   shows that declarations
   and static images containing reverse-order atomic TI members are accepted.
   Direct scalar member reads, writes, and updates are rejected by GCC's
@@ -9235,6 +9238,53 @@ and green post-publication CI.
   failures. Normal and sanitized 2,000-case frontend fuzz runs find zero
   failures; repeated normal and sanitized 5,000-case hashes produce the
   intentionally repinned corpus digest `7030b52a2fbfcc16`.
+
+  Final exact-head CI completed with 28 successful checks and nine intentional
+  skips. PR #171 merged green-only as
+  `1d262282dc82370815723afb98b94acea1067bb2`; its exact parents are merged
+  #170 `2e211308` and tested head
+  `1853aa02f44f2154bddf2c87845f57e16615eb49`, and merge/head tree
+  `efa17d459cbd68cb5bb061ccb219a4f4a4cb2bd0` is byte-identical.
+- The active `s56.77-narrow-atomic-reverse-sso` tranche starts from exact
+  merged PR #171. A focused reproducer found that reverse-order atomic
+  integers through 64 bits already transformed plain loads and stores but
+  sent add/subtract/bitwise operations through `atomicrmw` on the physical
+  big-endian word. Other compound operations entered compare-exchange with a
+  logical expected value, so the first comparison could not match memory.
+
+  Reverse-order narrow atomics now use one strong sequentially consistent
+  compare-exchange loop for every read-modify-write. Each retry retains its
+  expected and desired words in physical order, converts the observed word to
+  logical order for C arithmetic, and returns the logical old or new result.
+  Native-order atomics keep their direct `atomicrmw` path.
+
+  A GCC-comparable runtime fixture covers 16-, 32-, and 64-bit static images,
+  signed and volatile values, assignment results, every compound-operation
+  family, and prefix/postfix increment; Homebrew GCC 16 and Cgfried pass it at
+  O0/O1/O2/O3/Os. A Cgfried-only direct scalar fixture pins the stronger
+  supported surface that GCC's internal address-taking rule rejects. A
+  four-thread fixture loses no increments across 40,000 contended updates at
+  O0 and O2 and retains the exact reverse physical image. GCC 16 accepts that
+  indexed-array source but was measured losing updates at O0, matching the
+  earlier TI observation that Cgfried deliberately preserves `_Atomic` more
+  strongly on this edge.
+
+  Five-target lowering coverage passes 50 assertions and pins three physical
+  compare-exchange loops, zero direct `atomicrmw`, exact 32-/64-bit transforms,
+  IR verification, and textual round trip. An assembly fixture selects x86
+  locked compare-exchange and ARM64 acquire/release-exclusive loops on all
+  five closed targets. Normal and ASan+UBSan focused units and all four focused
+  program fixtures are green. Complete normal and sanitized unit baselines
+  match at 1,002 tests / 4,330,869 assertions with the same eight documented
+  Darwin host-assumption failures. The new permanent corpus files
+  intentionally repin the deterministic frontend-fuzz digest to
+  `644a6557874c74ac`; normal and sanitized 2,000-case runs plus two repetitions
+  of 5,000 cases in each build find zero failures.
+
+  After this tranche merges green-only, take reverse-order F32/F64 members and
+  arrays, including atomic forms that can reuse this physical/logical CAS
+  invariant. Keep F80/F128 fail-closed for their separate address-backed
+  representation tranche, then address typedef attachment.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

@@ -1,0 +1,59 @@
+// A representation transform must stay inside one narrow atomic CAS loop.
+// FLAGS: -lpthread
+// OPT_EQ: -O0 -O2
+// CHECK: OK
+#define BE __attribute__((scalar_storage_order("big-endian")))
+
+enum { THREADS = 4, INCREMENTS = 10000 };
+
+struct Counter {
+    _Atomic(unsigned) values[1];
+} BE;
+
+static struct Counter counter;
+
+static void *increment(void *unused)
+{
+    int i;
+
+    (void)unused;
+    for (i = 0; i < INCREMENTS; i++)
+        counter.values[0]++;
+    return 0;
+}
+
+static int physical_equals(unsigned logical)
+{
+    const unsigned char *bytes = (const unsigned char *)(const void *)&counter;
+    unsigned i;
+
+    for (i = 0; i < 4; i++)
+        if (bytes[i] != (unsigned char)(logical >> ((3 - i) * 8)))
+            return 0;
+    return 1;
+}
+
+/* Keep the GNU attribute visible before glibc's non-GNU compatibility
+ * macros; pthread declarations are needed only by main below. */
+#include <pthread.h>
+#include <stdio.h>
+
+int main(void)
+{
+    pthread_t threads[THREADS];
+    unsigned want = THREADS * INCREMENTS;
+    int i;
+
+    for (i = 0; i < THREADS; i++)
+        if (pthread_create(&threads[i], 0, increment, 0) != 0)
+            return 1;
+    for (i = 0; i < THREADS; i++)
+        if (pthread_join(threads[i], 0) != 0)
+            return 2;
+    if (counter.values[0] != want)
+        return 3;
+    if (!physical_equals(want))
+        return 4;
+    puts("OK");
+    return 0;
+}
