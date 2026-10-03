@@ -1646,13 +1646,30 @@ void test_sema_gnu_mode_ti_static_initializer_images(TestCtx *t)
 
     sfix_free(&f);
 
+    /* GCC 16 rejects each relocation-bearing TI initializer even with
+     * diagnostics disabled: a linker pointer relocation is not a 128-bit
+     * integer constant. It accepts the pointer-width relocation, a null
+     * pointer converted to TI, and the same wide conversion at run time.
+     * Keep the full measured matrix so this intentional boundary is not
+     * mistaken for an implementation gap again. */
     run_sema(&f,
              "typedef unsigned int u128 __attribute__" /* check_bans allow:
                                                             compiler input */
-             "((mode(TI))); static int anchor; "
-             "static u128 address = (u128)&anchor;\n",
+             "((mode(TI))); "
+             "typedef int i128 __attribute__" /* check_bans allow: compiler
+                                                  input */
+             "((mode(TI))); static int anchor[4]; "
+             "static u128 direct = (u128)&anchor[0]; "
+             "static i128 signed_direct = (i128)&anchor[1]; "
+             "static u128 addended = (u128)&anchor[3]; "
+             "static u128 via_width = "
+             "(u128)(unsigned long)&anchor[2]; "
+             "static unsigned long pointer_width = "
+             "(unsigned long)&anchor[0]; "
+             "static u128 null_wide = (u128)(void *)0; "
+             "u128 runtime(void *p) { return (u128)p; }\n",
              STD_GNU17);
-    T_ASSERT_EQ_INT(t, f.errors, 1);
+    T_ASSERT_EQ_INT(t, f.errors, 4);
     sfix_free(&f);
 }
 

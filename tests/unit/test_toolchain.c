@@ -251,12 +251,11 @@ void test_target_predefines_use_canonical_long_double_size(TestCtx *t)
         buf_init(&predefs);
         cgf_target_predef_lines(spec, false, &predefs);
         T_ASSERT(t, strstr((const char *)predefs.data, macro) != NULL);
-        /* The source types, bit-fields, narrow vector, and checked arithmetic
-         * are available, but this GCC effective-target advertisement remains
-         * withheld until its guarded variadic, atomic, enum, and reverse-
-         * storage boundaries are implemented. */
-        T_ASSERT(t, strstr((const char *)predefs.data, "__SIZEOF_INT128__") ==
-                        NULL);
+        /* Every current target implements the same 16-byte TI surface. Keep
+         * the advertisement beside the canonical scalar-size macros so a
+         * new target cannot silently inherit an unsupported promise. */
+        T_ASSERT(t, strstr((const char *)predefs.data,
+                           "#define __SIZEOF_INT128__ 16\n") != NULL);
         buf_free(&predefs);
     }
 }
