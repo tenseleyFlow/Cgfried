@@ -2312,7 +2312,8 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
         return ir_op_value(lo->fn, ir_build1(&lo->b, IR_BITCAST, IRT_PTR,
                                              ir_op_value(lo->fn, result)));
     }
-    if (is_int && !lt->integer_precision && rmw_direct(op)) {
+    if (is_int && !lt->integer_precision && rmw_direct(op) &&
+        !lv.reverse_storage_order) {
         IrOperand v = lower_scalar_convert(lo, rhs, rt, lt);
         ValueId old =
             ir_build_atomicrmw(&lo->b, rmw_kind(op), lv.unit, lv.addr, v);
@@ -2340,17 +2341,26 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
         BlockId done = lower_new_block(lo, "rmw.done");
         ValueId oldp = ir_block_param(lo->m, lo->fn, retry, ct);
         ValueId resp = ir_block_param(lo->m, lo->fn, done, ct);
-        IrOperand oldo, newo;
+        IrOperand oldo, old_logical, new_logical, newo;
 
         clv.unit = ct;
         clv.is_bitfield = false;
+        /* cmpxchg compares the representation stored in memory. A reverse-
+         * order object therefore enters and retries this loop in PHYSICAL
+         * byte order; only the C arithmetic and the expression result use
+         * logical order. Letting lower_load reverse INIT made the first
+         * expected word differ from memory, while direct atomicrmw applied
+         * arithmetic to the encoded word itself. */
+        clv.reverse_storage_order = false;
         init = lower_load(lo, clv);
         ir_build_br(&lo->b, retry, &init, 1);
         lower_at(lo, retry);
         oldo = ir_op_value(lo->fn, oldp);
+        old_logical =
+            lv.reverse_storage_order ? reverse_integer_bytes(lo, oldo) : oldo;
         {
             /* container -> C value -> common type, op, and back */
-            IrOperand oldv = oldo;
+            IrOperand oldv = old_logical;
             Type *common;
             IrOperand a, b2, backc;
             ValueId r;
@@ -2382,16 +2392,19 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
             if (!is_int) {
                 ValueId bi = ir_build1(&lo->b, IR_BITCAST, ct, backc);
 
-                newo = ir_op_value(lo->fn, bi);
+                new_logical = ir_op_value(lo->fn, bi);
             } else {
-                newo = backc;
+                new_logical = backc;
             }
+            newo = lv.reverse_storage_order
+                       ? reverse_integer_bytes(lo, new_logical)
+                       : new_logical;
         }
         {
             ValueId got = ir_build_cmpxchg(&lo->b, ct, lv.addr, oldo, newo);
             ValueId ok =
                 ir_build_icmp(&lo->b, ICMP_EQ, ir_op_value(lo->fn, got), oldo);
-            IrOperand res_arg = want_old ? oldo : newo;
+            IrOperand res_arg = want_old ? old_logical : new_logical;
             IrOperand retry_arg = ir_op_value(lo->fn, got);
 
             ir_build_condbr(&lo->b, ir_op_value(lo->fn, ok), done, &res_arg, 1,

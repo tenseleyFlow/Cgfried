@@ -2203,6 +2203,47 @@ void test_lower_gnu_mode_ti_atomic_reverse_storage_target_contract(TestCtx *t)
     }
 }
 
+void test_lower_narrow_atomic_reverse_sso_rmw(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    static const char source[] = "struct R { _Atomic(unsigned) values[2]; "
+                                 "volatile _Atomic(long long) observed[2]; } "
+                                 "__attribute__" /* check_bans allow */
+                                 "((scalar_storage_order(\"big-endian\"))); "
+                                 "struct R record = {{3, 4}, {5, 6}}; "
+                                 "unsigned update(unsigned value) { "
+                                 "unsigned old = record.values[1]++; "
+                                 "record.values[0] *= value; "
+                                 "record.observed[1] ^= value; return old; }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+        const char *ir;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        ir = txt(&f);
+        T_ASSERT_EQ_INT(t, count_of(ir, "atomicrmw"), 0);
+        T_ASSERT_EQ_INT(t, count_of(ir, "cmpxchg"), 3);
+        T_ASSERT_EQ_INT(t, count_of(ir, "lshr i32"), 12);
+        T_ASSERT_EQ_INT(t, count_of(ir, "shl i32"), 12);
+        T_ASSERT_EQ_INT(t, count_of(ir, "lshr i64"), 14);
+        T_ASSERT_EQ_INT(t, count_of(ir, "shl i64"), 14);
+        round =
+            ir_parse_module(&f.arena, f.dc, ir, "<narrow-atomic-reverse-sso>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_fixed_checked_overflow_store_family(TestCtx *t)
 {
     static const char source[] =

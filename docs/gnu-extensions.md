@@ -207,6 +207,17 @@ atomic members retain the general natural-alignment refusal. Ordinary TI
 members and arrays support reverse storage order as well, including packed,
 union, volatile, enum, static-image, and read-modify-write cases.
 
+Naturally aligned atomic integral members through 64 bits follow the same
+reverse-order contract. Loads and stores transform around one indivisible
+access. Read-modify-write uses a strong sequentially consistent
+compare-exchange loop whose expected and desired words remain in physical
+order while arithmetic and the C expression result use logical order. A
+direct `atomicrmw` on the encoded word is deliberately not used: addition,
+subtraction, and the logical operand representation would otherwise operate
+on the wrong value. Both scalar members and indexed array elements are
+supported; this preserves `_Atomic` more strongly than the measured GCC 16
+array edge, which can lower accepted source to ordinary non-atomic accesses.
+
 Enumerated types may select signed or unsigned TI either through
 `mode(TI)` or because a full-width enumerator exceeds every standard integer
 representation. Enumerator values and implicit successors retain both limbs;
@@ -371,6 +382,13 @@ compare-exchange attempt. This is deliberately stronger than GCC 16 on the
 measured Apple ARM64 edge: GCC accepts indexed reverse-order atomic-TI array
 access but emits ordinary paired loads and stores, while Cgfried retains the
 source `_Atomic` contract.
+
+Narrower atomic integral members and arrays also keep compare-exchange
+expected/desired values in physical order and perform each requested update
+in logical order. This covers every arithmetic, bitwise, and shift compound
+assignment plus prefix/postfix increment and decrement. Direct scalar-member
+access remains supported even though GCC's internal address-taking rule
+rejects that spelling; indexed arrays match GCC's accepted source surface.
 
 This tranche deliberately fails closed on reverse-order floating members and
 on attaching the attribute through a typedef. Those GCC-supported forms need
