@@ -38,10 +38,10 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 18/30 consecutive distinct UTC dates green.** The current strict
+**RUNNING: 24/30 consecutive distinct UTC dates green.** The current strict
 streak started on 2026-09-09. Matching-head x86 and ARM runs passed both
 optimization levels and retained all four required artifacts on September
-9--26. The September 11 scheduled run did not start; same-date
+9--October 2. The September 11 scheduled run did not start; same-date
 `workflow_dispatch` recovery completed the full hosted lattice before the UTC
 date ended, as the gate contract permits for a pre-bootstrap infrastructure
 failure. September 13 also passed the complete weekly reproducibility and
@@ -49,7 +49,11 @@ cross-host lattice at the same exact head as its daily run. September 20's
 daily and separate weekly scheduled runs share one exact head; the daily run
 passed all four fixed points and the weekly run passed the complete seven-job
 lattice. September 14--19 and September 21--26 each passed the four daily
-jobs at one exact head; no weekly work was due on those dates.
+jobs at one exact head; no weekly work was due on those dates. September 27's
+daily and weekly scheduled runs share exact head `d2426812`; the daily lattice
+and all three weekly cross/reproducibility jobs passed. September 28--October
+2 each passed the four daily jobs at one exact head, and no weekly work was
+due on those dates.
 
 The first streak began on 2026-08-13 and reached 5/30 through 2026-08-17. It
 reset on 2026-08-18 because the required x86 O0 job was cancelled during
@@ -61,8 +65,8 @@ so it reset the streak. September 6 passed the complete weekly lattice.
 September 7 and 8 each had green hosted work, but the daily x86 and ARM jobs
 did not run at one matching commit; neither date continues a strict
 matching-head streak. September 9 is therefore the new day 1. September 10,
-the eligible September 11 recovery, and the September 12--26 scheduled runs
-are days 2--18. If uninterrupted, day 30 is 2026-10-08.
+the eligible September 11 recovery, and the September 12--October 2 scheduled
+runs are days 2--24. If uninterrupted, day 30 is 2026-10-08.
 
 The workflow previously scheduled only ARM every day and obtained x86 evidence
 accidentally from repository pushes. The current automation repair schedules
@@ -142,8 +146,14 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-09-24 | `d958f633d818b7dde8eacfb9a3f2074b45600285` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 35975305182](https://github.com/tenseleyFlow/Cgfried/actions/runs/35975305182) |
 | 2026-09-25 | `e69985c8aefd24bdf8105bfb7d594ad9ef8a0db8` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36114957016](https://github.com/tenseleyFlow/Cgfried/actions/runs/36114957016) |
 | 2026-09-26 | `5cc4eb067ef34204e2cc33d5a2d20e33b1665750` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36230220640](https://github.com/tenseleyFlow/Cgfried/actions/runs/36230220640) |
+| 2026-09-27 | `d2426812b1a142e8925c940adff66c46e0b71350` | PASS | PASS + repro PASS | PASS | PASS | PASS | [daily run 36308771216](https://github.com/tenseleyFlow/Cgfried/actions/runs/36308771216) + [weekly run 36309598318](https://github.com/tenseleyFlow/Cgfried/actions/runs/36309598318) |
+| 2026-09-28 | `4e809548926fbe0902a9e0bb974756cd935a7124` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36405573219](https://github.com/tenseleyFlow/Cgfried/actions/runs/36405573219) |
+| 2026-09-29 | `10211b61f7a5a3bc03940cc1baf6ea359e50264a` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36551609743](https://github.com/tenseleyFlow/Cgfried/actions/runs/36551609743) |
+| 2026-09-30 | `10211b61f7a5a3bc03940cc1baf6ea359e50264a` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36697741401](https://github.com/tenseleyFlow/Cgfried/actions/runs/36697741401) |
+| 2026-10-01 | `b96defe92febd7893deb78700e4efb24fe93c6f9` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36847156953](https://github.com/tenseleyFlow/Cgfried/actions/runs/36847156953) |
+| 2026-10-02 | `8b6d6571729044fbc9e1cde1a7331ce45f218af7` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36991625528](https://github.com/tenseleyFlow/Cgfried/actions/runs/36991625528) |
 
-The August 29–September 26 reconciliation uses GitHub's workflow, job, and
+The August 29–October 2 reconciliation uses GitHub's workflow, job, and
 retained-artifact metadata. Every qualifying non-Sunday pair retains
 `sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
