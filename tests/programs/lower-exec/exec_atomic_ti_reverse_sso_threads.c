@@ -2,9 +2,6 @@
 // FLAGS: -lpthread
 // OPT_EQ: -O0 -O2
 // CHECK: OK
-#include <pthread.h>
-#include <stdio.h>
-
 typedef unsigned __int128 u128;
 
 #define BE __attribute__((scalar_storage_order("big-endian")))
@@ -37,6 +34,11 @@ static int physical_equals(u128 logical)
             return 0;
     return 1;
 }
+
+/* Keep the GNU attribute visible before glibc's non-GNU compatibility
+ * macros; pthread declarations are needed only by main below. */
+#include <pthread.h>
+#include <stdio.h>
 
 int main(void)
 {

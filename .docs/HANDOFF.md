@@ -9185,7 +9185,8 @@ and green post-publication CI.
   `3263af65441a81c5ea6354488bcc4253b75861ac` is byte-identical to the tested
   head.
 - The active `s56.76-ti-atomic-reverse-sso` tranche starts from exact merged
-  PR #170. A decomposed Homebrew GCC 16 oracle audit shows that declarations
+  PR #170 and is open as PR #171. A decomposed Homebrew GCC 16 oracle audit
+  shows that declarations
   and static images containing reverse-order atomic TI members are accepted.
   Direct scalar member reads, writes, and updates are rejected by GCC's
   internal address-taking path, while indexed array-element reads, writes,
@@ -9216,11 +9217,24 @@ and green post-publication CI.
   sized x86, generic arm64-linux, and paired Apple load/store contracts plus
   the generic compare-exchange helper.
 
-  Normal and ASan+UBSan complete unit baselines match at 1,000 tests /
-  4,330,814 assertions with the same eight documented Darwin host-assumption
+  PR #171's first hosted x86 run exposed two independent integration edges.
+  glibc's non-GNU compatibility path defines `__attribute__(...)` away, so
+  fixtures now declare their attributed records before hosted headers rather
+  than accidentally testing the separately deferred compiler-identity gap.
+  Once the attribute remained visible, an x86 backend address-planning defect
+  became observable: a seq_cst 16-byte load/store is a libatomic call whose
+  pointer must be in a register, but the planner treated it like a foldable
+  memory operand and could suppress its sole `ptradd`. The planner now retains
+  those address producers for vector, F128, and F80 helper-backed atomics; a
+  focused MIR regression pins one member-address LEA and both helper calls.
+  The exact GCC-built compiler and both runtime fixtures pass in the retained
+  x86_64 Lima VM after the repair.
+
+  Normal and ASan+UBSan complete unit baselines match at 1,001 tests /
+  4,330,819 assertions with the same eight documented Darwin host-assumption
   failures. Normal and sanitized 2,000-case frontend fuzz runs find zero
   failures; repeated normal and sanitized 5,000-case hashes produce the
-  intentionally repinned corpus digest `f33a8f63e0e0c862`.
+  intentionally repinned corpus digest `7030b52a2fbfcc16`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

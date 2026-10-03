@@ -70,10 +70,28 @@ typedef struct Isel {
 static bool is_foldable_addr_use(const IrInst *in, u32 operand)
 {
     switch (in->op) {
-    case IR_LOAD:
+    case IR_LOAD: {
+        bool helper_address = (in->flags & IRF_SEQ_CST) &&
+                              (ir_type_is_vector((IrType)in->type) ||
+                               in->type == IRT_F128 || in->type == IRT_F80);
+
+        /* A 16-byte atomic is a libatomic call, not a memory-form machine
+         * instruction.  Its pointer is therefore an ordinary register
+         * operand: suppressing the ptradd would leave that vreg undefined. */
+        if (helper_address)
+            return false;
         return operand == 0;
-    case IR_STORE:
+    }
+    case IR_STORE: {
+        u8 type = in->ops[0].type;
+        bool helper_address =
+            (in->flags & IRF_SEQ_CST) && (ir_type_is_vector((IrType)type) ||
+                                          type == IRT_F128 || type == IRT_F80);
+
+        if (helper_address)
+            return false;
         return operand == 1;
+    }
     case IR_ATOMICRMW:
     case IR_CMPXCHG:
         return operand == 0;

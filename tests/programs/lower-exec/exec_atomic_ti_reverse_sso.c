@@ -1,8 +1,6 @@
 // Reverse-order atomic TI preserves both the logical value and atomic access.
 // OPT_EQ: -O0 -O1 -O2 -O3 -Os
 // CHECK: OK
-#include <stdio.h>
-
 typedef unsigned __int128 u128;
 typedef __int128 i128;
 
@@ -23,6 +21,12 @@ struct AtomicRecord {
 static struct AtomicRecord global_record = {
     0x5a, VALUE_A, {VALUE_B, VALUE_C}, VALUE_A, -((i128)(UONE << 100) + 17),
 };
+
+/* glibc deliberately defines __attribute__(...) away for compilers that do
+ * not advertise GNU compatibility.  Declare the attributed type before the
+ * hosted header so this fixture tests storage order rather than that separate
+ * preprocessor-identity gap. */
+#include <stdio.h>
 
 _Static_assert(__builtin_offsetof(struct AtomicRecord, value) == 16,
                "aligned atomic TI member offset");
