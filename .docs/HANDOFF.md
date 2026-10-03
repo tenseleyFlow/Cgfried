@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak through 2026-10-02; compiler gaps through 2026-10-02): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak through 2026-10-02; compiler gaps through 2026-10-03): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -386,10 +386,13 @@ encode x86 `cmpxchg` or permit its `lock` prefix. Upstream afs-as PR #34
 merged fully green as `14d129fbc52c85fb7d9a5cdd6053def4a0ac8445`;
 Cgfried pins tested head `1d54f921a99728596653821af55152b91cefaa97` and now
 exercises the x86 atomic lane through the bundled assembler whenever it is
-built. The active `s56.78-float-reverse-sso` tranche starts from exact merged
-PR #172 and owns four- and eight-byte reverse-order floating representations,
-including their stronger atomic forms. The detailed ledger below records its
-current evidence and the remaining boundary order.
+built. PR #173's four- and eight-byte reverse-order floating tranche merged
+green-only as `1bab9c62784c80d0496786baa4c908483df7d20f`; its merge tree is
+byte-identical to tested head `9299f194d2c5d3b6079d53b53aec576445045032`.
+The active `s56.79-typedef-reverse-sso` tranche starts from that exact merge
+and implements alias-specific scalar-storage-order views without mutating the
+shared struct/union tag. The detailed ledger below records its current
+evidence and the remaining boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9361,12 +9364,62 @@ and green post-publication CI.
   stale x86 atomic-float MIR expectation, the final fixture-driven fuzz pin,
   and four pinned-format deviations. The formatted head re-passes all 1,004
   Linux units, the focused x86 and native Apple ARM fixtures, normal and
-  ASan+UBSan fuzz, and clang-format 22 in the retained VM. Before merge, run
-  the hosted CI lattice green-only.
-  After this tranche merges green-only, keep wider F80/F128 reverse-order
-  representations fail-closed until their separate address-backed tranche;
-  the next recommended isolated boundary is typedef attachment for
-  `scalar_storage_order`.
+  ASan+UBSan fuzz, and clang-format 22 in the retained VM. Final PR #173 head
+  `9299f194d2c5d3b6079d53b53aec576445045032` completed with 28 successful
+  checks and nine intentional skips. It merged green-only as
+  `1bab9c62784c80d0496786baa4c908483df7d20f`; merge/head tree
+  `f4ec9df743ec6e802658befe561b2e57a401cfd1` is byte-identical. Wider
+  F80/F128 reverse-order representations remain fail-closed until their
+  separate address-backed tranche.
+- The active `s56.79-typedef-reverse-sso` tranche starts from exact merged PR
+  #173. GCC 16 measurement shows that an order attached to a struct/union
+  typedef creates a distinct, alias-specific type view: ordinary aliases
+  preserve it, the original tag remains native, and independently attributed
+  views remain incompatible even when they request the same order. Unlike a
+  definition-attached order, the typedef form changes only direct scalar and
+  bit-field members; direct arrays, nested records, and promoted anonymous
+  members retain their own order. Re-attributing an existing view preserves
+  its compatibility identity but changes only that typedef spelling and the
+  new alias. Sibling typedef spellings keep the order they captured. GCC also
+  applies the changed spelling retroactively to objects declared through that
+  spelling before the re-attribution; the permanent runtime oracle pins all
+  three cases.
+
+  Cgfried now records that view and its compatibility identity on an
+  arena-owned Type copy rather than mutating the shared TagDecl. Member access,
+  static images, runtime initializer plans, union selection, bit-field
+  gather/scatter, address restrictions, and aggregate compatibility all
+  consult the selected view. Four-/eight-byte floating and atomic scalar
+  paths reuse the closed reverse-order lowering; F80/F128 direct members
+  remain fail-closed, including when the typedef precedes completion of its
+  tag. The permanent fixtures cover type identity, address rejection, static
+  and runtime bytes, scalar and bit-field updates, aliases, unions, and the
+  GCC boundary for direct arrays/nested records.
+
+  Focused native arm64-macos execution is green at O0/O1/O2/O3/Os, the full
+  scalar-storage-order family is 10/10 green, and the native unit baseline is
+  1,005 tests / 4,331,040 assertions with only the eight documented Darwin
+  host-assumption failures. The retained x86_64 Linux VM is green at 1,005
+  tests / 4,331,041 assertions / zero failures; all four focused program
+  fixtures pass, and the five-target lowering/fail-closed unit contract
+  round-trips cleanly. GCC 16.2 accepts the type oracle and executes the O0
+  byte oracle exactly. Normal and ASan+UBSan frontend fuzzing each complete
+  2,000 mutations with zero findings, and both 5,000-case hash runs produce
+  the intentionally repinned final-corpus digest `faacc79d03b6547c`.
+
+  The exact Linux lattice is green across a clean full rerun plus its ordered
+  continuation. The first full attempt stopped after one 132/132 Sprint 35
+  corpus pass without the driver's summary; the immediately isolated driver
+  passed every structural check and all three 132/132 toggle corpora. The
+  clean rerun passed through frontend/IR/preprocessor fuzz and the exact
+  digest, then one campaign meta invocation transiently reported a byte-one
+  expected/actual difference; both an immediate direct run and the complete
+  Make target passed. Continuing the untouched top-level recipe exposed one
+  real documentation-only tier-cell error (two fixture paths in a field whose
+  gate accepts one), now repaired. The final ordered continuation is green
+  through five-target determinism, atomics, ABI/warning differentials, and
+  pinned clang-format 22, with only declared missing-tool/sysroot skips. The
+  final publication commit and authoritative PR CI are the remaining gates.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
