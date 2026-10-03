@@ -6,10 +6,10 @@
 # bare mov with no fence — silently wrong, since x86's store buffer lets a
 # later load overtake it. Both are fixed; this lane proves the arithmetic.
 #
-# It runs through GNU as rather than the bundled assembler: afs-as has no
-# xadd/cmpxchg/xchg-with-memory/mfence and no lock prefix (findings row
-# F-S49-ATOMICS). Emission is correct either way, so the gap is upstream and
-# recorded; when that PR lands this lane loses its CGF_AS=0.
+# Prefer the bundled assembler, whose atomic surface now includes
+# xadd/cmpxchg/xchg-with-memory/mfence and the lock prefix. Rust-free lanes
+# retain an explicit GNU-as fallback rather than silently losing execution
+# coverage when afs-as has not been built.
 
 set -eu
 
@@ -23,14 +23,20 @@ x86_64-*) ;;
     exit 0
     ;;
 esac
-if ! command -v as >/dev/null 2>&1; then
-    echo "x86_atomics_lane: skipped (no GNU as)"
+if [ -x afs-as/target/release/afs-as ]; then
+    asm_env=
+    asm_name=afs-as
+elif command -v as >/dev/null 2>&1; then
+    asm_env=CGF_AS=0
+    asm_name=gas
+else
+    echo "x86_atomics_lane: skipped (no assembler)"
     exit 0
 fi
 
 mkdir -p "$work"
 for opt in -O0 -O1 -O2 -Os; do
-    CGF_AS=0 "$CGF" "$opt" tests/atomics/rmw_x86.c -o "$work/rmw$opt"
+    env $asm_env "$CGF" "$opt" tests/atomics/rmw_x86.c -o "$work/rmw$opt"
     out=$("$work/rmw$opt")
     if [ "$out" != OK ]; then
         echo "x86_atomics_lane: $opt disagreed with the C reference:" >&2
@@ -41,7 +47,7 @@ done
 
 # The fence is the part no single-threaded run can observe, so it is asserted
 # in the TEXT: a seq_cst store must be followed by mfence.
-CGF_AS=0 "$CGF" -S tests/atomics/rmw_x86.c -o "$work/rmw.s"
+"$CGF" -S tests/atomics/rmw_x86.c -o "$work/rmw.s"
 if ! grep -q mfence "$work/rmw.s"; then
     echo "x86_atomics_lane: no mfence after a sequentially consistent store" >&2
     exit 1
@@ -97,9 +103,9 @@ if [ -e "$plan_src.cgf-fixed" ]; then
 fi
 rm -f "$plan_src"
 rmdir "$plan_dump"
-CGF_AS=0 "$CGF" -v tests/programs/lower-exec/exec_atomic_float_access.c \
+env $asm_env "$CGF" -v tests/programs/lower-exec/exec_atomic_float_access.c \
     -o "$work/wide-live" 2>"$work/wide-live.plan"
-CGF_AS=0 "$CGF" -v -static \
+env $asm_env "$CGF" -v -static \
     tests/programs/lower-exec/exec_atomic_float_access.c \
     -o "$work/wide-static-live" 2>"$work/wide-static-live.plan"
 if ! grep -q -- '-latomic' "$work/wide-dynamic.plan" ||
@@ -130,5 +136,6 @@ if [ "$("$work/wide-live")" != OK ] ||
     exit 1
 fi
 
-echo "x86_atomics_lane: 4 opt levels and content-aware -### plans green;" \
-    "lock xadd, lock cmpxchg and the seq_cst store fence all present"
+echo "x86_atomics_lane: 4 opt levels through $asm_name and content-aware" \
+    "-### plans green; lock xadd, lock cmpxchg and the seq_cst store fence" \
+    "all present"
