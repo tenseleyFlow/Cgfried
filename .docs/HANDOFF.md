@@ -9276,10 +9276,11 @@ and green post-publication CI.
   five closed targets. Normal and ASan+UBSan focused units and all four focused
   program fixtures are green. Complete normal and sanitized unit baselines
   match at 1,002 tests / 4,330,869 assertions with the same eight documented
-  Darwin host-assumption failures. The new permanent corpus files
-  intentionally repin the deterministic frontend-fuzz digest to
-  `644a6557874c74ac`; normal and sanitized 2,000-case runs plus two repetitions
-  of 5,000 cases in each build find zero failures.
+  Darwin host-assumption failures. The exact GCC-built branch head also passes
+  the 50-assertion unit and all four fixtures in the retained x86_64 Ubuntu
+  Lima VM. The new permanent corpus files intentionally repin the deterministic
+  frontend-fuzz digest to `644a6557874c74ac`; normal and sanitized 2,000-case
+  runs plus two repetitions of 5,000 cases in each build find zero failures.
 
   After this tranche merges green-only, take reverse-order F32/F64 members and
   arrays, including atomic forms that can reuse this physical/logical CAS
