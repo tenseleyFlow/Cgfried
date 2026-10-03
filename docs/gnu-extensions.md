@@ -55,7 +55,7 @@ predefine.
 | `weak` | `tests/programs/gnu/attr_weak_overridden.c` | musl `weak_alias`, glibc |
 | `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
 | `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
-| `scalar_storage_order("big-endian" or "little-endian")` on struct/union definitions | `tests/corpus/x86_64/int/scalar_storage_order.c` | endian-stable wire records and GCC torture bit-field layouts, including ordinary and naturally aligned atomic TI members |
+| `scalar_storage_order("big-endian" or "little-endian")` on struct/union definitions | `tests/corpus/x86_64/int/scalar_storage_order.c` | endian-stable wire records and GCC torture bit-field layouts, including integral/TI members and four- or eight-byte floating representations, with naturally aligned atomic forms |
 | `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
 | `alias` | `tests/corpus/x86_64/int/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
 | `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
@@ -390,11 +390,22 @@ assignment plus prefix/postfix increment and decrement. Direct scalar-member
 access remains supported even though GCC's internal address-taking rule
 rejects that spelling; indexed arrays match GCC's accepted source surface.
 
-This tranche deliberately fails closed on reverse-order floating members and
-on attaching the attribute through a typedef. Those GCC-supported forms need
-additional representation/type plumbing; neither is accepted and then stored
-in native order. Attach the attribute directly to the struct or union
-definition for the implemented integral semantics.
+Floating members with four- or eight-byte representations use the same
+logical/physical split, including `float`, `double`, the matching `_FloatN`
+forms, and Apple ARM64's eight-byte `long double`. Static images, runtime
+initialization, ordinary assignment and updates preserve exact bits, including
+NaN payloads. Atomic floating loads and stores travel through exact-width
+integer carriers, and read-modify-write uses one strong compare-exchange loop
+whose expected and desired values stay in physical order. This deliberately
+preserves `_Atomic` more strongly than the measured GCC 16 indexed-array edge,
+which can lose contended floating updates.
+
+Reverse-order floating representations wider than eight bytes, including F80
+and F128 on targets where they are wider, remain fail-closed. Attaching the
+attribute through a typedef is also still deferred. Neither unsupported form
+is accepted and then stored in native order; attach the attribute directly to
+the struct or union definition and use a closed four- or eight-byte scalar
+representation.
 
 Cgfried implements a storage-bounded subset of GCC's nested flexible-array
 initializer extension. A static object may initialize a flexible tail below

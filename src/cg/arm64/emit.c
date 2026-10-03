@@ -324,13 +324,14 @@ static void emit_atomic_rmw(Emit *e, const A64Inst *in, u32 seq)
     const char *status = a64_phys_name(A64_ATOMIC_STATUS, A64_SF32);
     const char *op = rmw_mnemonic(in->ops[3].imm);
 
-    buf_printf(e->out, ".Lat%u_%u:\n", e->fidx, seq);
+    buf_printf(e->out, "%sat%u_%u:\n", mlabel(e), e->fidx, seq);
     buf_printf(e->out, "\tldaxr%s\t%s, [%s]\n", sfx, dst, base);
     if (op)
         buf_printf(e->out, "\t%s\t%s, %s, %s\n", op, tmp, dst, val);
     buf_printf(e->out, "\tstlxr%s\t%s, %s, [%s]\n", sfx, status, op ? tmp : val,
                base);
-    buf_printf(e->out, "\tcbnz\t%s, .Lat%u_%u\n", status, e->fidx, seq);
+    buf_printf(e->out, "\tcbnz\t%s, %sat%u_%u\n", status, mlabel(e), e->fidx,
+               seq);
 }
 
 static void emit_atomic_cas(Emit *e, const A64Inst *in, u32 seq)
@@ -344,18 +345,19 @@ static void emit_atomic_cas(Emit *e, const A64Inst *in, u32 seq)
     const char *desired = rn(in->ops[3].reg, sf);
     const char *status = a64_phys_name(A64_ATOMIC_STATUS, A64_SF32);
 
-    buf_printf(e->out, ".Lat%u_%u:\n", e->fidx, seq);
+    buf_printf(e->out, "%sat%u_%u:\n", mlabel(e), e->fidx, seq);
     buf_printf(e->out, "\tldaxr%s\t%s, [%s]\n", sfx, dst, base);
     buf_printf(e->out, "\tcmp\t%s, %s\n", dst, expected);
-    buf_printf(e->out, "\tb.ne\t.Lax%u_%u\n", e->fidx, seq);
+    buf_printf(e->out, "\tb.ne\t%sax%u_%u\n", mlabel(e), e->fidx, seq);
     buf_printf(e->out, "\tstlxr%s\t%s, %s, [%s]\n", sfx, status, desired, base);
-    buf_printf(e->out, "\tcbnz\t%s, .Lat%u_%u\n", status, e->fidx, seq);
-    buf_printf(e->out, "\tb\t.Lad%u_%u\n", e->fidx, seq);
+    buf_printf(e->out, "\tcbnz\t%s, %sat%u_%u\n", status, mlabel(e), e->fidx,
+               seq);
+    buf_printf(e->out, "\tb\t%sad%u_%u\n", mlabel(e), e->fidx, seq);
     /* The comparison failed, so no stlxr ran and the monitor is still armed.
      * Leaving it armed is legal but antisocial: it can make an unrelated
      * exclusive sequence fail spuriously, so the failure edge clears it. */
-    buf_printf(e->out, ".Lax%u_%u:\n\tclrex\n", e->fidx, seq);
-    buf_printf(e->out, ".Lad%u_%u:\n", e->fidx, seq);
+    buf_printf(e->out, "%sax%u_%u:\n\tclrex\n", mlabel(e), e->fidx, seq);
+    buf_printf(e->out, "%sad%u_%u:\n", mlabel(e), e->fidx, seq);
 }
 
 static void emit_mem(Emit *e, const A64Inst *in, bool store)

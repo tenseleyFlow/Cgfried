@@ -2375,12 +2375,13 @@ static void img_put_int(InitCtx *c, u64 off, u64 lo, u64 hi, u64 width)
     }
 }
 
-static void img_reverse_integer(InitCtx *c, Type *t, u64 off)
+static void img_reverse_scalar(InitCtx *c, Type *t, u64 off)
 {
     TypeLayout l = layout_of(c->s, t);
     u64 i;
 
-    if (!type_is_integer(t) || l.size <= 1 || off + l.size > c->img->size)
+    if ((!type_is_integer(t) && !type_is_floating(t)) || l.size <= 1 ||
+        off + l.size > c->img->size)
         return;
     for (i = 0; i < l.size / 2; i++) {
         u8 tmp = c->img->bytes[off + i];
@@ -2575,7 +2576,7 @@ static void fill_string(InitCtx *c, Type *t, AstNode *init, u64 off)
         c->img->bytes[off + i] = tok->str.bytes[i];
     if (sema_scalar_storage_order_reversed(c->s, c->scalar_storage_order))
         for (i = 0; i < cap; i++)
-            img_reverse_integer(c, t->base, off + i * elem.size);
+            img_reverse_scalar(c, t->base, off + i * elem.size);
     /* Everything past the copied bytes stays zero, which supplies the
      * terminator when there is room for one. */
 }
@@ -2920,7 +2921,7 @@ static void fill_cursor_value(InitCtx *c, const FillCursor *cursor,
         fill(c, cursor->current, item, cursor->off);
         if (sema_scalar_storage_order_reversed(c->s,
                                                cursor->scalar_storage_order))
-            img_reverse_integer(c, cursor->current, cursor->off);
+            img_reverse_scalar(c, cursor->current, cursor->off);
         c->scalar_storage_order = prior_order;
     }
     c->nested_fam_end = prior_fam_end;

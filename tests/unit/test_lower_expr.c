@@ -2244,6 +2244,71 @@ void test_lower_narrow_atomic_reverse_sso_rmw(TestCtx *t)
     }
 }
 
+void test_lower_float_reverse_sso_target_contract(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    static const char source[] =
+        "struct R { float f; double d; _Atomic(float) af[2]; "
+        "_Atomic(double) ad[2]; } "
+        "__attribute__" /* check_bans allow */
+        "((scalar_storage_order(\"big-endian\"))); "
+        "struct R record = {1.0f, 2.0, {3.0f, 4.0f}, {5.0, 6.0}}; "
+        "double update(float f, double d) { record.f = f; record.d = d; "
+        "record.af[1] += f; record.ad[0] = d; record.ad[1] += d; "
+        "return record.af[0] + record.ad[1]; }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+        const char *ir;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        ir = txt(&f);
+        T_ASSERT_EQ_INT(t, count_of(ir, "atomicrmw"), 0);
+        T_ASSERT_EQ_INT(t, count_of(ir, "cmpxchg i32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(ir, "cmpxchg i64"), 1);
+        T_ASSERT(t, strstr(ir, "load i32") != NULL);
+        T_ASSERT(t, strstr(ir, "load i64") != NULL);
+        T_ASSERT(t, strstr(ir, "store i64") != NULL);
+        T_ASSERT(t, strstr(ir, "bitcast i32") != NULL);
+        T_ASSERT(t, strstr(ir, "bitcast f32") != NULL);
+        T_ASSERT(t, strstr(ir, "bitcast i64") != NULL);
+        T_ASSERT(t, strstr(ir, "bitcast f64") != NULL);
+        round = ir_parse_module(&f.arena, f.dc, ir, "<float-reverse-sso>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        static const char long_double_source[] =
+            "struct R { long double value; } "
+            "__attribute__" /* check_bans allow */
+            "((scalar_storage_order(\"big-endian\"))); "
+            "struct R record = {1.0L}; "
+            "long double read(void) { return record.value; }\n";
+        LowFix f;
+        bool lowered = run_lower_target_opts(&f, long_double_source, STD_GNU17,
+                                             true, targets[i]);
+
+        if (targets[i] == CGF_TARGET_ARM64_MACOS) {
+            T_ASSERT(t, lowered);
+            T_ASSERT_EQ_INT(t, f.errors, 0);
+            T_ASSERT(t, f.m && ir_verify(f.dc, f.m));
+        } else {
+            T_ASSERT(t, !lowered);
+            T_ASSERT(t, f.errors > 0);
+        }
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_fixed_checked_overflow_store_family(TestCtx *t)
 {
     static const char source[] =
