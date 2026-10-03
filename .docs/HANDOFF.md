@@ -381,7 +381,12 @@ to tested head `1853aa02f44f2154bddf2c87845f57e16615eb49`. The active
 `s56.77-narrow-atomic-reverse-sso` tranche starts from that exact merge and
 repairs the narrower reverse-order atomic read-modify-write path before the
 floating-member boundary builds on it. The detailed ledger below records the
-exact evidence and next boundary order.
+exact evidence and next boundary order. Its first hosted toolchain run exposed
+the corresponding bundled-assembler gap: `afs-as` did not yet encode x86
+`cmpxchg` or permit its `lock` prefix. Upstream afs-as PR #34 merged fully
+green as `14d129fbc52c85fb7d9a5cdd6053def4a0ac8445`; Cgfried pins its tested
+head `1d54f921a99728596653821af55152b91cefaa97` and now exercises the x86
+atomic lane through the bundled assembler whenever it is built.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9281,6 +9286,20 @@ and green post-publication CI.
   Lima VM. The new permanent corpus files intentionally repin the deterministic
   frontend-fuzz digest to `644a6557874c74ac`; normal and sanitized 2,000-case
   runs plus two repetitions of 5,000 cases in each build find zero failures.
+
+  The first hosted toolchain job then found the adjacent integration gap:
+  Cgfried's valid `lock cmpxchgl` output was accepted by GNU as but rejected
+  by the bundled `afs-as`. Upstream afs-as PR #34 adds byte-differential
+  8-/16-/32-/64-bit compare-exchange coverage, locked memory forms, a
+  RIP-relative relocation case, and matching rejection of invalid locked
+  register destinations. All six upstream checks passed before its green-only
+  merge as `14d129fbc52c85fb7d9a5cdd6053def4a0ac8445`; this branch pins tested
+  head `1d54f921a99728596653821af55152b91cefaa97`. In the retained x86_64
+  Ubuntu VM, all 89 object-differential fixtures now assemble under both
+  afs-as and GNU as with identical objects, and the dedicated atomic lane
+  passes four optimization levels through afs-as. The Rust-free configuration
+  retains an explicit GNU-as fallback. Cgfried PR #172 head `835b17a2` carries
+  this closure and is awaiting its replacement exact-head CI lattice.
 
   After this tranche merges green-only, take reverse-order F32/F64 members and
   arrays, including atomic forms that can reuse this physical/logical CAS
