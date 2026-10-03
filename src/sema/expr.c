@@ -1066,12 +1066,10 @@ static AstNode *expr_member(Sema *s, AstNode *e)
     scalar_storage_order = type_member_scalar_storage_order(member_owner, m);
     if (sema_scalar_storage_order_reversed(s, scalar_storage_order) &&
         type_is_floating(m->type)) {
-        TypeLayout layout = layout_of(s, m->type);
-
         /* A view can outlive an incomplete tag: `T *p` may be declared
-         * before the tag acquires a wide floating member.  Validate at the
+         * before the tag acquires an x87 floating member. Validate at the
          * eventual access too, so that path remains fail-closed. */
-        if (layout.size != 4 && layout.size != 8) {
+        if (constexpr_format_of(s, m->type).explicit_intbit) {
             err(s, e->span,
                 "reverse scalar storage order for floating member '%s' is "
                 "not yet supported",

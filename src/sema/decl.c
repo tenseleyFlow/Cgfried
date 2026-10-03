@@ -407,16 +407,17 @@ static bool type_contains_fam(const Type *type)
 
 static bool sso_has_unsupported_floating_component(Sema *s, const Type *type)
 {
-    TypeLayout layout;
-
     if (!type)
         return false;
     if (type->kind == TY_ARRAY)
         return sso_has_unsupported_floating_component(s, type->base);
     if (!type_is_floating(type))
         return false;
-    layout = layout_of(s, (Type *)type);
-    return layout.size != 4 && layout.size != 8;
+    /* IEEE binary128 has a closed 16-byte representation and follows the
+     * same whole-object byte reversal as the narrower IEEE formats. x87
+     * extended precision is different: only ten of its sixteen storage
+     * bytes carry the value, and GCC itself refuses reverse XFmode. */
+    return constexpr_format_of(s, type).explicit_intbit;
 }
 
 static const Member *sso_typedef_view_unsupported_member(Sema *s,
@@ -433,14 +434,11 @@ static const Member *sso_typedef_view_unsupported_member(Sema *s,
         !sema_scalar_storage_order_reversed(s, type_scalar_storage_order(type)))
         return NULL;
     for (member = type->tag->members; member; member = member->next) {
-        TypeLayout layout;
-
         /* GCC's typedef-attached view does not propagate into a direct array
          * or nested aggregate, so only a direct floating member can reach the
-         * unsupported wider-scalar lowering path here. */
+         * unsupported x87 representation path here. */
         if (!member->is_bitfield && type_is_floating(member->type)) {
-            layout = layout_of(s, member->type);
-            if (layout.size != 4 && layout.size != 8)
+            if (constexpr_format_of(s, member->type).explicit_intbit)
                 return member;
         }
     }
@@ -586,9 +584,9 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
 
         /* Reverse order is implemented for integral scalars and every
          * integral bit-field, including address-backed and atomic TI, plus
-         * the closed four- and eight-byte floating representations. Wider
-         * floating representations remain address-backed and fail closed.
-         * Nested records own their own storage order and are exempt. */
+         * the closed IEEE floating representations through binary128. x87
+         * F80 remains fail-closed. Nested records own their own storage order
+         * and are exempt. */
         if (sema_scalar_storage_order_reversed(s, tag->scalar_storage_order) &&
             sso_has_unsupported_floating_component(s, mt)) {
             s->nerrors++;
@@ -1039,8 +1037,8 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
             sema_warn_deprecated(s, sym->name, sym->gnu.deprecated,
                                  sym->gnu.deprecated_msg, at->span);
             /* An attributed view may have been formed while its tag was
-             * incomplete.  Recheck when the typedef is used so completing
-             * that tag later with an F80/F128 direct member cannot bypass the
+             * incomplete. Recheck when the typedef is used so completing
+             * that tag later with an F80 direct member cannot bypass the
              * fail-closed boundary and reach lowering. */
             unsupported = sso_typedef_view_unsupported_member(s, sym->type);
             if (unsupported) {

@@ -2260,6 +2260,16 @@ void test_lower_float_reverse_sso_target_contract(TestCtx *t)
         "double update(float f, double d) { record.f = f; record.d = d; "
         "record.af[1] += f; record.ad[0] = d; record.ad[1] += d; "
         "return record.af[0] + record.ad[1]; }\n";
+    static const char f128_source[] =
+        "struct R { _Float128 value; _Float128 values[2]; "
+        "_Atomic(_Float128) atomic[2]; } "
+        "__attribute__" /* check_bans allow */
+        "((scalar_storage_order(\"big-endian\"))); "
+        "struct R record = {1.0F128, {2.0F128, 3.0F128}, "
+        "{4.0F128, 5.0F128}}; "
+        "_Float128 update(_Float128 value) { record.value = value; "
+        "record.values[1] += value; record.atomic[0] += value; "
+        "record.atomic[1] = value; return record.atomic[1]++; }\n";
     size_t i;
 
     for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
@@ -2285,6 +2295,28 @@ void test_lower_float_reverse_sso_target_contract(TestCtx *t)
         round = ir_parse_module(&f.arena, f.dc, ir, "<float-reverse-sso>");
         T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
         low_free(&f);
+
+        T_ASSERT(t, run_lower_target_opts(&f, f128_source, STD_GNU17, true,
+                                          targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        ir = txt(&f);
+        T_ASSERT_EQ_INT(t, count_of(ir, "call i8 @__atomic_compare_exchange("),
+                        2);
+        T_ASSERT(t, count_of(ir, "lshr i64") >= 100);
+        T_ASSERT(t, count_of(ir, "shl i64") >= 100);
+        T_ASSERT(t, strstr(ir, "load f128") != NULL);
+        T_ASSERT(t, strstr(ir, "store f128") != NULL);
+        if (targets[i] == CGF_TARGET_ARM64_LINUX) {
+            T_ASSERT(t, strstr(ir, "call void @__atomic_load(") != NULL);
+            T_ASSERT(t, strstr(ir, "call void @__atomic_store(") != NULL);
+        } else {
+            T_ASSERT(t, strstr(ir, "load v2i64") != NULL);
+            T_ASSERT(t, strstr(ir, "store v2i64") != NULL);
+        }
+        round = ir_parse_module(&f.arena, f.dc, ir, "<f128-reverse-sso>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
     }
     for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
         static const char long_double_source[] =
@@ -2297,7 +2329,8 @@ void test_lower_float_reverse_sso_target_contract(TestCtx *t)
         bool lowered = run_lower_target_opts(&f, long_double_source, STD_GNU17,
                                              true, targets[i]);
 
-        if (targets[i] == CGF_TARGET_ARM64_MACOS) {
+        if (targets[i] == CGF_TARGET_ARM64_MACOS ||
+            targets[i] == CGF_TARGET_ARM64_LINUX) {
             T_ASSERT(t, lowered);
             T_ASSERT_EQ_INT(t, f.errors, 0);
             T_ASSERT(t, f.m && ir_verify(f.dc, f.m));
@@ -2341,6 +2374,11 @@ void test_lower_typedef_reverse_sso_target_contract(TestCtx *t)
         "((scalar_storage_order(\"big-endian\"))); RBE *record; "
         "struct R { _Float128 value; }; "
         "_Float128 read(void) { return record->value; }\n";
+    static const char f80_source[] =
+        "struct R { long double value; }; "
+        "typedef struct R RBE __attribute__" /* check_bans allow */
+        "((scalar_storage_order(\"big-endian\"))); RBE record; "
+        "long double read(void) { return record.value; }\n";
     size_t i;
 
     for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
@@ -2360,19 +2398,35 @@ void test_lower_typedef_reverse_sso_target_contract(TestCtx *t)
         T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
         low_free(&f);
 
-        T_ASSERT(t, !run_lower_target_opts(&f, wide_source, STD_GNU17, true,
-                                           targets[i]));
-        T_ASSERT(t, f.errors > 0);
+        T_ASSERT(t, run_lower_target_opts(&f, wide_source, STD_GNU17, true,
+                                          targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, f.m && ir_verify(f.dc, f.m));
         low_free(&f);
 
-        T_ASSERT(t, !run_lower_target_opts(&f, late_wide_source, STD_GNU17,
-                                           true, targets[i]));
-        T_ASSERT(t, f.errors > 0);
+        T_ASSERT(t, run_lower_target_opts(&f, late_wide_source, STD_GNU17, true,
+                                          targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, f.m && ir_verify(f.dc, f.m));
         low_free(&f);
 
-        T_ASSERT(t, !run_lower_target_opts(&f, late_wide_access_source,
-                                           STD_GNU17, true, targets[i]));
-        T_ASSERT(t, f.errors > 0);
+        T_ASSERT(t, run_lower_target_opts(&f, late_wide_access_source,
+                                          STD_GNU17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, f.m && ir_verify(f.dc, f.m));
+        low_free(&f);
+
+        if (targets[i] == CGF_TARGET_ARM64_MACOS ||
+            targets[i] == CGF_TARGET_ARM64_LINUX) {
+            T_ASSERT(t, run_lower_target_opts(&f, f80_source, STD_GNU17, true,
+                                              targets[i]));
+            T_ASSERT_EQ_INT(t, f.errors, 0);
+            T_ASSERT(t, f.m && ir_verify(f.dc, f.m));
+        } else {
+            T_ASSERT(t, !run_lower_target_opts(&f, f80_source, STD_GNU17, true,
+                                               targets[i]));
+            T_ASSERT(t, f.errors > 0);
+        }
         low_free(&f);
     }
 }
