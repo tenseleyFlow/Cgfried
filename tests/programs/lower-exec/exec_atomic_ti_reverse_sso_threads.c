@@ -50,8 +50,10 @@ int main(void)
     for (i = 0; i < THREADS; i++)
         if (pthread_join(threads[i], 0) != 0)
             return 2;
-    if (counter.value != want || !physical_equals(want))
+    if (counter.value != want)
         return 3;
+    if (!physical_equals(want))
+        return 4;
     puts("OK");
     return 0;
 }

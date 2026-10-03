@@ -746,8 +746,7 @@ static IrOperand wide_materialize(Lower *lo, Type *t, WideInt v)
  * address-backed temporaries lets atomic callers place exactly one indivisible
  * access around the physical representation rather than splitting it into
  * two ordinary limb accesses. */
-static IrOperand wide_reverse_representation(Lower *lo, IrOperand addr,
-                                             Type *t)
+static IrOperand wide_reverse_representation(Lower *lo, IrOperand addr, Type *t)
 {
     WideInt input = wide_load(lo, addr, t, 0);
     WideInt output;
@@ -899,8 +898,7 @@ IrOperand lower_int128_lvalue_store(Lower *lo, const Lvalue *lv, IrOperand src,
 
     if (lv->is_atomic) {
         if (lv->reverse_storage_order) {
-            IrOperand logical =
-                wide_capture(lo, src, lv->type, access_flags);
+            IrOperand logical = wide_capture(lo, src, lv->type, access_flags);
             IrOperand physical =
                 wide_reverse_representation(lo, logical, lv->type);
 

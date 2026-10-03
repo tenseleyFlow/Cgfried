@@ -2185,8 +2185,8 @@ void test_lower_gnu_mode_ti_atomic_reverse_storage_target_contract(TestCtx *t)
         T_ASSERT_EQ_INT(t, f.errors, 0);
         T_ASSERT(t, ir_verify(f.dc, f.m));
         ir = txt(&f);
-        T_ASSERT_EQ_INT(
-            t, count_of(ir, "call i8 @__atomic_compare_exchange("), 2);
+        T_ASSERT_EQ_INT(t, count_of(ir, "call i8 @__atomic_compare_exchange("),
+                        2);
         T_ASSERT(t, count_of(ir, "lshr i64") >= 70);
         T_ASSERT(t, count_of(ir, "shl i64") >= 70);
         if (targets[i] == CGF_TARGET_ARM64_LINUX) {
@@ -2196,8 +2196,8 @@ void test_lower_gnu_mode_ti_atomic_reverse_storage_target_contract(TestCtx *t)
             T_ASSERT_EQ_INT(t, count_of(ir, "load v2i64"), 3);
             T_ASSERT_EQ_INT(t, count_of(ir, "store v2i64"), 3);
         }
-        round = ir_parse_module(&f.arena, f.dc, ir,
-                                "<mode-ti-atomic-reverse-sso>");
+        round =
+            ir_parse_module(&f.arena, f.dc, ir, "<mode-ti-atomic-reverse-sso>");
         T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
         low_free(&f);
     }

@@ -1736,9 +1736,9 @@ void test_sema_gnu_int128_bitfield_initializer_images(TestCtx *t)
     if (atomic_reverse) {
         InitImage image;
 
-        T_ASSERT(t, constexpr_eval_initializer(&f.sema,
-                                               atomic_reverse->sem_type,
-                                               atomic_reverse->init, &image));
+        T_ASSERT(t,
+                 constexpr_eval_initializer(&f.sema, atomic_reverse->sem_type,
+                                            atomic_reverse->init, &image));
         T_ASSERT_EQ_INT(t, image.size, 32);
         for (i = 0; i < 32; i++) {
             unsigned want = 0;
