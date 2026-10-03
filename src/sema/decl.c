@@ -414,13 +414,6 @@ static bool sso_has_floating_component(const Type *type)
     return type_is_floating(type);
 }
 
-static bool sso_has_atomic_int128_element(const Type *type)
-{
-    while (type && type->kind == TY_ARRAY)
-        type = type->base;
-    return type && type_is_int128(type) && (type->quals & CGF_QUAL_ATOMIC);
-}
-
 static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                        bool is_last_decl)
 {
@@ -559,11 +552,10 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                     "'scalar_storage_order' attribute ignored on a field");
 
         /* Reverse order is implemented for integral scalars and every
-         * integral bit-field, including address-backed TI. Floating
-         * representations and atomic TI members/arrays still need distinct
-         * lowering; accepting either would silently retain native order, so
-         * fail closed. Nested records own their own storage order and are
-         * deliberately exempt. */
+         * integral bit-field, including address-backed and atomic TI.
+         * Floating representations still need distinct lowering; accepting
+         * them would silently retain native order, so fail closed. Nested
+         * records own their own storage order and are deliberately exempt. */
         if (sema_scalar_storage_order_reversed(s, tag->scalar_storage_order) &&
             sso_has_floating_component(mt)) {
             s->nerrors++;
@@ -573,16 +565,6 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                       m->name ? m->name : "<anonymous>");
             mt = type_basic(TY_ERROR);
         }
-        if (sema_scalar_storage_order_reversed(s, tag->scalar_storage_order) &&
-            !m->is_bitfield && sso_has_atomic_int128_element(mt)) {
-            s->nerrors++;
-            diag_emit(s->dc, DIAG_ERROR, m->span,
-                      "reverse scalar storage order for atomic mode(TI) "
-                      "member or array '%s' is not yet supported",
-                      m->name ? m->name : "<anonymous>");
-            mt = type_basic(TY_ERROR);
-        }
-
         mem = arena_alloc(s->arena, sizeof(Member), _Alignof(Member));
         memset(mem, 0, sizeof(*mem));
         mem->name = m->name;

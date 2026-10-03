@@ -2157,6 +2157,52 @@ void test_lower_gnu_mode_ti_reverse_storage_target_contract(TestCtx *t)
     }
 }
 
+void test_lower_gnu_mode_ti_atomic_reverse_storage_target_contract(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    static const char source[] =
+        "typedef unsigned __int128 u128; "
+        "struct R { _Atomic(u128) value; _Atomic(u128) values[2]; "
+        "volatile _Atomic(u128) observed; } "
+        "__attribute__" /* check_bans allow */
+        "((scalar_storage_order(\"big-endian\"))); "
+        "struct R record = {(u128)1 << 100, {3, 4}, 5}; "
+        "u128 update(u128 value) { record.value = value; "
+        "record.values[1] += value; return record.observed++; }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+        const char *ir;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        ir = txt(&f);
+        T_ASSERT_EQ_INT(
+            t, count_of(ir, "call i8 @__atomic_compare_exchange("), 2);
+        T_ASSERT(t, count_of(ir, "lshr i64") >= 70);
+        T_ASSERT(t, count_of(ir, "shl i64") >= 70);
+        if (targets[i] == CGF_TARGET_ARM64_LINUX) {
+            T_ASSERT_EQ_INT(t, count_of(ir, "call void @__atomic_load("), 2);
+            T_ASSERT_EQ_INT(t, count_of(ir, "call void @__atomic_store("), 1);
+        } else {
+            T_ASSERT_EQ_INT(t, count_of(ir, "load v2i64"), 3);
+            T_ASSERT_EQ_INT(t, count_of(ir, "store v2i64"), 3);
+        }
+        round = ir_parse_module(&f.arena, f.dc, ir,
+                                "<mode-ti-atomic-reverse-sso>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_fixed_checked_overflow_store_family(TestCtx *t)
 {
     static const char source[] =

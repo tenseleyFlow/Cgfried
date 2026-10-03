@@ -1678,6 +1678,7 @@ void test_sema_gnu_int128_bitfield_initializer_images(TestCtx *t)
     SemaFix f;
     AstNode *native = NULL;
     AstNode *reverse = NULL;
+    AstNode *atomic_reverse = NULL;
     u32 i;
 
     run_sema(&f,
@@ -1688,8 +1689,13 @@ void test_sema_gnu_int128_bitfield_initializer_images(TestCtx *t)
              "struct R { u128 value:124; u128 tail:4; } "
              "__attribute__" /* check_bans allow: compiler input */
              "((scalar_storage_order(\"big-endian\"))); "
+             "struct AR { _Atomic(u128) values[2]; } "
+             "__attribute__" /* check_bans allow: compiler input */
+             "((scalar_storage_order(\"big-endian\"))); "
              "static struct N native = { B(117) | B(64) | 0x35 }; "
-             "static struct R reverse = { 1, 2 };\n",
+             "static struct R reverse = { 1, 2 }; "
+             "static struct AR atomic_reverse = "
+             "{{ B(100) | 0x35, B(80) | 0x7a }};\n",
              STD_GNU17);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     for (i = 0; i < f.tu->ndecls; i++) {
@@ -1701,6 +1707,8 @@ void test_sema_gnu_int128_bitfield_initializer_images(TestCtx *t)
             native = d;
         else if (strcmp(d->name, "reverse") == 0)
             reverse = d;
+        else if (strcmp(d->name, "atomic_reverse") == 0)
+            atomic_reverse = d;
     }
     T_ASSERT(t, native != NULL);
     T_ASSERT(t, reverse != NULL);
@@ -1724,18 +1732,28 @@ void test_sema_gnu_int128_bitfield_initializer_images(TestCtx *t)
             T_ASSERT_EQ_INT(t, image.bytes[i], 0);
         T_ASSERT_EQ_INT(t, image.bytes[15], 0x12);
     }
-    sfix_free(&f);
+    T_ASSERT(t, atomic_reverse != NULL);
+    if (atomic_reverse) {
+        InitImage image;
 
-    /* Ordinary TI members and arrays have the same 16-byte reverse-order
-     * image as the bit-field path above. Atomic TI still fails closed until
-     * its indivisible access can include that representation transform. */
-    run_sema(&f,
-             "typedef unsigned __int128 u128; "
-             "struct R { _Atomic(u128) value[2]; } "
-             "__attribute__" /* check_bans allow: compiler input */
-             "((scalar_storage_order(\"big-endian\")));\n",
-             STD_GNU17);
-    T_ASSERT_EQ_INT(t, f.errors, 1);
+        T_ASSERT(t, constexpr_eval_initializer(&f.sema,
+                                               atomic_reverse->sem_type,
+                                               atomic_reverse->init, &image));
+        T_ASSERT_EQ_INT(t, image.size, 32);
+        for (i = 0; i < 32; i++) {
+            unsigned want = 0;
+
+            if (i == 3)
+                want = 0x10;
+            else if (i == 15)
+                want = 0x35;
+            else if (i == 21)
+                want = 0x01;
+            else if (i == 31)
+                want = 0x7a;
+            T_ASSERT_EQ_INT(t, image.bytes[i], want);
+        }
+    }
     sfix_free(&f);
 }
 

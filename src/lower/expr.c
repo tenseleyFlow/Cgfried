@@ -741,6 +741,22 @@ static IrOperand wide_materialize(Lower *lo, Type *t, WideInt v)
     return addr;
 }
 
+/* Reverse storage order is an involution over a TI value: exchange the two
+ * 64-bit limbs and reverse the bytes within each.  Keeping the transform on
+ * address-backed temporaries lets atomic callers place exactly one indivisible
+ * access around the physical representation rather than splitting it into
+ * two ordinary limb accesses. */
+static IrOperand wide_reverse_representation(Lower *lo, IrOperand addr,
+                                             Type *t)
+{
+    WideInt input = wide_load(lo, addr, t, 0);
+    WideInt output;
+
+    output.lo = reverse_integer_bytes(lo, input.hi);
+    output.hi = reverse_integer_bytes(lo, input.lo);
+    return wide_materialize(lo, t, output);
+}
+
 static IrOperand wide_precision_fit(Lower *lo, IrOperand addr, Type *t)
 {
     u32 width = conv_int_bits(lo->sema, t);
@@ -845,8 +861,13 @@ IrOperand lower_int128_lvalue_load(Lower *lo, const Lvalue *lv)
     u8 flags;
     u32 align;
 
-    if (lv->is_atomic)
-        return wide_atomic_load(lo, lv);
+    if (lv->is_atomic) {
+        IrOperand physical = wide_atomic_load(lo, lv);
+
+        return lv->reverse_storage_order
+                   ? wide_reverse_representation(lo, physical, lv->type)
+                   : physical;
+    }
     if (!lv->reverse_storage_order)
         return lv->addr;
 
@@ -876,8 +897,18 @@ IrOperand lower_int128_lvalue_store(Lower *lo, const Lvalue *lv, IrOperand src,
     u8 flags;
     u32 align;
 
-    if (lv->is_atomic)
+    if (lv->is_atomic) {
+        if (lv->reverse_storage_order) {
+            IrOperand logical =
+                wide_capture(lo, src, lv->type, access_flags);
+            IrOperand physical =
+                wide_reverse_representation(lo, logical, lv->type);
+
+            (void)wide_atomic_store(lo, lv, physical, lv->type, 0);
+            return logical;
+        }
         return wide_atomic_store(lo, lv, src, lv->type, access_flags);
+    }
     if (!lv->reverse_storage_order) {
         layout = layout_of(lo->sema, lv->type);
         lower_memcpy_aggregate(
@@ -1285,7 +1316,8 @@ static IrOperand lower_wide_atomic_update(Lower *lo, Lvalue lv, Type *lt,
                                           u16 op, IrOperand rhs, Type *rt,
                                           bool want_old)
 {
-    IrOperand expected = wide_atomic_load(lo, &lv);
+    IrOperand expected_physical = wide_atomic_load(lo, &lv);
+    IrOperand expected;
     IrOperand converted_rhs;
     IrOperand desired;
     BlockId retry = lower_new_block(lo, "wide.rmw.retry");
@@ -1303,6 +1335,9 @@ static IrOperand lower_wide_atomic_update(Lower *lo, Lvalue lv, Type *lt,
 
     ir_build_br(&lo->b, retry, NULL, 0);
     lower_at(lo, retry);
+    expected = lv.reverse_storage_order
+                   ? wide_reverse_representation(lo, expected_physical, lt)
+                   : expected_physical;
     if (op == PUNCT_SHL || op == PUNCT_SHR) {
         const char *name =
             op == PUNCT_SHL
@@ -1316,8 +1351,12 @@ static IrOperand lower_wide_atomic_update(Lower *lo, Lvalue lv, Type *lt,
         desired = wide_binary_values(lo, op, common, expected, converted_rhs);
     }
     {
-        IrOperand success =
-            wide_atomic_compare_exchange(lo, &lv, expected, desired);
+        IrOperand desired_physical =
+            lv.reverse_storage_order
+                ? wide_reverse_representation(lo, desired, lt)
+                : desired;
+        IrOperand success = wide_atomic_compare_exchange(
+            lo, &lv, expected_physical, desired_physical);
 
         ir_build_condbr(&lo->b, success, done, NULL, 0, retry, NULL, 0);
     }
