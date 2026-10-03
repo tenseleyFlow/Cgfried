@@ -48,11 +48,11 @@ typedef enum {
     GNU_VIS_INTERNAL
 } GnuVisibility;
 
-/* `scalar_storage_order` is an endian property of a record definition, not
- * of an object declaration. Keep the requested order rather than a derived
- * `reverse` bit: the AST and Type graph are target-neutral until sema selects
- * the target, and a confirming spelling must remain distinguishable from no
- * attribute at all. */
+/* `scalar_storage_order` is an endian property of a record definition or an
+ * attributed typedef view, not of an object declaration. Keep the requested
+ * order rather than a derived `reverse` bit: the AST and Type graph are
+ * target-neutral until sema selects the target, and a confirming spelling
+ * must remain distinguishable from no attribute at all. */
 typedef enum {
     GNU_SSO_UNSPEC = 0,
     GNU_SSO_LITTLE_ENDIAN,

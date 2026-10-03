@@ -166,7 +166,8 @@ typedef struct InitPlan {
     u32 cap_unions;
 } InitPlan;
 
-static void plan_rt(InitPlan *p, i64 off, Type *t, AstNode *e, const Member *bf)
+static void plan_rt(InitPlan *p, i64 off, Type *t, AstNode *e, const Member *bf,
+                    u8 scalar_storage_order)
 {
     RtStore *r = arena_alloc(p->lo->arena, sizeof(RtStore), _Alignof(RtStore));
     AstNode *key = e && e->init_range_origin ? e->init_range_origin : e;
@@ -188,10 +189,9 @@ static void plan_rt(InitPlan *p, i64 off, Type *t, AstNode *e, const Member *bf)
     r->e = e;
     r->bf = bf;
     r->value = value;
-    r->scalar_storage_order = bf ? bf->scalar_storage_order
-                                 : ((type_is_integer(t) || type_is_floating(t))
-                                        ? p->scalar_storage_order
-                                        : GNU_SSO_UNSPEC);
+    r->scalar_storage_order = (bf || type_is_integer(t) || type_is_floating(t))
+                                  ? scalar_storage_order
+                                  : GNU_SSO_UNSPEC;
     r->active = true;
     r->next = NULL;
     if (p->rt_tail)
@@ -336,11 +336,11 @@ static void plan_scalar(InitPlan *p, Type *t, AstNode *e, i64 off)
     case CV_ADDR:
         if (!plan_reloc(p, (u64)off, v)) {
             p->reloc_overflow = true;
-            plan_rt(p, off, t, e, NULL);
+            plan_rt(p, off, t, e, NULL, p->scalar_storage_order);
         }
         return;
     default:
-        plan_rt(p, off, t, e, NULL);
+        plan_rt(p, off, t, e, NULL, p->scalar_storage_order);
         return;
     }
 }
@@ -410,7 +410,8 @@ static bool plan_cursor_select(InitPlan *p, PlanCursor *cursor)
         cursor->member = member;
         cursor->off =
             member->is_bitfield ? frame->off : frame->off + member->offset;
-        cursor->scalar_storage_order = member->scalar_storage_order;
+        cursor->scalar_storage_order =
+            type_member_scalar_storage_order(frame->aggregate, member);
         return true;
     }
     return false;
@@ -651,7 +652,7 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
         ConstValue value = constexpr_eval(p->lo->sema, item, CE_FOLD);
         u32 bit;
         bool reverse = sema_scalar_storage_order_reversed(
-            p->lo->sema, member->scalar_storage_order);
+            p->lo->sema, cursor->scalar_storage_order);
         u64 unit_byte =
             (member->offset / member->container_size) * member->container_size;
         u64 start_bit = member->packed ? member->bit_shift
@@ -684,7 +685,8 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
                 p->img[byte] |= mask;
         }
         if (value.kind != CV_INT)
-            plan_rt(p, (i64)cursor->off, member->type, item, member);
+            plan_rt(p, (i64)cursor->off, member->type, item, member,
+                    cursor->scalar_storage_order);
         return;
     }
     {
@@ -763,7 +765,8 @@ static void plan_record(InitPlan *p, Type *t, AstNode *init, i64 off)
         return;
     layout_record(p->lo->sema, t);
     if (init->kind != AST_INIT_LIST) {
-        plan_rt(p, off, t, init, NULL); /* runtime whole-struct memcpy */
+        plan_rt(p, off, t, init, NULL,
+                p->scalar_storage_order); /* runtime whole-struct memcpy */
         return;
     }
     plan_aggregate_list(p, t, init, (u64)off);
@@ -1006,7 +1009,7 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
         lv.is_bitfield = true;
         lv.packed_bitfield = m->packed;
         lv.reverse_storage_order = sema_scalar_storage_order_reversed(
-            lo->sema, m->scalar_storage_order);
+            lo->sema, r->scalar_storage_order);
         lv.bit_shift =
             (u8)(m->packed ? m->bit_shift
                            : (m->offset - unit_byte) * 8 + m->bit_shift);

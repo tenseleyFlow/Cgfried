@@ -2897,11 +2897,17 @@ void test_sema_type_compatible_table(TestCtx *t)
     TypeFix tf;
     Type *i, *u, *l, *c, *sc, *uc, *s, *us, *bl, *v, *f, *d, *ld;
     TagDecl enum_tag;
+    TagDecl record_tag;
     Type *en;
+    Type *record;
+    Type *reverse_view;
+    Type *reverse_alias;
+    Type *independent_view;
     Type *p1[2], *p2[2];
 
     arena_init(&tf.ar);
     memset(&enum_tag, 0, sizeof(enum_tag));
+    memset(&record_tag, 0, sizeof(record_tag));
     i = type_basic(TY_INT);
     u = type_basic(TY_UINT);
     l = type_basic(TY_LONG);
@@ -2919,6 +2925,15 @@ void test_sema_type_compatible_table(TestCtx *t)
     enum_tag.complete = true;
     enum_tag.enum_underlying = i;
     en = type_tag(&tf.ar, &enum_tag);
+    record_tag.kind = TY_STRUCT;
+    record_tag.complete = true;
+    record = type_tag(&tf.ar, &record_tag);
+    record_tag.type = record;
+    reverse_view =
+        type_with_scalar_storage_order(&tf.ar, record, GNU_SSO_BIG_ENDIAN);
+    reverse_alias = type_scalar_storage_order_alias(&tf.ar, reverse_view);
+    independent_view =
+        type_with_scalar_storage_order(&tf.ar, record, GNU_SSO_BIG_ENDIAN);
 
     /* Basic kinds: identical or nothing. `int` and `long` are distinct
      * even at equal width — this is what keeps %ld checking honest. */
@@ -2933,6 +2948,19 @@ void test_sema_type_compatible_table(TestCtx *t)
     compat_is(t, "double/int", d, i, false);
     compat_is(t, "enum/compatible int", en, i, true);
     compat_is(t, "enum/unsigned int", en, u, false);
+    compat_is(t, "SSO typedef view/plain tag", reverse_view, record, false);
+    compat_is(t, "independent same-order SSO typedef views", reverse_view,
+              independent_view, false);
+    compat_is(t, "SSO view/may_alias copy", reverse_view,
+              type_may_alias(&tf.ar, reverse_view), true);
+    compat_is(t, "SSO view/ordinary alias", reverse_view, reverse_alias, true);
+    T_ASSERT(t, type_scalar_storage_order(reverse_view) == GNU_SSO_BIG_ENDIAN);
+    T_ASSERT(t, type_with_scalar_storage_order(&tf.ar, reverse_view,
+                                               GNU_SSO_LITTLE_ENDIAN) ==
+                    reverse_view);
+    T_ASSERT(t,
+             type_scalar_storage_order(reverse_view) == GNU_SSO_LITTLE_ENDIAN);
+    T_ASSERT(t, type_scalar_storage_order(reverse_alias) == GNU_SSO_BIG_ENDIAN);
 
     /* Qualifiers are part of type identity. */
     compat_is(t, "const int/int", Q(&tf, i, CGF_QUAL_CONST), i, false);

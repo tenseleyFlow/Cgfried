@@ -76,6 +76,66 @@ Type *type_may_alias(Arena *ar, const Type *t)
     return a;
 }
 
+Type *type_with_scalar_storage_order(Arena *ar, const Type *t, u8 order)
+{
+    Type *view;
+
+    if (!t || !order)
+        return (Type *)t;
+    if (t->kind != TY_STRUCT && t->kind != TY_UNION)
+        return (Type *)t;
+    if (t->scalar_storage_order_identity) {
+        /* Re-attribution keeps the view's compatibility identity but changes
+         * only this typedef spelling.  Sibling aliases retain the order they
+         * captured when they were declared. */
+        ((Type *)t)->scalar_storage_order = order;
+        return (Type *)t;
+    }
+    /* Do not mutate the tag's shared Type node.  The whole point of the GNU
+     * typedef spelling is that `struct S` and its attributed alias may coexist
+     * with different representations.  A fresh identity also matches GCC's
+     * compatibility rule for two independently attributed aliases. */
+    view = type_new(ar, t->kind);
+    *view = *t;
+    view->scalar_storage_order = order;
+    view->scalar_storage_order_identity = view;
+    return view;
+}
+
+Type *type_scalar_storage_order_alias(Arena *ar, const Type *t)
+{
+    Type *alias;
+
+    if (!t || !t->scalar_storage_order_identity)
+        return (Type *)t;
+    /* Each typedef spelling owns its mutable view order.  The shared identity
+     * below continues to make ordinary aliases compatible with their source
+     * view while allowing later attributes to retarget one spelling only. */
+    alias = type_new(ar, t->kind);
+    *alias = *t;
+    return alias;
+}
+
+u8 type_scalar_storage_order(const Type *t)
+{
+    return t ? t->scalar_storage_order : GNU_SSO_UNSPEC;
+}
+
+u8 type_member_scalar_storage_order(const Type *record, const Member *member)
+{
+    if (!member)
+        return GNU_SSO_UNSPEC;
+    /* A typedef-attached order affects only direct scalar and bit-field
+     * members.  In particular GCC leaves direct arrays and nested records in
+     * their own declared order.  Definition-attached order remains on the
+     * Member and therefore retains its existing scalar-array propagation. */
+    if (type_scalar_storage_order(record) &&
+        (member->is_bitfield || type_is_integer(member->type) ||
+         type_is_floating(member->type)))
+        return type_scalar_storage_order(record);
+    return member->scalar_storage_order;
+}
+
 Type *type_with_alignment(Arena *ar, const Type *t, u64 align)
 {
     Type *a;
@@ -537,8 +597,17 @@ bool type_compatible(const Type *a, const Type *b)
     case TY_STRUCT:
     case TY_UNION:
         /* Within one translation unit, tag identity IS compatibility.
-         * Member-wise comparison only matters across TUs (6.2.7p1). */
-        return a->tag == b->tag;
+         * Member-wise comparison only matters across TUs (6.2.7p1).  GNU
+         * scalar-storage-order typedef views add a second identity layer:
+         * the plain tag, a view, and a separately-created same-order view are
+         * pairwise incompatible, while aliases/qualified copies of one view
+         * retain its identity pointer. */
+        if (a->tag != b->tag || (!!a->scalar_storage_order_identity !=
+                                 !!b->scalar_storage_order_identity))
+            return false;
+        return !a->scalar_storage_order_identity ||
+               a->scalar_storage_order_identity ==
+                   b->scalar_storage_order_identity;
     case TY_ENUM:
         /* A mode on an existing tag is a distinct enum view. Two such views
          * are compatible exactly when their tag and explicit mode match;

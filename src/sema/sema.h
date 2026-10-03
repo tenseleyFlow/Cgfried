@@ -167,6 +167,13 @@ struct Type {
      * metadata, while layout, ABI classification, and compatibility remain
      * exactly those of the underlying C type. */
     bool may_alias;
+    /* GNU scalar_storage_order attached to a TYPEDEF of a record creates an
+     * alias-specific view: the named tag keeps its original representation,
+     * while direct scalar/bit-field members reached through this view use the
+     * requested order.  GCC also treats separately attributed views as
+     * distinct record types even when they name the same tag and order. */
+    u8 scalar_storage_order; /* GnuScalarStorageOrder; typedef views only */
+    Type *scalar_storage_order_identity;
     /* GNU `aligned` attached to a declarator TYPE layer. This changes that
      * layer's layout but is not a C compatibility qualifier; size is
      * unchanged and compatible redeclarations retain the strongest request.
@@ -443,6 +450,9 @@ typedef struct VmGoto {
 Type *type_basic(TypeKind k);
 Type *type_qualify(Arena *ar, const Type *t, unsigned quals);
 Type *type_may_alias(Arena *ar, const Type *t);
+Type *type_with_scalar_storage_order(Arena *ar, const Type *t, u8 order);
+Type *type_scalar_storage_order_alias(Arena *ar, const Type *t);
+u8 type_scalar_storage_order(const Type *t);
 Type *type_with_alignment(Arena *ar, const Type *t, u64 align);
 Type *type_integer_with_precision(Arena *ar, const Type *carrier, u32 precision,
                                   bool is_signed);
@@ -619,6 +629,7 @@ void layout_record(Sema *s, Type *rec);
 /* True only when an explicit record order is opposite to the selected
  * target's uniform scalar order. */
 bool sema_scalar_storage_order_reversed(Sema *s, u8 order);
+u8 type_member_scalar_storage_order(const Type *record, const Member *member);
 u64 layout_offsetof(Sema *s, Type *rec, const Member *m);
 
 /* SysV x86-64 parameter classification (psABI 3.2.3). Consumed by Sprint

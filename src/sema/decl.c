@@ -419,6 +419,34 @@ static bool sso_has_unsupported_floating_component(Sema *s, const Type *type)
     return layout.size != 4 && layout.size != 8;
 }
 
+static const Member *sso_typedef_view_unsupported_member(Sema *s,
+                                                         const Type *type)
+{
+    const Member *member;
+
+    if (!type)
+        return NULL;
+    if (type->kind == TY_ARRAY)
+        return sso_typedef_view_unsupported_member(s, type->base);
+    if ((type->kind != TY_STRUCT && type->kind != TY_UNION) || !type->tag ||
+        !type->tag->complete || !type_scalar_storage_order(type) ||
+        !sema_scalar_storage_order_reversed(s, type_scalar_storage_order(type)))
+        return NULL;
+    for (member = type->tag->members; member; member = member->next) {
+        TypeLayout layout;
+
+        /* GCC's typedef-attached view does not propagate into a direct array
+         * or nested aggregate, so only a direct floating member can reach the
+         * unsupported wider-scalar lowering path here. */
+        if (!member->is_bitfield && type_is_floating(member->type)) {
+            layout = layout_of(s, member->type);
+            if (layout.size != 4 && layout.size != 8)
+                return member;
+        }
+    }
+    return NULL;
+}
+
 static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                        bool is_last_decl)
 {
@@ -1006,8 +1034,24 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
                 : NULL;
 
         if (sym && sym->kind == SYM_TYPEDEF) {
+            const Member *unsupported;
+
             sema_warn_deprecated(s, sym->name, sym->gnu.deprecated,
                                  sym->gnu.deprecated_msg, at->span);
+            /* An attributed view may have been formed while its tag was
+             * incomplete.  Recheck when the typedef is used so completing
+             * that tag later with an F80/F128 direct member cannot bypass the
+             * fail-closed boundary and reach lowering. */
+            unsupported = sso_typedef_view_unsupported_member(s, sym->type);
+            if (unsupported) {
+                s->nerrors++;
+                diag_emit(s->dc, DIAG_ERROR, at->span,
+                          "reverse scalar storage order for floating member "
+                          "'%s' is not yet supported",
+                          unsupported->name ? unsupported->name
+                                            : "<anonymous>");
+                return type_basic(TY_ERROR);
+            }
             return sym->type;
         }
         /* The parser already diagnosed an unknown type name and recovered
@@ -3298,16 +3342,26 @@ static void declare_one(Sema *s, AstNode *d)
     if (d->gnu.scalar_storage_order) {
         if ((d->storage & AST_SC_TYPEDEF) && type &&
             (type->kind == TY_STRUCT || type->kind == TY_UNION)) {
-            s->nerrors++;
-            diag_emit(s->dc, DIAG_ERROR, d->span,
-                      "the 'scalar_storage_order' attribute on a typedef is "
-                      "not yet supported; attach it to the struct or union "
-                      "definition instead (docs/gnu-extensions.md)");
+            type = type_with_scalar_storage_order(s->arena, type,
+                                                  d->gnu.scalar_storage_order);
         } else {
             warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
                     "'scalar_storage_order' attribute ignored");
         }
         d->gnu.scalar_storage_order = GNU_SSO_UNSPEC;
+    }
+    {
+        const Member *unsupported =
+            sso_typedef_view_unsupported_member(s, type);
+
+        if (unsupported) {
+            s->nerrors++;
+            diag_emit(s->dc, DIAG_ERROR, d->span,
+                      "reverse scalar storage order for floating member '%s' "
+                      "is not yet supported",
+                      unsupported->name ? unsupported->name : "<anonymous>");
+            type = type_basic(TY_ERROR);
+        }
     }
     /* gcc gives directly-written `may_alias` semantics on a typedef (and on
      * record definitions, handled by complete_struct), not on an ordinary
@@ -3337,6 +3391,8 @@ static void declare_one(Sema *s, AstNode *d)
      * member positions, this is an exact request and may reduce alignment. */
     if ((d->storage & AST_SC_TYPEDEF) && gnu_align_req)
         type = type_with_alignment(s->arena, type, gnu_align_req);
+    if (d->storage & AST_SC_TYPEDEF)
+        type = type_scalar_storage_order_alias(s->arena, type);
     is_func = type && type->kind == TY_FUNC;
     alignas_req = check_alignas(s, d, type);
 

@@ -2646,7 +2646,8 @@ static bool fill_cursor_select(InitCtx *c, FillCursor *cursor)
         cursor->current = m->type;
         cursor->member = m;
         cursor->off = m->is_bitfield ? f->off : f->off + m->offset;
-        cursor->scalar_storage_order = m->scalar_storage_order;
+        cursor->scalar_storage_order =
+            type_member_scalar_storage_order(f->aggregate, m);
         return true;
     }
     return false;
@@ -2847,7 +2848,8 @@ static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
                      "expression");
         return;
     }
-    reverse = sema_scalar_storage_order_reversed(c->s, m->scalar_storage_order);
+    reverse =
+        sema_scalar_storage_order_reversed(c->s, cursor->scalar_storage_order);
     unit_byte = (m->offset / m->container_size) * m->container_size;
     start_bit =
         m->packed ? m->bit_shift : (m->offset - unit_byte) * 8 + m->bit_shift;
