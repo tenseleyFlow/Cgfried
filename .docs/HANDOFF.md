@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak through 2026-10-02; compiler gaps through 2026-10-03): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps through 2026-10-03): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -766,14 +766,15 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (10/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (25/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
 hosted CI definitions are integrated. The first hosted streak reached 5/30
 through August 17, then reset on August 18 when the required x86 O0 job was
-cancelled before bootstrap and retained no artifact. August 19–28 are days
-1–10 of the current streak; the ledger still needs 20 consecutive dates, so
-do not call the sprint closed until that operational obligation is complete.
+cancelled before bootstrap and retained no artifact. A later streak reached
+17/30 before September 5 supplied no x86 run. The current September 9–October
+3 streak is 25/30; the ledger still needs five consecutive dates, so do not
+call the sprint closed until that operational obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
   comparisons over all 113 compiler/runtime assembly files, all 113 objects,
@@ -867,7 +868,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 24/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 25/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -932,7 +933,11 @@ do not call the sprint closed until that operational obligation is complete.
   seven-job lattice green. Scheduled runs `36405573219`, `36551609743`,
   `36697741401`, `36847156953`, and `36991625528` make September 28--October
   2 days 20--24, each with all four required daily jobs green; no weekly work
-  was due on those dates. The
+  was due on those dates. October 3 scheduled run
+  [`37112060098`](https://github.com/tenseleyFlow/Cgfried/actions/runs/37112060098)
+  at exact head `1bab9c62` is day 25: all four required fixed points passed,
+  and the four expected 90-day artifacts are unexpired and carry GitHub API
+  SHA-256 digests. No weekly work was due. The
   daily-hosted automation
   repair now launches all four required O0/O2 jobs together without depending
   on a push or fleet host. Continue recording distinct UTC dates and every due
