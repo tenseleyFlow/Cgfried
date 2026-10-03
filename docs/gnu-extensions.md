@@ -55,7 +55,7 @@ predefine.
 | `weak` | `tests/programs/gnu/attr_weak_overridden.c` | musl `weak_alias`, glibc |
 | `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
 | `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
-| `scalar_storage_order("big-endian" or "little-endian")` on struct/union definitions | `tests/corpus/x86_64/int/scalar_storage_order.c` | endian-stable wire records and GCC torture bit-field layouts, including integral/TI members and four- or eight-byte floating representations, with naturally aligned atomic forms |
+| `scalar_storage_order("big-endian" or "little-endian")` on struct/union definitions and typedef views | `tests/programs/lower-exec/exec_typedef_reverse_sso.c` | endian-stable wire records and GCC torture bit-field layouts, including integral/TI members and four- or eight-byte floating representations, with naturally aligned atomic forms |
 | `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
 | `alias` | `tests/corpus/x86_64/int/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
 | `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
@@ -400,12 +400,27 @@ whose expected and desired values stay in physical order. This deliberately
 preserves `_Atomic` more strongly than the measured GCC 16 indexed-array edge,
 which can lose contended floating updates.
 
+The attribute may also follow a struct or union typedef declarator. This
+creates an alias-specific record view rather than mutating the shared tag:
+the attributed typedef and its ordinary aliases use the requested order,
+while direct uses of the original tag retain their representation. The view
+is a distinct GNU type for compatibility purposes, and two independently
+attributed views of the same tag are distinct from each other. Matching GCC's
+typedef boundary, this form changes direct scalar and bit-field members only;
+direct arrays, nested records, and names promoted from anonymous nested
+records retain their own declared order. Re-attributing an alias of an
+existing view retains its compatibility identity and updates that spelling
+and the new alias; sibling typedef spellings keep the order they captured when
+declared. Declarations already made through the updated spelling observe its
+new order as well, matching GCC's shared spelling-specific view. Static and
+runtime initialization,
+ordinary and atomic access, updates, unions, aliases, and address-taking
+restrictions all consult the selected view.
+
 Reverse-order floating representations wider than eight bytes, including F80
-and F128 on targets where they are wider, remain fail-closed. Attaching the
-attribute through a typedef is also still deferred. Neither unsupported form
-is accepted and then stored in native order; attach the attribute directly to
-the struct or union definition and use a closed four- or eight-byte scalar
-representation.
+and F128 on targets where they are wider, remain fail-closed for both record
+definitions and typedef views. An unsupported form is never accepted and then
+stored in native order; use a closed four- or eight-byte scalar representation.
 
 Cgfried implements a storage-bounded subset of GCC's nested flexible-array
 initializer extension. A static object may initialize a flexible tail below

@@ -2309,6 +2309,74 @@ void test_lower_float_reverse_sso_target_contract(TestCtx *t)
     }
 }
 
+void test_lower_typedef_reverse_sso_target_contract(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,   CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,
+    };
+    static const char source[] =
+        "struct Inner { unsigned value; }; "
+        "struct R { unsigned direct; float real; unsigned high:4; "
+        "unsigned low:12; unsigned array[2]; struct Inner nested; }; "
+        "typedef struct R RBE __attribute__" /* check_bans allow */
+        "((scalar_storage_order(\"big-endian\"))); "
+        "RBE record = {0x11223344u, 1.0f, 0xa, 0xbcd, {2, 3}, {4}}; "
+        "unsigned update(unsigned value) { record.direct += value; "
+        "record.real += 1.0f; record.high++; record.low -= value; "
+        "record.array[1] = value; record.nested.value = value; "
+        "return record.direct + record.high + record.low + "
+        "record.array[1] + record.nested.value; }\n";
+    static const char wide_source[] =
+        "struct R { _Float128 value; }; "
+        "typedef struct R RBE __attribute__" /* check_bans allow */
+        "((scalar_storage_order(\"big-endian\")));\n";
+    static const char late_wide_source[] =
+        "struct R; typedef struct R RBE __attribute__" /* check_bans allow */
+        "((scalar_storage_order(\"big-endian\"))); "
+        "struct R { _Float128 value; }; RBE record;\n";
+    static const char late_wide_access_source[] =
+        "struct R; typedef struct R RBE __attribute__" /* check_bans allow */
+        "((scalar_storage_order(\"big-endian\"))); RBE *record; "
+        "struct R { _Float128 value; }; "
+        "_Float128 read(void) { return record->value; }\n";
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LowFix f;
+        IrModule *round;
+        const char *ir;
+
+        T_ASSERT(
+            t, run_lower_target_opts(&f, source, STD_GNU17, true, targets[i]));
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        ir = txt(&f);
+        T_ASSERT(t, strstr(ir, "bitcast f32") != NULL);
+        T_ASSERT(t, strstr(ir, "lshr i32") != NULL);
+        T_ASSERT(t, strstr(ir, "load i8") != NULL);
+        round = ir_parse_module(&f.arena, f.dc, ir, "<typedef-reverse-sso>");
+        T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+        low_free(&f);
+
+        T_ASSERT(t, !run_lower_target_opts(&f, wide_source, STD_GNU17, true,
+                                           targets[i]));
+        T_ASSERT(t, f.errors > 0);
+        low_free(&f);
+
+        T_ASSERT(t, !run_lower_target_opts(&f, late_wide_source, STD_GNU17,
+                                           true, targets[i]));
+        T_ASSERT(t, f.errors > 0);
+        low_free(&f);
+
+        T_ASSERT(t, !run_lower_target_opts(&f, late_wide_access_source,
+                                           STD_GNU17, true, targets[i]));
+        T_ASSERT(t, f.errors > 0);
+        low_free(&f);
+    }
+}
+
 void test_lower_builtin_fixed_checked_overflow_store_family(TestCtx *t)
 {
     static const char source[] =

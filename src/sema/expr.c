@@ -983,7 +983,8 @@ static AstNode *expr_cond(Sema *s, AstNode *e)
  * through unnamed aggregate members — a named nested struct is NOT
  * transparent, which is why the recursion is gated on `!m->name`. */
 static Member *find_member(const Type *t, const char *name,
-                           bool inherited_may_alias, bool *through_may_alias)
+                           bool inherited_may_alias, bool *through_may_alias,
+                           const Type **owner)
 {
     Member *m;
     bool here_may_alias;
@@ -995,12 +996,14 @@ static Member *find_member(const Type *t, const char *name,
         if (m->name == name) {
             if (through_may_alias)
                 *through_may_alias = here_may_alias;
+            if (owner)
+                *owner = t;
             return m;
         }
         if (!m->name && m->type &&
             (m->type->kind == TY_STRUCT || m->type->kind == TY_UNION)) {
-            Member *inner =
-                find_member(m->type, name, here_may_alias, through_may_alias);
+            Member *inner = find_member(m->type, name, here_may_alias,
+                                        through_may_alias, owner);
 
             if (inner)
                 return inner;
@@ -1025,6 +1028,8 @@ static AstNode *expr_member(Sema *s, AstNode *e)
     Type *member_type;
     Member *m;
     bool through_may_alias = false;
+    const Type *member_owner = NULL;
+    u8 scalar_storage_order;
 
     e->lhs = obj;
     if (quiet(obj, NULL))
@@ -1052,11 +1057,27 @@ static AstNode *expr_member(Sema *s, AstNode *e)
             type_to_str(s->arena, ot));
         return poison(s, e);
     }
-    m = find_member(ot, e->name, false, &through_may_alias);
+    m = find_member(ot, e->name, false, &through_may_alias, &member_owner);
     if (!m) {
         err(s, e->span, "'%s' has no member named '%s'",
             type_to_str(s->arena, ot), e->name ? e->name : "?");
         return poison(s, e);
+    }
+    scalar_storage_order = type_member_scalar_storage_order(member_owner, m);
+    if (sema_scalar_storage_order_reversed(s, scalar_storage_order) &&
+        type_is_floating(m->type)) {
+        TypeLayout layout = layout_of(s, m->type);
+
+        /* A view can outlive an incomplete tag: `T *p` may be declared
+         * before the tag acquires a wide floating member.  Validate at the
+         * eventual access too, so that path remains fail-closed. */
+        if (layout.size != 4 && layout.size != 8) {
+            err(s, e->span,
+                "reverse scalar storage order for floating member '%s' is "
+                "not yet supported",
+                m->name ? m->name : "<anonymous>");
+            return poison(s, e);
+        }
     }
     sema_warn_deprecated(s, m->name, m->deprecated, m->deprecated_msg, e->span);
     /* The member inherits the OBJECT's qualifiers: a member of a const
@@ -1082,7 +1103,7 @@ static AstNode *expr_member(Sema *s, AstNode *e)
     }
     e->sem_is_bitfield = m->is_bitfield;
     e->sem_reverse_storage_order =
-        sema_scalar_storage_order_reversed(s, m->scalar_storage_order) &&
+        sema_scalar_storage_order_reversed(s, scalar_storage_order) &&
         (m->is_bitfield || sso_affects_type(m->type));
     if (m->is_bitfield) {
         e->sem_bitfield_width = m->bit_width;

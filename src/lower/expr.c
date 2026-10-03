@@ -4378,7 +4378,8 @@ static void clear_padding_mark_value(Lower *lo, Type *t, u8 *mask,
                     clear_padding_mark_bitfield(
                         mask, mask_size, base, member,
                         sema_scalar_storage_order_reversed(
-                            lo->sema, member->scalar_storage_order));
+                            lo->sema,
+                            type_member_scalar_storage_order(t, member)));
             } else {
                 clear_padding_mark_value(lo, member->type, mask, mask_size,
                                          base + member->offset);
