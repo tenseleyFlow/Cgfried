@@ -405,13 +405,18 @@ static bool type_contains_fam(const Type *type)
     return false;
 }
 
-static bool sso_has_floating_component(const Type *type)
+static bool sso_has_unsupported_floating_component(Sema *s, const Type *type)
 {
+    TypeLayout layout;
+
     if (!type)
         return false;
     if (type->kind == TY_ARRAY)
-        return sso_has_floating_component(type->base);
-    return type_is_floating(type);
+        return sso_has_unsupported_floating_component(s, type->base);
+    if (!type_is_floating(type))
+        return false;
+    layout = layout_of(s, (Type *)type);
+    return layout.size != 4 && layout.size != 8;
 }
 
 static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
@@ -552,12 +557,12 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                     "'scalar_storage_order' attribute ignored on a field");
 
         /* Reverse order is implemented for integral scalars and every
-         * integral bit-field, including address-backed and atomic TI.
-         * Floating representations still need distinct lowering; accepting
-         * them would silently retain native order, so fail closed. Nested
-         * records own their own storage order and are deliberately exempt. */
+         * integral bit-field, including address-backed and atomic TI, plus
+         * the closed four- and eight-byte floating representations. Wider
+         * floating representations remain address-backed and fail closed.
+         * Nested records own their own storage order and are exempt. */
         if (sema_scalar_storage_order_reversed(s, tag->scalar_storage_order) &&
-            sso_has_floating_component(mt)) {
+            sso_has_unsupported_floating_component(s, mt)) {
             s->nerrors++;
             diag_emit(s->dc, DIAG_ERROR, m->span,
                       "reverse scalar storage order for floating member '%s' "

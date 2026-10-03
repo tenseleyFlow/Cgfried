@@ -188,9 +188,10 @@ static void plan_rt(InitPlan *p, i64 off, Type *t, AstNode *e, const Member *bf)
     r->e = e;
     r->bf = bf;
     r->value = value;
-    r->scalar_storage_order =
-        bf ? bf->scalar_storage_order
-           : (type_is_integer(t) ? p->scalar_storage_order : GNU_SSO_UNSPEC);
+    r->scalar_storage_order = bf ? bf->scalar_storage_order
+                                 : ((type_is_integer(t) || type_is_floating(t))
+                                        ? p->scalar_storage_order
+                                        : GNU_SSO_UNSPEC);
     r->active = true;
     r->next = NULL;
     if (p->rt_tail)
@@ -212,12 +213,13 @@ static void plan_put_int(InitPlan *p, u64 off, u64 lo, u64 hi, u64 width)
     }
 }
 
-static void plan_reverse_integer(InitPlan *p, Type *t, u64 off)
+static void plan_reverse_scalar(InitPlan *p, Type *t, u64 off)
 {
     TypeLayout l = layout_of(p->lo->sema, t);
     u64 i;
 
-    if (!type_is_integer(t) || l.size <= 1 || off + l.size > p->size)
+    if ((!type_is_integer(t) && !type_is_floating(t)) || l.size <= 1 ||
+        off + l.size > p->size)
         return;
     for (i = 0; i < l.size / 2; i++) {
         u8 tmp = p->img[off + i];
@@ -692,7 +694,7 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
         plan_walk(p, cursor->current, item, (i64)cursor->off);
         if (sema_scalar_storage_order_reversed(p->lo->sema,
                                                cursor->scalar_storage_order))
-            plan_reverse_integer(p, cursor->current, cursor->off);
+            plan_reverse_scalar(p, cursor->current, cursor->off);
         p->scalar_storage_order = prior_order;
     }
 }
@@ -745,7 +747,7 @@ static void plan_array(InitPlan *p, Type *t, AstNode *init, i64 off)
         if (sema_scalar_storage_order_reversed(p->lo->sema,
                                                p->scalar_storage_order))
             for (i = 0; i < cap; i++)
-                plan_reverse_integer(p, t->base, (u64)off + i * elem.size);
+                plan_reverse_scalar(p, t->base, (u64)off + i * elem.size);
         return;
     }
     if (init->kind != AST_INIT_LIST) {

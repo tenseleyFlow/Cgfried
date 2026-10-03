@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak through 2026-09-30; compiler gaps through 2026-10-02): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak through 2026-10-02; compiler gaps through 2026-10-02): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -11,10 +11,10 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 22/30 through September 30 after required daily x86 evidence was
+at a strict 24/30 through October 2 after required daily x86 evidence was
 absent on September 5 and matching-head evidence was absent on September 7–8.
 It remains
-operationally OPEN. Matching-head September 12--30 hosted daily runs are
+operationally OPEN. Matching-head September 12--October 2 hosted daily runs are
 green, and the separate September 13 and September 20 weekly runs are
 full-lattice green; the September 27 full-lattice
 [run 36309598318](https://github.com/tenseleyFlow/Cgfried/actions/runs/36309598318)
@@ -377,16 +377,19 @@ merged green-only as `2e211308de7490c03f8556f85883fcac3c971b83`; the merge
 tree is byte-identical to tested head `cf7aa96b09daddd69900ca967c4a05f282cf6476`.
 PR #171's reverse-order atomic-TI tranche merged green-only as
 `1d262282dc82370815723afb98b94acea1067bb2`; its merge tree is byte-identical
-to tested head `1853aa02f44f2154bddf2c87845f57e16615eb49`. The active
-`s56.77-narrow-atomic-reverse-sso` tranche starts from that exact merge and
-repairs the narrower reverse-order atomic read-modify-write path before the
-floating-member boundary builds on it. The detailed ledger below records the
-exact evidence and next boundary order. Its first hosted toolchain run exposed
-the corresponding bundled-assembler gap: `afs-as` did not yet encode x86
-`cmpxchg` or permit its `lock` prefix. Upstream afs-as PR #34 merged fully
-green as `14d129fbc52c85fb7d9a5cdd6053def4a0ac8445`; Cgfried pins its tested
-head `1d54f921a99728596653821af55152b91cefaa97` and now exercises the x86
-atomic lane through the bundled assembler whenever it is built.
+to tested head `1853aa02f44f2154bddf2c87845f57e16615eb49`. PR #172's
+reverse-order narrow-atomic tranche merged green-only as
+`3cc7bcdc5aec9c180d60a1ec15b3565c0fecca11`; its merge tree is byte-identical
+to tested head `12e075b4d78b84f766b20fcea5fe9a869323cc5c`. Its first hosted toolchain
+run exposed the corresponding bundled-assembler gap: `afs-as` did not yet
+encode x86 `cmpxchg` or permit its `lock` prefix. Upstream afs-as PR #34
+merged fully green as `14d129fbc52c85fb7d9a5cdd6053def4a0ac8445`;
+Cgfried pins tested head `1d54f921a99728596653821af55152b91cefaa97` and now
+exercises the x86 atomic lane through the bundled assembler whenever it is
+built. The active `s56.78-float-reverse-sso` tranche starts from exact merged
+PR #172 and owns four- and eight-byte reverse-order floating representations,
+including their stronger atomic forms. The detailed ledger below records its
+current evidence and the remaining boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -858,7 +861,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 16/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 24/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -917,7 +920,13 @@ do not call the sprint closed until that operational obligation is complete.
   [run 35975305182](https://github.com/tenseleyFlow/Cgfried/actions/runs/35975305182)
   at merged head `d958f633` makes day 16 with the same four green fixed points,
   both ARM O2 ABI differentials, and four unexpired digest-stamped artifacts.
-  No weekly work was due on any of September 21--24. The
+  September 25 and 26 scheduled runs `36114957016` and `36230220640` make days
+  17--18. September 27 daily run `36308771216` and full weekly run
+  `36309598318` share exact head `d2426812` and make day 19 with the complete
+  seven-job lattice green. Scheduled runs `36405573219`, `36551609743`,
+  `36697741401`, `36847156953`, and `36991625528` make September 28--October
+  2 days 20--24, each with all four required daily jobs green; no weekly work
+  was due on those dates. The
   daily-hosted automation
   repair now launches all four required O0/O2 jobs together without depending
   on a push or fleet host. Continue recording distinct UTC dates and every due
@@ -9298,13 +9307,66 @@ and green post-publication CI.
   Ubuntu VM, all 89 object-differential fixtures now assemble under both
   afs-as and GNU as with identical objects, and the dedicated atomic lane
   passes four optimization levels through afs-as. The Rust-free configuration
-  retains an explicit GNU-as fallback. Cgfried PR #172 head `835b17a2` carries
-  this closure and is awaiting its replacement exact-head CI lattice.
+  retains an explicit GNU-as fallback. Final Cgfried PR #172 head
+  `12e075b4d78b84f766b20fcea5fe9a869323cc5c` completed with 28 successful
+  checks and nine intentional skips, including both bootstrap workflows and
+  the 100,000-case ASan+UBSan frontend fuzz lane. It merged green-only as
+  `3cc7bcdc5aec9c180d60a1ec15b3565c0fecca11`; its exact parents are merged
+  #171 `1d262282dc82370815723afb98b94acea1067bb2` and that tested head, and
+  merge/head tree `c06143b77b282f7b3e33bedcdd336941e294ffd0` is byte-identical.
+- The active `s56.78-float-reverse-sso` tranche starts from exact merged PR
+  #172. Homebrew GCC 16 accepts reverse-order `float`, `double`, `_Float32`,
+  `_Float64`, `_Float32x`, Apple ARM64's eight-byte `long double`, and indexed
+  atomic float/double arrays. The sequential oracle passes at O0/O1/O2/O3/Os
+  with exact big-endian bytes. GCC's four-thread indexed atomic float/double
+  probe loses updates at both O0 and O2; Cgfried deliberately retains the
+  source `_Atomic` contract with one strong compare-exchange loop.
 
-  After this tranche merges green-only, take reverse-order F32/F64 members and
-  arrays, including atomic forms that can reuse this physical/logical CAS
-  invariant. Keep F80/F128 fail-closed for their separate address-backed
-  representation tranche, then address typedef attachment.
+  Static and runtime initialization now reverse every accepted four- or
+  eight-byte floating representation. Ordinary loads and stores bitcast
+  through exact-width integer representations around byte reversal, preserving
+  NaN payloads. Atomic loads and stores use those integer carriers directly;
+  this also repairs the latent Apple ARM64 path that had tried to emit invalid
+  `ldar s`/`ldar d` forms. Atomic updates keep compare-exchange expected and
+  desired words in physical order while performing floating arithmetic in
+  logical order. F80/F128 and other wider representations remain fail-closed.
+
+  The first native pass exposed a second adjacent ARM emitter gap: expanded
+  ll/sc loops hard-coded ELF `.L` labels, while Mach-O conditional branches
+  require assembler-temporary `L` labels. Both atomic RMW and compare-exchange
+  expansions now use the existing target-local label policy, with a direct
+  ELF/Mach-O unit regression.
+
+  The permanent sequential fixture covers standard and extended F32/F64
+  forms, Apple `long double`, static images, NaN payloads, ordinary and atomic
+  assignment/update, and exact physical bytes. It passes natively on
+  arm64-macos and in the retained x86_64 Ubuntu VM at O0/O1/O2/O3/Os. A
+  four-thread float/double fixture loses no increments across 40,000 contended
+  updates at O0 and O2 on both architectures. Five-target lowering coverage
+  verifies and round-trips integer atomic carriers, F32/F64 bitcasts, physical
+  compare-exchange, and zero direct `atomicrmw`. The assembly fixture selects
+  x86 locked 32-/64-bit compare-exchange and ARM64 acquire/release-exclusive
+  loops. Focused normal and ASan+UBSan Apple runs are green. The x86 atomic
+  lane passes four optimization levels through afs-as, and the expanded
+  91-fixture object differential is identical between afs-as and GNU as. The
+  new Mach-O CAS object is identical between afs-as and Apple's assembler in
+  text bytes, relocations, and symbols. The complete Linux unit baseline is
+  green at 1,004 tests / 4,330,964 assertions. Normal and ASan+UBSan
+  2,000-case frontend fuzz runs find zero failures; both 5,000-case hash runs
+  produce the intentionally repinned final-corpus digest
+  `c30814798868a779`.
+
+  Every Linux `make test` phase is green across the standard no-tools rerun
+  and its exact post-fuzz continuation. That rerun caught and repaired the
+  stale x86 atomic-float MIR expectation, the final fixture-driven fuzz pin,
+  and four pinned-format deviations. The formatted head re-passes all 1,004
+  Linux units, the focused x86 and native Apple ARM fixtures, normal and
+  ASan+UBSan fuzz, and clang-format 22 in the retained VM. Before merge, run
+  the hosted CI lattice green-only.
+  After this tranche merges green-only, keep wider F80/F128 reverse-order
+  representations fail-closed until their separate address-backed tranche;
+  the next recommended isolated boundary is typedef attachment for
+  `scalar_storage_order`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

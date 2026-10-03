@@ -2,9 +2,18 @@
 // SSE/x87 load-store paths, which neither guarantee indivisibility nor retain
 // seq_cst ordering.
 // FLAGS: -emit-mir
-// MIR_CHECK: = xchg.l
+// Exact-width integer carriers keep atomic F32/F64 accesses out of the
+// floating load/store paths. On x86, seq_cst stores use an indivisible aligned
+// integer store followed by the backend's ordering point.
+// MIR_CHECK: mir @store_float
+// MIR_CHECK: store.l
+// MIR_CHECK: mfence.q
+// MIR_CHECK: mir @load_float
 // MIR_CHECK: = load.l
-// MIR_CHECK: = xchg.q
+// MIR_CHECK: mir @store_double
+// MIR_CHECK: store.q
+// MIR_CHECK: mfence.q
+// MIR_CHECK: mir @load_double
 // MIR_CHECK: = load.q
 // MIR_CHECK: call [rip @__atomic_store_16]
 // MIR_CHECK: call [rip @__atomic_load_16]

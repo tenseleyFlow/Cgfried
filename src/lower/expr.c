@@ -509,6 +509,22 @@ static IrOperand reverse_integer_bytes(Lower *lo, IrOperand x)
     return acc;
 }
 
+static IrOperand reverse_scalar_bytes(Lower *lo, IrOperand x)
+{
+    IrType t = (IrType)x.type;
+
+    if (t == IRT_F32 || t == IRT_F64) {
+        IrType bits_type = t == IRT_F32 ? IRT_I32 : IRT_I64;
+        ValueId bits = ir_build1(&lo->b, IR_BITCAST, bits_type, x);
+        IrOperand reversed =
+            reverse_integer_bytes(lo, ir_op_value(lo->fn, bits));
+        ValueId value = ir_build1(&lo->b, IR_BITCAST, t, reversed);
+
+        return ir_op_value(lo->fn, value);
+    }
+    return reverse_integer_bytes(lo, x);
+}
+
 /* Packed bitfields are gathered and scattered one byte at a time. GCC's
  * layout permits a 64-bit field at bit 7, whose nine-byte extent cannot be
  * represented by this IR's largest scalar unit. Byte operations are valid on
@@ -632,11 +648,29 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
         return reverse_bitfield_load(lo, &lv);
     if (lv.packed_bitfield)
         return packed_bitfield_load(lo, &lv);
+    if (!lv.is_bitfield && lv.is_atomic &&
+        (lv.unit == IRT_F32 || lv.unit == IRT_F64)) {
+        /* Atomic floating accesses use their exact-width integer
+         * representations. Besides making the indivisibility contract
+         * explicit in target-neutral IR, this keeps AArch64's LDAR/STLR in
+         * the general-purpose register bank; those instructions have no
+         * floating-register form. */
+        IrType ct = lv.unit == IRT_F32 ? IRT_I32 : IRT_I64;
+        ValueId bits = ir_build_load_typed(
+            &lo->b, ct, lv.addr, lv_ir_align(&lv), lv_flags(&lv), lv.etype);
+        IrOperand logical = ir_op_value(lo->fn, bits);
+        ValueId value;
+
+        if (lv.reverse_storage_order)
+            logical = reverse_integer_bytes(lo, logical);
+        value = ir_build1(&lo->b, IR_BITCAST, lv.unit, logical);
+        return ir_op_value(lo->fn, value);
+    }
     raw = ir_build_load_typed(&lo->b, lv.unit, lv.addr, lv_ir_align(&lv),
                               lv_flags(&lv), lv.etype);
     if (!lv.is_bitfield)
         return lv.reverse_storage_order
-                   ? reverse_integer_bytes(lo, ir_op_value(lo->fn, raw))
+                   ? reverse_scalar_bytes(lo, ir_op_value(lo->fn, raw))
                    : ir_op_value(lo->fn, raw);
     return bitfield_extract(lo, ir_op_value(lo->fn, raw), lv.unit, lv.bit_shift,
                             lv.bit_width, lv.is_signed);
@@ -653,8 +687,19 @@ IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
     if (lv.packed_bitfield)
         return packed_bitfield_store(lo, &lv, v);
     if (!lv.is_bitfield) {
+        if (lv.is_atomic && (lv.unit == IRT_F32 || lv.unit == IRT_F64)) {
+            IrType ct = lv.unit == IRT_F32 ? IRT_I32 : IRT_I64;
+            ValueId bits = ir_build1(&lo->b, IR_BITCAST, ct, v);
+            IrOperand stored = ir_op_value(lo->fn, bits);
+
+            if (lv.reverse_storage_order)
+                stored = reverse_integer_bytes(lo, stored);
+            ir_build_store_typed(&lo->b, stored, lv.addr, lv_ir_align(&lv),
+                                 lv_flags(&lv), lv.etype);
+            return v;
+        }
         IrOperand stored =
-            lv.reverse_storage_order ? reverse_integer_bytes(lo, v) : v;
+            lv.reverse_storage_order ? reverse_scalar_bytes(lo, v) : v;
 
         ir_build_store_typed(&lo->b, stored, lv.addr, lv_ir_align(&lv),
                              lv_flags(&lv), lv.etype);
@@ -2366,7 +2411,7 @@ static IrOperand lower_atomic_update(Lower *lo, Lvalue lv, Type *lt, u16 op,
             ValueId r;
 
             if (!is_int) {
-                ValueId f = ir_build1(&lo->b, IR_BITCAST, lv.unit, oldo);
+                ValueId f = ir_build1(&lo->b, IR_BITCAST, lv.unit, old_logical);
 
                 oldv = ir_op_value(lo->fn, f);
             }

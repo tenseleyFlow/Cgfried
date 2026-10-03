@@ -1381,3 +1381,56 @@ void test_f128_fabs_has_a_payload_preserving_libcall(TestCtx *t)
     T_ASSERT_EQ_STR(t, module->syms[absolute->callee], "__cgf_abstf");
     arena_free_all(&arena);
 }
+
+void test_a64_atomic_expansion_uses_target_local_labels(TestCtx *t)
+{
+    A64Inst insts[2] = {0};
+    A64Block block = {.insts = insts, .n = 2, .cap = 2};
+    A64Func func = {.name = "atomic_labels",
+                    .allocated = true,
+                    .blocks = &block,
+                    .nblocks = 1};
+    IrModule module = {0};
+    TargetSpec previous = cgf_target_selected();
+    Buf text;
+
+    insts[0] = (A64Inst){.op = A64_OP_ATOMIC_LLSC,
+                         .sf = A64_SF32,
+                         .nops = 4,
+                         .ops = {preg(A64_X0),
+                                 {.kind = A64O_MEM,
+                                  .mem = {.base = a64_phys(A64_X1), .size = 4}},
+                                 preg(A64_X2),
+                                 pimm(RMW_ADD)}};
+    insts[1] = (A64Inst){.op = A64_OP_ATOMIC_CAS,
+                         .sf = A64_SF64,
+                         .nops = 4,
+                         .ops = {preg(A64_X3),
+                                 {.kind = A64O_MEM,
+                                  .mem = {.base = a64_phys(A64_X4), .size = 8}},
+                                 preg(A64_X5),
+                                 preg(A64_X6)}};
+
+    T_ASSERT(t, cgf_target_select("arm64-linux"));
+    buf_init(&text);
+    a64_emit_function(&func, &module, 0, IRLINK_INTERNAL, &text);
+    buf_push_u8(&text, 0);
+    T_ASSERT(t, strstr((const char *)text.data, ".Lat0_0:") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, "b.ne\t.Lax0_1") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, ".Lad0_1:") != NULL);
+    buf_free(&text);
+
+    T_ASSERT(t, cgf_target_select("arm64-macos"));
+    buf_init(&text);
+    a64_emit_function(&func, &module, 0, IRLINK_INTERNAL, &text);
+    buf_push_u8(&text, 0);
+    T_ASSERT(t, strstr((const char *)text.data, "Lat0_0:") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, "cbnz\tw13, Lat0_0") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, "b.ne\tLax0_1") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, "Lad0_1:") != NULL);
+    T_ASSERT(t, strstr((const char *)text.data, ".Lat") == NULL);
+    T_ASSERT(t, strstr((const char *)text.data, ".Lax") == NULL);
+    T_ASSERT(t, strstr((const char *)text.data, ".Lad") == NULL);
+    buf_free(&text);
+    T_ASSERT(t, cgf_target_select(cgf_target_name(previous)));
+}

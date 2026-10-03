@@ -4,5 +4,5 @@
 #define BE __attribute__((scalar_storage_order("big-endian")))
 
 struct S {
-    double value;
+    _Float128 value;
 } BE;
