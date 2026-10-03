@@ -1,6 +1,5 @@
 // FLAGS: -std=gnu17 -fsyntax-only -fmax-errors=0
 // ERROR_EXPECTED: the cast to 'unsigned mode(TI) integer' is not pointer-width
-// ERROR_EXPECTED: reverse scalar storage order for atomic mode(TI) member
 // ERROR_EXPECTED: compound assignment between an atomic object
 // ERROR_EXPECTED: overflow in constant expression
 // ERROR_EXPECTED: division by zero in a constant expression
@@ -8,12 +7,11 @@
 /* Every accepted mode(TI) operation has real two-limb lowering. The static
  * address conversion is a measured GCC boundary rather than a Cgfried gap:
  * a pointer relocation cannot initialize an integer wider than the pointer.
- * The other remaining boundaries are cases where an atomic storage-order
- * transform or a narrower atomic destination would silently produce the
- * wrong program.
- * Floating conversions and comparisons, TI bit-fields, switch controls, and
- * atomic TI read-modify-write are implemented; keep the remaining boundaries
- * named until each separate facility lands. */
+ * The remaining atomic boundary is the narrower destination case, which
+ * would silently produce the wrong program.
+ * Floating conversions and comparisons, TI bit-fields, switch controls,
+ * atomic TI read-modify-write, and reverse-order atomic TI are implemented;
+ * keep the residual boundaries named until each separate facility lands. */
 typedef unsigned int u128 __attribute__((mode(TI)));
 typedef int i128 __attribute__((mode(TI)));
 

@@ -367,13 +367,18 @@ tranche merged green-only as `8b6d6571`. PR #166's naturally aligned atomic TI
 load/store tranche merged green-only as `46808f16`. PR #167's atomic TI
 read-modify-write tranche merged green-only as `ba2388d8`; PR #168's TI-enum
 tranche merged green-only as `ecf2a28b`; and PR #169's ordinary TI reverse
-scalar-storage-order tranche merged green-only as `90d7ccbc`. The active
-`s56.75-ti-int128-predefine` tranche starts from that exact merge. A measured
+scalar-storage-order tranche merged green-only as `90d7ccbc`. The
+`s56.75-ti-int128-predefine` tranche started from that exact merge. A measured
 GCC 16 audit proves that static pointer-to-TI relocations are a GCC boundary,
 not a Cgfried gap. With every guarded TI surface either implemented or
 explicitly fail-closed, the tranche defines `__SIZEOF_INT128__` as 16 and
-runs the twelve imported torture executables that it activates. The detailed
-ledger below records the exact evidence and next boundary order.
+runs the twelve imported torture executables that it activates. PR #170
+merged green-only as `2e211308de7490c03f8556f85883fcac3c971b83`; the merge
+tree is byte-identical to tested head `cf7aa96b09daddd69900ca967c4a05f282cf6476`.
+The active `s56.76-ti-atomic-reverse-sso` tranche starts from that exact merge
+and closes the remaining targeted reverse-order atomic-TI boundary while
+preserving the existing platform atomic contracts. The detailed ledger below
+records the exact evidence and next boundary order.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9172,6 +9177,64 @@ and green post-publication CI.
   matrix, semantic-format-matrix, and unit-registry gates are green. Pinned
   clang-format 22 remains authoritative in CI because this host does not
   provide it.
+- PR #170's final exact head
+  `cf7aa96b09daddd69900ca967c4a05f282cf6476` completed with 28 successful
+  checks and nine intentional skips. It merged green-only as
+  `2e211308de7490c03f8556f85883fcac3c971b83`; its exact parents are merged
+  #169 `90d7ccbc` and that tested head, and its tree
+  `3263af65441a81c5ea6354488bcc4253b75861ac` is byte-identical to the tested
+  head.
+- The active `s56.76-ti-atomic-reverse-sso` tranche starts from exact merged
+  PR #170 and is open as PR #171. A decomposed Homebrew GCC 16 oracle audit
+  shows that declarations
+  and static images containing reverse-order atomic TI members are accepted.
+  Direct scalar member reads, writes, and updates are rejected by GCC's
+  internal address-taking path, while indexed array-element reads, writes,
+  compound updates, and postfix increment are accepted and preserve the
+  big-endian physical image at O0/O1/O2/O3/Os. On Apple ARM64 those accepted
+  GCC array accesses nevertheless emit ordinary `ldp`/`stp`, not indivisible
+  atomic operations. Cgfried deliberately preserves both source contracts:
+  it supports scalar and array forms and keeps every physical access atomic.
+
+  Atomic loads capture one 16-byte physical image before swapping its limbs
+  and reversing each limb's bytes. Stores capture the logical RHS once,
+  transform a temporary, and perform one atomic write while returning the
+  logical assignment value. Read-modify-write keeps the expected buffer in
+  physical form for the strong compare-exchange contract, transforms it to a
+  logical value for each retry's operation, and transforms the desired value
+  back before the CAS. Packed atomic members retain the existing natural-
+  alignment refusal.
+
+  The permanent runtime fixture covers static and automatic images, scalar
+  and array accesses, assignment results, compound update, postfix increment,
+  volatile and signed values, and physical bytes. It passes natively on
+  arm64-macos at O0/O1/O2/O3/Os. A four-thread fixture proves 40,000 postfix
+  increments lose none at O0 and O2 and retain the reverse physical image.
+  Five-target lowering coverage passes 45 assertions and pins the platform
+  load/store helpers, physical CAS, representation transform, verification,
+  and textual IR round trip. The assembly fixture emits nonempty output on
+  all five targets at all five optimization levels and selects the expected
+  sized x86, generic arm64-linux, and paired Apple load/store contracts plus
+  the generic compare-exchange helper.
+
+  PR #171's first hosted x86 run exposed two independent integration edges.
+  glibc's non-GNU compatibility path defines `__attribute__(...)` away, so
+  fixtures now declare their attributed records before hosted headers rather
+  than accidentally testing the separately deferred compiler-identity gap.
+  Once the attribute remained visible, an x86 backend address-planning defect
+  became observable: a seq_cst 16-byte load/store is a libatomic call whose
+  pointer must be in a register, but the planner treated it like a foldable
+  memory operand and could suppress its sole `ptradd`. The planner now retains
+  those address producers for vector, F128, and F80 helper-backed atomics; a
+  focused MIR regression pins one member-address LEA and both helper calls.
+  The exact GCC-built compiler and both runtime fixtures pass in the retained
+  x86_64 Lima VM after the repair.
+
+  Normal and ASan+UBSan complete unit baselines match at 1,001 tests /
+  4,330,819 assertions with the same eight documented Darwin host-assumption
+  failures. Normal and sanitized 2,000-case frontend fuzz runs find zero
+  failures; repeated normal and sanitized 5,000-case hashes produce the
+  intentionally repinned corpus digest `7030b52a2fbfcc16`.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

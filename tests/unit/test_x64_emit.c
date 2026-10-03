@@ -899,3 +899,56 @@ void test_x64_isel_ptradd_imm64_materializes_before_lea(TestCtx *t)
     T_ASSERT_EQ_INT(t, fx.errors, 0);
     arena_free_all(&a);
 }
+
+/* A seq_cst 16-byte load/store becomes a libatomic call.  The call consumes
+ * an address register, not a foldable x86 memory operand, so the PTRADD that
+ * computes a member address must survive address planning. */
+void test_x64_isel_atomic16_member_address_survives_folding(TestCtx *t)
+{
+    Arena a;
+    EmitFix fx = {0};
+    DiagCtx *dc;
+    DiagSink sink;
+    IrModule *m;
+    IrFunc *f;
+    IrType params[1] = {IRT_PTR};
+    BlockId entry;
+    IrBuilder b;
+    ValueId member;
+    ValueId bits;
+    X64Func *xf;
+    u32 leas = 0;
+    u32 calls = 0;
+    u32 i;
+
+    arena_init(&a);
+    dc = diag_ctx_new(&a);
+    sink.handle = e_sink;
+    sink.user = &fx;
+    diag_set_sink(dc, sink);
+    m = ir_module_new(&a, dc);
+    f = ir_func_new(m, "atomic16_member", IRT_VOID, params, 1);
+    entry = ir_block_new(m, f, "entry");
+    ir_builder_at(&b, m, f, entry);
+    member = ir_build_ptradd(&b, ir_op_value(f, f->param_vals[0]),
+                             ir_op_iconst(IRT_I64, 16));
+    bits =
+        ir_build_load(&b, IRT_V2I64, ir_op_value(f, member), 16, IRF_SEQ_CST);
+    ir_build_store(&b, ir_op_value(f, bits), ir_op_value(f, member), 16,
+                   IRF_SEQ_CST);
+    ir_build_ret(&b, NULL);
+
+    T_ASSERT(t, ir_verify(dc, m));
+    xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+    for (i = 0; i < xf->blocks[0].n; i++) {
+        if (xf->blocks[0].insts[i].op == X64_OP_LEA)
+            leas++;
+        if (xf->blocks[0].insts[i].op == X64_OP_CALL)
+            calls++;
+    }
+    T_ASSERT_EQ_INT(t, leas, 1);
+    T_ASSERT_EQ_INT(t, calls, 2);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    T_ASSERT_EQ_INT(t, fx.errors, 0);
+    arena_free_all(&a);
+}

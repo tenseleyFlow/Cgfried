@@ -55,7 +55,7 @@ predefine.
 | `weak` | `tests/programs/gnu/attr_weak_overridden.c` | musl `weak_alias`, glibc |
 | `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
 | `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
-| `scalar_storage_order("big-endian" or "little-endian")` on struct/union definitions | `tests/corpus/x86_64/int/scalar_storage_order.c` | endian-stable wire records and GCC torture bit-field layouts |
+| `scalar_storage_order("big-endian" or "little-endian")` on struct/union definitions | `tests/corpus/x86_64/int/scalar_storage_order.c` | endian-stable wire records and GCC torture bit-field layouts, including ordinary and naturally aligned atomic TI members |
 | `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
 | `alias` | `tests/corpus/x86_64/int/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
 | `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
@@ -197,10 +197,15 @@ Apple ARM64 matches the platform compiler's naturally aligned paired access
 and measured barrier placement. Read-modify-write uses a strong sequentially
 consistent generic compare-exchange loop: libatomic supplies it on ELF and
 libSystem's compiler-rt supplies it on Darwin. Atomic/TI compound operations
-whose atomic destination has a narrower type and reverse storage order for
-atomic TI members or arrays receive targeted errors. Ordinary TI members and
-arrays support reverse storage order, including packed, union, volatile, enum,
-static-image, and read-modify-write cases.
+whose atomic destination has a narrower type receive a targeted error.
+Naturally aligned atomic TI members and arrays support reverse storage order:
+an indivisible load captures the physical image before converting it to the
+logical value, a store converts the captured logical value before its single
+atomic write, and read-modify-write retries compare-exchange on physical
+images while performing the requested operation on logical values. Packed
+atomic members retain the general natural-alignment refusal. Ordinary TI
+members and arrays support reverse storage order as well, including packed,
+union, volatile, enum, static-image, and read-modify-write cases.
 
 Enumerated types may select signed or unsigned TI either through
 `mode(TI)` or because a full-width enumerator exceeds every standard integer
@@ -360,9 +365,12 @@ the same MSB-first allocation as narrower fields; ordinary members and every
 array element swap both 64-bit limbs and the bytes within each limb. Static
 images, runtime initialization, assignment, compound assignment,
 increment/decrement, packed members, unions, enums, and volatile access all
-preserve that logical/physical split. Atomic TI members and arrays still fail
-closed: their indivisible access needs a separate representation transform and
-is never accepted and silently stored in native order.
+preserve that logical/physical split. Naturally aligned atomic TI members and
+arrays apply the same transform around one indivisible access, including each
+compare-exchange attempt. This is deliberately stronger than GCC 16 on the
+measured Apple ARM64 edge: GCC accepts indexed reverse-order atomic-TI array
+access but emits ordinary paired loads and stores, while Cgfried retains the
+source `_Atomic` contract.
 
 This tranche deliberately fails closed on reverse-order floating members and
 on attaching the attribute through a typedef. Those GCC-supported forms need
