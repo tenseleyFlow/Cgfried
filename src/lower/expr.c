@@ -5342,8 +5342,8 @@ static IrOperand lower_formatted_output_builtin(Lower *lo, AstNode *e)
             for (pi = 0; pi < lo->va_pack->nargs; pi++) {
                 VaPackArg *pa = &lo->va_pack->args[pi];
 
-                lower_call_arg(lo, pa->type, pa->value, pa->access_flags,
-                               false, true, &budget, &args);
+                lower_call_arg(lo, pa->type, pa->value, pa->access_flags, false,
+                               true, &budget, &args);
             }
             continue;
         }
@@ -5351,8 +5351,8 @@ static IrOperand lower_formatted_output_builtin(Lower *lo, AstNode *e)
             IrOperand value = lower_rvalue(lo, arg);
 
             lower_call_arg(lo, sem(arg), value,
-                           lower_aggregate_access_flags(arg), false,
-                           i >= fixed, &budget, &args);
+                           lower_aggregate_access_flags(arg), false, i >= fixed,
+                           &budget, &args);
         }
     }
     for (i = 0; i < lo->m->nfuncs; i++) {
@@ -5730,8 +5730,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             for (pi = 0; pi < lo->va_pack->nargs; pi++) {
                 VaPackArg *pa = &lo->va_pack->args[pi];
 
-                lower_call_arg(lo, pa->type, pa->value, pa->access_flags,
-                               false, true, &budget, &args);
+                lower_call_arg(lo, pa->type, pa->value, pa->access_flags, false,
+                               true, &budget, &args);
             }
             continue;
         }
@@ -5739,8 +5739,7 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         {
             IrOperand value = lower_rvalue(lo, a);
 
-            bool fixed_param =
-                fty && fty->has_proto && i < fty->nparams;
+            bool fixed_param = fty && fty->has_proto && i < fty->nparams;
             Type *wire_type = fixed_param ? fty->params[i] : sem(a);
 
             lower_call_arg(lo, wire_type, value,

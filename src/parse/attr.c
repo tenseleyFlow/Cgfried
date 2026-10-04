@@ -95,8 +95,8 @@ bool gnu_attrs_any_symbol_property(const GnuDeclAttrs *g)
 bool gnu_attrs_any_type_property(const GnuDeclAttrs *g)
 {
     return g->mode != GNU_MODE_NONE || g->may_alias ||
-           g->scalar_storage_order != GNU_SSO_UNSPEC ||
-           g->transparent_union || g->vector_size_expr;
+           g->scalar_storage_order != GNU_SSO_UNSPEC || g->transparent_union ||
+           g->vector_size_expr;
 }
 
 const char *gnu_visibility_name(u8 vis)
@@ -731,8 +731,8 @@ CgfAttr *parse_cgf_attributes(Parser *p, GnuDeclAttrs *gnu)
                             parse_scalar_storage_order(p, name, gnu);
                             break;
                         }
-                        if (gnu && gnu_attr_is(name->spelling,
-                                               "transparent_union")) {
+                        if (gnu &&
+                            gnu_attr_is(name->spelling, "transparent_union")) {
                             gnu->transparent_union = true;
                             break;
                         }

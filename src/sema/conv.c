@@ -656,8 +656,7 @@ static Member *transparent_union_arg_member(Sema *s, Type *union_type,
             continue;
         mp = m->type->base;
         rp = rt->base;
-        if (type_compatible(conv_strip_quals(s, mp),
-                            conv_strip_quals(s, rp)) ||
+        if (type_compatible(conv_strip_quals(s, mp), conv_strip_quals(s, rp)) ||
             (is_void_ptr(m->type) && is_object_ptr(rt)) ||
             (is_void_ptr(rt) && is_object_ptr(m->type)))
             return m;

@@ -620,8 +620,9 @@ bool type_compatible(const Type *a, const Type *b)
          * the plain tag, a view, and a separately-created same-order view are
          * pairwise incompatible, while aliases/qualified copies of one view
          * retain its identity pointer. */
-        if (a->tag != b->tag || (!!a->scalar_storage_order_identity !=
-                                 !!b->scalar_storage_order_identity) ||
+        if (a->tag != b->tag ||
+            (!!a->scalar_storage_order_identity !=
+             !!b->scalar_storage_order_identity) ||
             (!!a->transparent_union_identity !=
              !!b->transparent_union_identity))
             return false;
@@ -630,8 +631,7 @@ bool type_compatible(const Type *a, const Type *b)
                 b->scalar_storage_order_identity)
             return false;
         return !a->transparent_union_identity ||
-               a->transparent_union_identity ==
-                   b->transparent_union_identity;
+               a->transparent_union_identity == b->transparent_union_identity;
     case TY_ENUM:
         /* A mode on an existing tag is a distinct enum view. Two such views
          * are compatible exactly when their tag and explicit mode match;
@@ -673,8 +673,7 @@ Member *type_union_cast_member(const Type *union_type, const Type *operand_type)
 
 Member *type_transparent_union_first_member(const Type *t)
 {
-    if (!t || t->kind != TY_UNION || !t->transparent_union_identity ||
-        !t->tag)
+    if (!t || t->kind != TY_UNION || !t->transparent_union_identity || !t->tag)
         return NULL;
     return t->tag->members;
 }
