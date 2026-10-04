@@ -9503,11 +9503,28 @@ and green post-publication CI.
 
   Imported torture probes compile `960201-1.c`, `pr46866.c`, `pr91001.c`, and
   `pr34885.c`; `pr34334.c` advances only to the independent deliberate-empty-
-  aggregate refusal. Do not publish the ratchet from local cross-emission:
-  first push the behavior commit and collect matching-source hosted x86/ARM
-  evidence. Expected atomic publication is 40 new PASS cells plus ten cells
-  moved from the transparent-union policy bucket to the empty-aggregate
-  bucket, with zero old-PASS regression.
+  aggregate refusal. Hosted PR run `37173652239` and exact-head native-ARM
+  nightly run `37173669701` each report exactly twenty new PASS cells and zero
+  old-PASS regressions. The hosted ARM stream SHA-256 is
+  `1765de7db7012b7a675072ce94f21ed8ce38f1c3e3a1f3e36a432eab4fcf4bef`;
+  its source revision is exact head `e001d7da41363202a5a86da3e6b5f58b44f8efe9`.
+  A fresh native x86-64 matrix at that same head on Kasumi produced stream
+  SHA-256
+  `0d4363578a77b529062a303ac104c911db5cbae3de733735f3e7a1e1e05e1545`;
+  both publishable streams share compiler-source SHA-256
+  `fb27cbe425dc3f2d902c44065e105627d4ca19bba6a4565d30f06e1673b7dc51`.
+
+  `make torture-baseline` atomically combines those two streams and publishes
+  exactly forty new PASS keys: four sources, five optimization levels, and two
+  targets. The ratchet rises from 32,110 to 32,150 PASS cells with zero
+  deletions. All ten `pr34334.c` cells move from the retired transparent-union
+  fingerprint to the existing `b28fda1f...` empty-aggregate bucket; the stale
+  transparent-union policy row is removed. The regenerated report has 2,140
+  failed cells, 29 fully resolved buckets, 24 applied policy decisions, five
+  retained stale decisions, and zero unbucketed or unresolved cells. Its
+  additional bucket reshaping is the deterministic cumulative refresh since
+  the prior report provenance `3ef477ee`; the exact PASS-set change remains
+  only the forty named cells.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
