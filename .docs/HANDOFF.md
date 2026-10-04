@@ -9614,8 +9614,16 @@ and green post-publication CI.
   are green. The current Apple SDK's real `<mach/arm/_structs.h>` parses with
   the native TI arithmetic fixture. The complete local arm64-macos PCRE2
   campaign is green with 35 translations, 35 certified project objects, 32
-  archive members, and three linked products. Native Linux PCRE2/Mbed TLS CI
-  and exact Curl/SQLite nightly lanes remain to run before publication.
+  archive members, and three linked products.
+
+  PR #178 implementation head
+  `bf12317ae14e95781af4fa0512d3f82c4fd95fc9` has green native x86-64 and
+  ARM64 PCRE2 and Mbed TLS jobs in standard run `37182260767`. Exact-head
+  nightly run `37182266303` is fully green; its native x86-64 and ARM64 Curl
+  and SQLite jobs all pass the updated exact-result closure, alongside the
+  rest of the nightly matrix. This proves all four affected FOSS projects on
+  both Linux architectures with no integer-128 overlay. Final
+  post-publication standard and bootstrap CI remain to run.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
