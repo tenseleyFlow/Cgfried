@@ -209,6 +209,54 @@ void test_abi_ti_vector_named_call_contract(TestCtx *t)
     abi_free(&f);
 }
 
+void test_abi_transparent_union_first_member_contract(TestCtx *t)
+{
+    static const char src[] =
+        "typedef union { int i; float f; } TU "
+        "__attribute__" /* check_bans allow: compiler input */
+        "((transparent_union));\n"
+        "struct P { int x, y; };\n"
+        "typedef union { struct P p; } PU "
+        "__attribute__" /* check_bans allow: compiler input */
+        "((transparent_union));\n"
+        "int take_i(TU v) { return v.i; }\n"
+        "float take_f(TU v) { return v.f; }\n"
+        "int take_p(PU v) { return v.p.x + v.p.y; }\n"
+        "int redeclared(TU); int redeclared(int v) { return v; }\n"
+        "int call_i(int v) { return take_i(v); }\n"
+        "float call_f(float v) { return take_f(v); }\n"
+        "int call_p(struct P v) { return take_p(v); }\n"
+        "int call_r(int v) { return redeclared(v); }\n";
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD, CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS};
+    size_t i;
+
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        AbiFix f;
+        IrModule *round;
+        const char *ir;
+
+        T_ASSERT(t, run_abi_target(&f, src, targets[i]));
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        ir = atxt(&f);
+        /* The union itself never reaches the ABI classifier: integer/float
+         * bits use the first member's i32 wire carrier, and the pair uses its
+         * first aggregate member's one-eightbyte carrier. */
+        T_ASSERT(t, strstr(ir, "func i32 @take_i(i32 %0)") != NULL);
+        T_ASSERT(t, strstr(ir, "func f32 @take_f(i32 %0)") != NULL);
+        T_ASSERT(t, strstr(ir, "func i32 @take_p(i64 %0)") != NULL);
+        T_ASSERT(t, strstr(ir, "func i32 @redeclared(i32 %0)") != NULL);
+        T_ASSERT(t, strstr(ir, "call i32 @take_i(i32 %") != NULL);
+        T_ASSERT(t, strstr(ir, "call f32 @take_f(i32 %") != NULL);
+        T_ASSERT(t, strstr(ir, "call i32 @take_p(i64 %") != NULL);
+        round = ir_parse_module(&f.arena, f.dc, ir, "<transparent-union>");
+        T_ASSERT(t, round != NULL && ir_verify(f.dc, round));
+        abi_free(&f);
+    }
+}
+
 void test_abi_ti_anonymous_call_and_va_arg_contract(TestCtx *t)
 {
     static const char src[] =

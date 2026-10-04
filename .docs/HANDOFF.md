@@ -11,10 +11,10 @@ its controlled fleet soak; the current deterministic release report, closure
 audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
 implementation, deterministic per-pass phase-dump playbook, and first complete
 hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 24/30 through October 2 after required daily x86 evidence was
+at a strict 25/30 through October 3 after required daily x86 evidence was
 absent on September 5 and matching-head evidence was absent on September 7–8.
 It remains
-operationally OPEN. Matching-head September 12--October 2 hosted daily runs are
+operationally OPEN. Matching-head September 12--October 3 hosted daily runs are
 green, and the separate September 13 and September 20 weekly runs are
 full-lattice green; the September 27 full-lattice
 [run 36309598318](https://github.com/tenseleyFlow/Cgfried/actions/runs/36309598318)
@@ -391,11 +391,13 @@ green-only as `1bab9c62784c80d0496786baa4c908483df7d20f`; its merge tree is
 byte-identical to tested head `9299f194d2c5d3b6079d53b53aec576445045032`.
 PR #174's typedef-view reverse-order tranche merged green-only as
 `9064c174ff56986a1bbe069bef3bff6a53e71a8e`; its merge tree is byte-identical
-to tested head `6c2c9732778795416cc2522085851b0cc4abf249`. The active
-`s56.80-wide-float-reverse-sso` tranche starts from that exact merge and
-implements IEEE binary128 while retaining GCC's measured x87 F80 refusal. The
-detailed ledger below records its current evidence and exact representation
-boundary.
+to tested head `6c2c9732778795416cc2522085851b0cc4abf249`. PR #175's
+binary128 reverse-order tranche merged green-only as
+`71f1c889471840b8eb445d56cb46ecec4d019798`; merge/head tree
+`0bbeafab724fdb1c68b07ec448e11a3bc76db2bb` is byte-identical. The active
+`s56.81-transparent-union` tranche starts from that exact merge and implements
+GNU transparent-union type views, call conversion, and the first-member ABI.
+The detailed ledger below records its current evidence and publication plan.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9468,7 +9470,44 @@ and green post-publication CI.
   fuzzing each complete 2,000 mutations with zero findings, and both 5,000-
   case hash runs produce the intentionally repinned digest
   `e5b117652b236087`. The full sanitizer run passes all units and all 857
-  program fixtures; its remaining long-form gates are still in progress.
+  program fixtures. Final PR #175 head
+  `4ab5ad159ce4072992fc1bbba76c3bfc7a305fd6` completed with 28 successful
+  checks and nine intentional skips. It merged green-only as
+  `71f1c889471840b8eb445d56cb46ecec4d019798`; its exact parents are merged
+  #174 `9064c174ff56986a1bbe069bef3bff6a53e71a8e` and that tested head, and
+  merge/head tree `0bbeafab724fdb1c68b07ec448e11a3bc76db2bb` is
+  byte-identical.
+- The active `s56.81-transparent-union` tranche starts from exact merged PR
+  #175. Homebrew GCC 16.2 oracles establish the non-obvious boundary:
+  `transparent_union` is a distinct type view; separately attributed typedef
+  views of the same tag are incompatible; a transparent parameter is
+  redeclaration-compatible with its first member; exact member arguments and
+  GCC's null/`void *` pointer bridges are admitted; invalid machine
+  representations warn and ignore the attribute. Floating and vector first
+  members are invalid. Odd-sized aggregate first members retain BLKmode even
+  under outer alignment, while scalar-mode representations must retain the
+  first member's size.
+
+  Cgfried now records the view identity on `Type`, materializes accepted call
+  arguments exactly once, classifies calls and definitions using the first
+  member, and reconstructs a complete local union object inside a definition.
+  Native arm64-macos runtime execution is green at O0/O1/O2/O3/Os; GCC 16.2
+  passes the same fixture at all five levels. The five-target ABI unit passes
+  50 assertions and round-trips emitted IR, both focused program fixtures
+  pass, and the bidirectional mixed Cgfried/Clang differential reports 15/15
+  signatures. Normal and ASan+UBSan frontend fuzz each pass 2,000 mutations
+  with zero findings and the intentionally repinned 5,000-case digest
+  `c837b06dadf39e5d`. Source bans and GNU tier checks are green at 69
+  implemented / 6 parsed-ignored / 8 refused; pinned clang-format 22 remains
+  a hosted-CI gate because it is absent on this Mac.
+
+  Imported torture probes compile `960201-1.c`, `pr46866.c`, `pr91001.c`, and
+  `pr34885.c`; `pr34334.c` advances only to the independent deliberate-empty-
+  aggregate refusal. Do not publish the ratchet from local cross-emission:
+  first push the behavior commit and collect matching-source hosted x86/ARM
+  evidence. Expected atomic publication is 40 new PASS cells plus ten cells
+  moved from the transparent-union policy bucket to the empty-aggregate
+  bucket, with zero old-PASS regression.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

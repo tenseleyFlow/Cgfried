@@ -76,6 +76,18 @@ Type *type_may_alias(Arena *ar, const Type *t)
     return a;
 }
 
+Type *type_with_transparent_union(Arena *ar, const Type *t)
+{
+    Type *view;
+
+    if (!t || t->transparent_union_identity)
+        return (Type *)t;
+    view = type_new(ar, t->kind);
+    *view = *t;
+    view->transparent_union_identity = view;
+    return view;
+}
+
 Type *type_with_scalar_storage_order(Arena *ar, const Type *t, u8 order)
 {
     Type *view;
@@ -420,6 +432,10 @@ static bool survives_default_arg_promotions(const Type *t)
 
 static const Type *default_promoted_param(const Type *t)
 {
+    Member *transparent_first = type_transparent_union_first_member(t);
+
+    if (transparent_first)
+        t = transparent_first->type;
     if (!t)
         return t;
     if (t->integer_precision) {
@@ -474,7 +490,8 @@ static bool old_style_definition_matches(const Type *old_style,
             proto_unqual.quals = 0;
             proto_param = &proto_unqual;
         }
-        if (!type_compatible(old_param, proto_param))
+        if (!type_compatible(old_param, proto_param) &&
+            !type_transparent_union_param_compatible(old_param, proto_param))
             return false;
     }
     return true;
@@ -530,7 +547,8 @@ static bool params_compatible(const Type *a, const Type *b)
             ub.quals = 0;
             pb = &ub;
         }
-        if (!type_compatible(pa, pb))
+        if (!type_compatible(pa, pb) &&
+            !type_transparent_union_param_compatible(pa, pb))
             return false;
     }
     return true;
@@ -603,11 +621,17 @@ bool type_compatible(const Type *a, const Type *b)
          * pairwise incompatible, while aliases/qualified copies of one view
          * retain its identity pointer. */
         if (a->tag != b->tag || (!!a->scalar_storage_order_identity !=
-                                 !!b->scalar_storage_order_identity))
+                                 !!b->scalar_storage_order_identity) ||
+            (!!a->transparent_union_identity !=
+             !!b->transparent_union_identity))
             return false;
-        return !a->scalar_storage_order_identity ||
-               a->scalar_storage_order_identity ==
-                   b->scalar_storage_order_identity;
+        if (a->scalar_storage_order_identity &&
+            a->scalar_storage_order_identity !=
+                b->scalar_storage_order_identity)
+            return false;
+        return !a->transparent_union_identity ||
+               a->transparent_union_identity ==
+                   b->transparent_union_identity;
     case TY_ENUM:
         /* A mode on an existing tag is a distinct enum view. Two such views
          * are compatible exactly when their tag and explicit mode match;
@@ -647,6 +671,42 @@ Member *type_union_cast_member(const Type *union_type, const Type *operand_type)
     return NULL;
 }
 
+Member *type_transparent_union_first_member(const Type *t)
+{
+    if (!t || t->kind != TY_UNION || !t->transparent_union_identity ||
+        !t->tag)
+        return NULL;
+    return t->tag->members;
+}
+
+bool type_transparent_union_param_compatible(const Type *a, const Type *b)
+{
+    Member *m;
+    Type member, other;
+
+    m = type_transparent_union_first_member(a);
+    if (m && type_transparent_union_first_member(b))
+        return false;
+    if (!m) {
+        m = type_transparent_union_first_member(b);
+        if (!m)
+            return false;
+        {
+            const Type *tmp = a;
+
+            a = b;
+            b = tmp;
+        }
+    }
+    if (!m->type || !b)
+        return false;
+    member = *m->type;
+    other = *b;
+    member.quals = 0;
+    other.quals = 0;
+    return type_compatible(&member, &other);
+}
+
 bool type_array_initializer_compatible(const Type *target, const Type *source)
 {
     Type target_unqual;
@@ -676,6 +736,12 @@ Type *type_composite(Arena *ar, Type *a, Type *b)
         return a;
     if (a->kind == TY_ERROR || b->kind == TY_ERROR)
         return type_basic(TY_ERROR);
+    /* GNU defines a function parameter written as a transparent union to be
+     * compatible with one written as its first member type.  Preserve the
+     * union view in the composite whichever declaration came first: it owns
+     * the call-site conversions while both spellings have the same wire ABI. */
+    if (type_transparent_union_param_compatible(a, b))
+        return type_transparent_union_first_member(a) ? a : b;
     if (a->kind != b->kind)
         return a;
 

@@ -1501,6 +1501,7 @@ static void lower_function(Lower *lo, AstNode *def)
         Type *wire = ft->params           ? ft->params[i]
                      : def->param_syms[i] ? def->param_syms[i]->type
                                           : type_basic(TY_INT);
+        Member *transparent_first = type_transparent_union_first_member(wire);
 
         attr_ir_args[i] = nir_params + 1;
 
@@ -1514,6 +1515,8 @@ static void lower_function(Lower *lo, AstNode *def)
             else
                 wire = conv_promote_type(lo->sema, wire);
         }
+        if (transparent_first)
+            wire = transparent_first->type;
         wire_types[nplans - 1] = wire;
 
         abi_classify_arg(lo, wire, a);
@@ -1714,9 +1717,18 @@ static void lower_function(Lower *lo, AstNode *def)
                                  ? (u64)ir_type_size(a->t[0])
                                  : 8u;
                 u64 rounded = (u64)a->n * stride;
+                TypeLayout local_layout = layout_of(lo->sema, psym->type);
+                u64 local_size =
+                    type_transparent_union_first_member(psym->type) &&
+                            local_layout.size > rounded
+                        ? local_layout.size
+                        : rounded;
                 u32 salign = a->align > (u32)stride ? a->align : (u32)stride;
+
+                if (local_layout.align > salign)
+                    salign = (u32)local_layout.align;
                 ValueId slot = ir_build_alloca_typed(
-                    &lo->b, lower_i64((i64)rounded), salign,
+                    &lo->b, lower_i64((i64)local_size), salign,
                     lower_efftype(lo, psym->type));
                 u32 k;
 
@@ -1744,7 +1756,23 @@ static void lower_function(Lower *lo, AstNode *def)
                  * STACK reaching the scalar branch below instead stored the
                  * POINTER into a fresh slot and then read the aggregate out
                  * of it -- silent garbage, caught by the ABI differential. */
-                ptrmap_put_u32(lo, &lo->locals, psym, lo->fn->param_vals[pi].v);
+                if (type_transparent_union_first_member(psym->type) && wire) {
+                    TypeLayout local_layout = layout_of(lo->sema, psym->type);
+                    TypeLayout wire_layout = layout_of(lo->sema, wire);
+                    ValueId slot = ir_build_alloca_typed(
+                        &lo->b, lower_i64((i64)local_layout.size),
+                        (u32)(local_layout.align ? local_layout.align : 1),
+                        lower_efftype(lo, psym->type));
+
+                    lower_memcpy_aggregate(
+                        lo, ir_op_value(lo->fn, slot),
+                        ir_op_value(lo->fn, lo->fn->param_vals[pi]), wire,
+                        (u32)(wire_layout.align ? wire_layout.align : 1), 0);
+                    ptrmap_put_u32(lo, &lo->locals, psym, slot.v);
+                } else {
+                    ptrmap_put_u32(lo, &lo->locals, psym,
+                                   lo->fn->param_vals[pi].v);
+                }
                 pi++;
             } else {
                 TypeLayout l = layout_of(lo->sema, psym->type);
@@ -1754,6 +1782,17 @@ static void lower_function(Lower *lo, AstNode *def)
                 IrOperand incoming =
                     ir_op_value(lo->fn, lo->fn->param_vals[pi]);
 
+                if (type_transparent_union_first_member(psym->type) && wire) {
+                    TypeLayout wl = layout_of(lo->sema, wire);
+
+                    ir_build_store_typed(
+                        &lo->b, incoming, ir_op_value(lo->fn, slot),
+                        (u32)(wl.align < l.align ? wl.align : l.align), 0,
+                        lower_efftype(lo, psym->type));
+                    ptrmap_put_u32(lo, &lo->locals, psym, slot.v);
+                    pi++;
+                    continue;
+                }
                 if (wire &&
                     !type_compatible(conv_strip_quals(lo->sema, wire),
                                      conv_strip_quals(lo->sema, psym->type)))

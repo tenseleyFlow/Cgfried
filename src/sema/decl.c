@@ -308,6 +308,104 @@ declare_new: {
 static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
                        bool is_last_decl);
 
+/* GCC's "same machine representation as the first member" rule is subtler
+ * than C type compatibility.  Integer and pointer first members use their
+ * scalar machine mode; odd-sized aggregate first members use BLKmode, while
+ * power-of-two aggregates through 16 bytes use an integer mode. Floating and
+ * vector modes do not make a union transparent. A record-level alignment can
+ * force a scalar-mode union out of its first member's mode, while BLKmode
+ * ignores that outer alignment (pr91001 exercises exactly this).
+ *
+ * Cgfried has no target-machine-mode enum in sema, so derive the equivalent
+ * predicate from the already target-complete layout: the union's natural
+ * representation must be exactly the first member's size, and a scalar-mode
+ * first member must also retain that size after record-level alignment. */
+static bool transparent_union_eligible(Sema *s, Type *t)
+{
+    Member *first;
+    Member *m;
+    TypeLayout first_layout;
+    u64 payload = 0;
+    u64 natural_size;
+
+    if (!t || t->kind != TY_UNION || !t->tag || !t->tag->complete)
+        return false;
+    first = t->tag->members;
+    if (!first || !first->type || first->is_bitfield)
+        return false;
+    switch (first->type->kind) {
+    case TY_BOOL:
+    case TY_CHAR:
+    case TY_SCHAR:
+    case TY_UCHAR:
+    case TY_SHORT:
+    case TY_USHORT:
+    case TY_INT:
+    case TY_UINT:
+    case TY_LONG:
+    case TY_ULONG:
+    case TY_LLONG:
+    case TY_ULLONG:
+    case TY_INT128:
+    case TY_UINT128:
+    case TY_ENUM:
+    case TY_PTR:
+    case TY_ARRAY:
+    case TY_STRUCT:
+    case TY_UNION:
+        break;
+    default:
+        return false;
+    }
+
+    layout_record(s, t);
+    first_layout = layout_of(s, first->type);
+    for (m = t->tag->members; m; m = m->next) {
+        TypeLayout ml;
+        u64 size;
+
+        if (!m->type)
+            continue;
+        ml = layout_of(s, m->type);
+        size = m->is_bitfield ? (m->bit_width + 7) / 8 : ml.size;
+        if (size > payload)
+            payload = size;
+    }
+    {
+        u64 align = t->tag->natural_align ? t->tag->natural_align : 1;
+        u64 rem = payload % align;
+
+        natural_size = rem && payload <= UINT64_MAX - (align - rem)
+                           ? payload + (align - rem)
+                           : payload;
+    }
+    if (natural_size != first_layout.size)
+        return false;
+    /* GCC gives power-of-two aggregate representations through 16 bytes a
+     * scalar integer mode for this test; odd-sized aggregates remain BLKmode.
+     * Consequently an outer alignment that inflates a six-byte struct union
+     * is still transparent (pr91001), while the same spelling around an
+     * eight-byte struct is not. */
+    if (t->tag->size != first_layout.size &&
+        (first_layout.size != 0 &&
+         (first_layout.size & (first_layout.size - 1)) == 0 &&
+         first_layout.size <= 16))
+        return false;
+    return true;
+}
+
+static Type *transparent_union_apply(Sema *s, Type *t, Span span,
+                                     bool record_position)
+{
+    if (!transparent_union_eligible(s, t)) {
+        warn_at(s->lang->warnings, WARN_ATTRIBUTES, span,
+                record_position ? "union cannot be made transparent"
+                                : "'transparent_union' attribute ignored");
+        return t;
+    }
+    return type_with_transparent_union(s->arena, t);
+}
+
 static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
 {
     Member *last = NULL;
@@ -345,6 +443,13 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
     }
     tag->complete = true;
     tag->defining = false;
+    if (rec->transparent_union) {
+        Type *attributed =
+            transparent_union_apply(s, tag->type, rec->span, true);
+
+        if (attributed != tag->type)
+            tag->type->transparent_union_identity = tag->type;
+    }
     {
         Member *mm;
         bool any_named = false;
@@ -3337,6 +3442,14 @@ static void declare_one(Sema *s, AstNode *d)
                   "supported (docs/gnu-extensions.md)");
     }
     mark_old_style_definition(d, type);
+    if (d->gnu.transparent_union) {
+        if (d->storage & AST_SC_TYPEDEF)
+            type = transparent_union_apply(s, type, d->span, false);
+        else
+            warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                    "'transparent_union' attribute ignored");
+        d->gnu.transparent_union = false;
+    }
     if (d->gnu.scalar_storage_order) {
         if ((d->storage & AST_SC_TYPEDEF) && type &&
             (type->kind == TY_STRUCT || type->kind == TY_UNION)) {
@@ -4253,6 +4366,9 @@ static void sema_decl(Sema *s, AstNode *d)
             d->type->base != ABT_RECORD)
             warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
                     "'scalar_storage_order' attribute ignored");
+        if (d->gnu.transparent_union)
+            warn_at(s->lang->warnings, WARN_ATTRIBUTES, d->span,
+                    "'transparent_union' attribute ignored");
         if (d->type)
             d->sem_type = type_from_ast(s, d->type, d->span);
         return;
