@@ -22,7 +22,7 @@ hostcc=${CGF_CAMPAIGN_PCRE2_HOSTCC:-gcc}
 sole=${CGF_CAMPAIGN_PCRE2_SOLE_C:-$root/scripts/campaigns/sole-c.sh}
 jobs=${CGF_CAMPAIGN_JOBS:-}
 cflags=${CGF_CAMPAIGN_PCRE2_CFLAGS:--O2}
-macos_compat=$root/ci/campaigns/compat/arm64-macos-u128-storage.h
+macos_compat=$root/ci/campaigns/compat/arm64-macos-stdarg.h
 
 [ -x "$cgf" ] || fail "cgfried compiler is missing or not executable: $cgf"
 [ -x "$sole" ] || fail "sole-C wrapper is missing or not executable: $sole"
@@ -71,7 +71,7 @@ case $compiler_target in
     x86_64-linux-gnu | arm64-linux) ;;
     arm64-macos)
         compat_header=$macos_compat
-        compat_policy=opaque-u64x2-align16+cgf-stdarg-v1
+        compat_policy=cgf-stdarg-va-list-v1
         ;;
     *) fail "unsupported native campaign target: $compiler_target" ;;
 esac
