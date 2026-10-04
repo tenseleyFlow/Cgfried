@@ -4,16 +4,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Provenance
 
-- source-revision: `3ef477ee106ec3888479ce3c57e8552a46d04f5a`
-- compiler-source-sha256: `c46054ee5de1aab6286e868a2a8cb9e8b27d09457da32fe0382de73356830e2f`
+- source-revision: `e001d7da41363202a5a86da3e6b5f58b44f8efe9`
+- compiler-source-sha256: `fb27cbe425dc3f2d902c44065e105627d4ca19bba6a4565d30f06e1673b7dc51`
 - harness-sha256: `0aef44b3e354271e6b4907123dc68e3e2bae4dac381a0fbc136da678053fe222`
 - torture-manifest-sha256: `53a8a70ea4b8841f5fa29ad3938c0eeccad33077560dd8db69b5fcc510fd5307`
 - ctestsuite-manifest-sha256: `859ef7266c1ce061c7ed659abd9a2bd2782902d5f4c96085ce35249ae7cddd7e`
 
 | Target | Compiler binary SHA-256 | Compiler driver SHA-256 |
 |---|---|---|
-| arm64-linux | `7c0cb366a7017aef3548f98b5964ea4af158cc18960056218644c6cbb451f5d1` | `7c0cb366a7017aef3548f98b5964ea4af158cc18960056218644c6cbb451f5d1` |
-| x86_64-linux-gnu | `2b1cc74d4edbb0ebe924b9be708cbb9522a3ed5a6d36f81cb47a1c2cde0bf42a` | `2b1cc74d4edbb0ebe924b9be708cbb9522a3ed5a6d36f81cb47a1c2cde0bf42a` |
+| arm64-linux | `3eb8cfdd5bc41ea089a11f7920c95e35e9c203f4ba267ef5f72c1054848251d4` | `3eb8cfdd5bc41ea089a11f7920c95e35e9c203f4ba267ef5f72c1054848251d4` |
+| x86_64-linux-gnu | `2585c11168864f8b18f374dc4488c4754b99cfcad8978695f25e2432eed18ac9` | `2585c11168864f8b18f374dc4488c4754b99cfcad8978695f25e2432eed18ac9` |
 
 ## Baseline
 
@@ -29,16 +29,16 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 | ctestsuite | O3 | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | arm64-linux | 219 | 218 | 0 | 0 | 1 | 99.54% |
 | ctestsuite | Os | x86_64-linux-gnu | 219 | 218 | 0 | 0 | 1 | 99.54% |
-| torture-compile | O0 | arm64-linux | 2016 | 1513 | 364 | 0 | 139 | 91.59% |
-| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1513 | 364 | 0 | 139 | 91.59% |
-| torture-compile | O1 | arm64-linux | 2016 | 1513 | 364 | 0 | 139 | 91.59% |
-| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1513 | 364 | 0 | 139 | 91.59% |
-| torture-compile | O2 | arm64-linux | 2016 | 1513 | 364 | 0 | 139 | 91.59% |
-| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1513 | 364 | 0 | 139 | 91.59% |
-| torture-compile | O3 | arm64-linux | 2016 | 1513 | 364 | 0 | 139 | 91.59% |
-| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1513 | 364 | 0 | 139 | 91.59% |
-| torture-compile | Os | arm64-linux | 2016 | 1513 | 364 | 0 | 139 | 91.59% |
-| torture-compile | Os | x86_64-linux-gnu | 2016 | 1513 | 364 | 0 | 139 | 91.59% |
+| torture-compile | O0 | arm64-linux | 2016 | 1517 | 364 | 0 | 135 | 91.83% |
+| torture-compile | O0 | x86_64-linux-gnu | 2016 | 1517 | 364 | 0 | 135 | 91.83% |
+| torture-compile | O1 | arm64-linux | 2016 | 1517 | 364 | 0 | 135 | 91.83% |
+| torture-compile | O1 | x86_64-linux-gnu | 2016 | 1517 | 364 | 0 | 135 | 91.83% |
+| torture-compile | O2 | arm64-linux | 2016 | 1517 | 364 | 0 | 135 | 91.83% |
+| torture-compile | O2 | x86_64-linux-gnu | 2016 | 1517 | 364 | 0 | 135 | 91.83% |
+| torture-compile | O3 | arm64-linux | 2016 | 1517 | 364 | 0 | 135 | 91.83% |
+| torture-compile | O3 | x86_64-linux-gnu | 2016 | 1517 | 364 | 0 | 135 | 91.83% |
+| torture-compile | Os | arm64-linux | 2016 | 1517 | 364 | 0 | 135 | 91.83% |
+| torture-compile | Os | x86_64-linux-gnu | 2016 | 1517 | 364 | 0 | 135 | 91.83% |
 | torture-execute | O0 | arm64-linux | 1752 | 1434 | 243 | 0 | 75 | 95.03% |
 | torture-execute | O0 | x86_64-linux-gnu | 1752 | 1434 | 243 | 0 | 75 | 95.03% |
 | torture-execute | O1 | arm64-linux | 1752 | 1434 | 243 | 0 | 75 | 95.03% |
@@ -64,12 +64,12 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 | Class | Failed cells | Disposition |
 |---|---:|---|
-| gcc-builtin | 0 | `wontfix-0.1.0` |
+| gcc-builtin | 50 | `wontfix-0.1.0` |
 | nested-functions | 260 | `wontfix-0.1.0` |
 | complex | 270 | `out-of-scope` |
 | computed-goto | 0 | `wontfix-0.1.0` |
-| asm-goto | 80 | `wontfix-0.1.0` |
-| vector-mode-attribute | 720 | `wontfix-0.1.0` |
+| asm-goto | 100 | `wontfix-0.1.0` |
+| vector-mode-attribute | 650 | `wontfix-0.1.0` |
 
 ## SKIP Policy
 
@@ -175,28 +175,28 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ### Bucket 1
 
-- Count: 700
-- Cluster: signal=`-`; phase=`parse`
-- Fingerprint: `66d1fbec7cc38c7773dabe44a03d3cb030bbd39b07efd6a681e2066e08757bcd`
+- Count: 650
+- Cluster: signal=`-`; phase=`sema`
+- Fingerprint: `8fe05cfcac3188c61ebb115cdce4f00a5841b868880d9e6777064153a3e27053`
 - Exemplars: torture-compile/icfmatch.c@O0@arm64-linux, torture-compile/icfmatch.c@O0@x86_64-linux-gnu, torture-compile/icfmatch.c@O1@arm64-linux
-- Diagnostic: <source>:<loc>: error: the <id> attribute is not supported: it would create vector types with no SysV or AAPCS64 parameter contract (docs<path>
-- Labels: pretriaged=700/700
+- Diagnostic: <source>:<loc>: error: the <id> attribute currently supports only a 16-byte vector whose element type is signed or unsigned mode(TI); other GNU vector shapes remain unsupported (docs<path>
+- Labels: pretriaged=650/650
 - Tags: -
-- Optdiv members: 0 of 700
+- Optdiv members: 0 of 650
 - Optdiv exemplars: -
 - Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
 - Disposition: `wontfix-0.1.0`
 
 ### Bucket 2
 
-- Count: 430
+- Count: 440
 - Cluster: signal=`-`; phase=`sema`
 - Fingerprint: `b28fda1f26cb0a1089e244af93736842513e4362d7553c1141717119a70cc3d9`
 - Exemplars: ctestsuite/00216.c@O0@arm64-linux, ctestsuite/00216.c@O0@x86_64-linux-gnu, ctestsuite/00216.c@O1@arm64-linux
 - Diagnostic: <source>:<loc>: error: a struct or union must have at least one named member; the GNU no-named-member extension is not supported (docs<path>
 - Labels: -
 - Tags: needs-cpp, needs-libc, portable
-- Optdiv members: 0 of 430
+- Optdiv members: 0 of 440
 - Optdiv exemplars: -
 - Hypothesis: GNU zero-sized empty structs are deliberately refused because they violate the alias and memory-safety object-extent model.
 - Disposition: `wontfix-0.1.0`
@@ -231,31 +231,31 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ### Bucket 5
 
-- Count: 80
+- Count: 100
 - Cluster: signal=`-`; phase=`ir-verify`
 - Fingerprint: `c84a313e2bfb3cc72057ff69d014a9d22d1bf0c7d9032d7efef08ba1de4bbb1d`
 - Exemplars: torture-compile/pr106751.c@O0@arm64-linux, torture-compile/pr106751.c@O0@x86_64-linux-gnu, torture-compile/pr106751.c@O1@arm64-linux
 - Diagnostic: <source>:<loc>: error: 'asm goto' is not supported; jumping out of an asm block needs control-flow edges the IR verifier could only trust rather than check (docs<path>
-- Labels: pretriaged=80/80
+- Labels: pretriaged=100/100
 - Tags: -
-- Optdiv members: 0 of 80
+- Optdiv members: 0 of 100
 - Optdiv exemplars: -
 - Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
 - Disposition: `wontfix-0.1.0`
 
 ### Bucket 6
 
-- Count: 50
+- Count: 40
 - Cluster: signal=`-`; phase=`parse`
-- Fingerprint: `f3ff5037426a3f4ed405b6fbc638a4d4d9d4411875a6434a2502a3cc083c5d58`
-- Exemplars: torture-compile/960201-1.c@O0@arm64-linux, torture-compile/960201-1.c@O0@x86_64-linux-gnu, torture-compile/960201-1.c@O1@arm64-linux
-- Diagnostic: <source>:<loc>: error: the <id> attribute is not yet implemented, and ignoring it would change layout, linkage or behaviour rather than just a diagnostic (docs<path>
-- Labels: -
+- Fingerprint: `70f8ab7d8e3ce9b973cfeb05b4e407e6efc4b75594aa1ae13705eadb9e57c152`
+- Exemplars: torture-compile/pr108892.c@O0@arm64-linux, torture-compile/pr108892.c@O0@x86_64-linux-gnu, torture-compile/pr108892.c@O1@arm64-linux
+- Diagnostic: <source>:<loc>: error: <id> is not a builtin this compiler implements
+- Labels: pretriaged=40/40
 - Tags: -
-- Optdiv members: 0 of 50
+- Optdiv members: 0 of 40
 - Optdiv exemplars: -
-- Hypothesis: transparent_union is deliberately refused because ignoring its calling-convention semantics would miscompile calls.
-- Disposition: `wontfix-0.1.0`
+- Hypothesis: The newly exposed pr37669.c case needs __builtin___snprintf_chk, __builtin_strdup, and variadic argument-pack forwarding through the checked call.
+- Disposition: `fix-sprint:s56.55-gnu-va-pack-checked-snprintf`
 
 ### Bucket 7
 
@@ -358,20 +358,6 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 ### Bucket 14
 
 - Count: 20
-- Cluster: signal=`-`; phase=`ir-verify`
-- Fingerprint: `66d1fbec7cc38c7773dabe44a03d3cb030bbd39b07efd6a681e2066e08757bcd`
-- Exemplars: torture-execute/pr121957.c@O0@arm64-linux, torture-execute/pr121957.c@O0@x86_64-linux-gnu, torture-execute/pr121957.c@O1@arm64-linux
-- Diagnostic: <source>:<loc>: error: the <id> attribute is not supported: it would create vector types with no SysV or AAPCS64 parameter contract (docs<path>
-- Labels: pretriaged=20/20
-- Tags: -
-- Optdiv members: 0 of 20
-- Optdiv exemplars: -
-- Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
-- Disposition: `wontfix-0.1.0`
-
-### Bucket 15
-
-- Count: 20
 - Cluster: signal=`-`; phase=`parse`
 - Fingerprint: `e578de15b58de70f4d707195edcd798c9ae00241d327927a5a4414878810ea33`
 - Exemplars: torture-compile/991213-1.c@O0@arm64-linux, torture-compile/991213-1.c@O0@x86_64-linux-gnu, torture-compile/991213-1.c@O1@arm64-linux
@@ -383,7 +369,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The cases use GNU complex types or complex component operators, while complex arithmetic is explicitly outside the v0.1.0 language scope.
 - Disposition: `out-of-scope`
 
-### Bucket 16
+### Bucket 15
 
 - Count: 10
 - Cluster: signal=`-`; phase=`cg`
@@ -397,7 +383,7 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Hypothesis: The ten-thousand-level expression nesting stress exceeds the supported translation limit and now reaches the harness output guard before a bounded diagnostic is retained.
 - Disposition: `out-of-scope`
 
-### Bucket 17
+### Bucket 16
 
 - Count: 10
 - Cluster: signal=`-`; phase=`parse`
@@ -410,6 +396,20 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 - Optdiv exemplars: -
 - Hypothesis: The case uses imaginary floating suffixes and complex arithmetic, which are explicitly outside the v0.1.0 language scope.
 - Disposition: `out-of-scope`
+
+### Bucket 17
+
+- Count: 10
+- Cluster: signal=`-`; phase=`parse`
+- Fingerprint: `6350a4ee5bef78504001ddad6adf026b0ee68f80282b77424f57f830ff7a98eb`
+- Exemplars: torture-compile/pr96426.c@O0@arm64-linux, torture-compile/pr96426.c@O0@x86_64-linux-gnu, torture-compile/pr96426.c@O1@arm64-linux
+- Diagnostic: <source>:<loc>: error: <id> is not a builtin this compiler implements (see src<path>
+- Labels: pretriaged=10/10
+- Tags: -
+- Optdiv members: 0 of 10
+- Optdiv exemplars: -
+- Hypothesis: Exercises a GNU extension tiered out in Sprint 55.
+- Disposition: `wontfix-0.1.0`
 
 ### Bucket 18
 
@@ -582,11 +582,10 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 ## Policy Overlay
 
 - Applied decisions: 24
-- Stale decisions: 6
+- Stale decisions: 5
 
 | Signal | Fingerprint | Phase | Variant | Hypothesis | Disposition |
 |---|---|---|---|---|---|
-| - | `70f8ab7d8e3ce9b973cfeb05b4e407e6efc4b75594aa1ae13705eadb9e57c152` | parse | all | The newly exposed pr37669.c case needs __builtin___snprintf_chk, __builtin_strdup, and variadic argument-pack forwarding through the checked call. | `fix-sprint:s56.55-gnu-va-pack-checked-snprintf` |
 | - | `7bf6345f279ce3bb7ff2c13fd5843c51df8cb5dc86b689c38963e97c5180ddb6` | sema | all | The now-active big-endian int128 bit-field case needs reverse scalar storage order across its 128-bit allocation unit. | `fix-sprint:s56.60-gnu-int128-bitfields` |
 | - | `b09c7293e7ca84fb3a57c1c51e6effdb9cd2e8afb9e525cb59e9f84fe99484bd` | sema | all | The now-active int128 cases need 128-bit integer bit-field layout, initialization, and aggregate return support. | `fix-sprint:s56.60-gnu-int128-bitfields` |
 | - | `cfa8a29b24c9c9402d3d557912a1d0bd9dc054a7c7c29e8d4a1d3e81365645eb` | run | all | UTF-8 source bytes are widened independently instead of decoded into Unicode code points for wide string literals | `fix-sprint:s56.5-utf8-wide-literal-decoding` |
@@ -595,8 +594,8 @@ Generated deterministically from `# cgf-torture-results-v2` streams.
 
 ## Coverage
 
-- Failed cells: 2180
-- Bucketed cells: 2180
+- Failed cells: 2140
+- Bucketed cells: 2140
 - Unbucketed cells: 0
 - Unresolved buckets: 0
 - Bucket coverage: 100.00%

@@ -16,11 +16,9 @@
  *              refused, and the tier doc would drift from the code.
  *
  *   GA_UNSAFE  Ignoring changes LAYOUT, LINKAGE or observable behaviour.
- *              Hard error until implemented. `transparent_union` ignored is
- *              the wrong parameter ABI; `gnu_inline` ignored decides whether
- *              a definition emits a symbol at all. Every one of those links
- *              and then misbehaves, which is the
- *              failure mode docs/gnu-extensions.md exists to prevent.
+ *              Hard error until implemented. Such an attribute would link
+ *              and then misbehave if silently dropped, which is the failure
+ *              mode docs/gnu-extensions.md exists to prevent.
  *
  * A row moves from GA_UNSAFE to implemented when its semantics land, and
  * the same commit adds its row to the implemented table in
@@ -77,6 +75,7 @@ GA(packed, GA_IMPLEMENTED)
 GA(returns_twice, GA_IMPLEMENTED)
 GA(scalar_storage_order, GA_IMPLEMENTED)
 GA(section, GA_IMPLEMENTED)
+GA(transparent_union, GA_IMPLEMENTED)
 /* `used` keeps a symbol the IPO pass would otherwise delete. */
 GA(used, GA_IMPLEMENTED)
 GA(vector_size, GA_IMPLEMENTED)
@@ -84,9 +83,3 @@ GA(visibility, GA_IMPLEMENTED)
 GA(weak, GA_IMPLEMENTED)
 
 /* --- NOT safe to ignore: layout, linkage, or behaviour ------------------ */
-/* transparent_union changes how the union is PASSED -- the first member's
- * convention rather than the union's. Ignoring it is an ABI mismatch, so it
- * is refused despite the sprint's initial parsed-ignored tiering; that tier
- * was assigned before this table asked the ignore-safety question. It does
- * not appear in musl. */
-GA(transparent_union, GA_UNSAFE)

@@ -5163,14 +5163,31 @@ static void call_arg_reserve(Lower *lo, CallArgBuf *args, u32 extra)
  * by earlier arguments, so a pack captured at the wrapper boundary must be
  * classified again here, under the INNER call's budget. */
 static void lower_call_arg(Lower *lo, Type *type, IrOperand value,
-                           u8 access_flags, bool anonymous, AbiBudget *budget,
-                           CallArgBuf *args)
+                           u8 access_flags, bool transparent_param,
+                           bool anonymous, AbiBudget *budget, CallArgBuf *args)
 {
     AbiArg plan;
+    Member *transparent_first =
+        transparent_param ? type_transparent_union_first_member(type) : NULL;
     u8 flags = anonymous ? (u8)IROPF_ANON : 0u;
     u32 first_arg = args->len;
     bool stacked = false;
     u32 need;
+
+    /* A transparent union travels exactly as its first member.  Aggregate
+     * rvalues are addresses in Cgfried IR, so a scalar first member must be
+     * loaded from offset zero before the ordinary scalar path sees it. */
+    if (transparent_first) {
+        type = transparent_first->type;
+        if (!lower_is_aggregate(type)) {
+            Lvalue lv = lv_of(lo, value, type);
+
+            if (access_flags & IRF_VOLATILE)
+                lv.is_volatile = true;
+            value = lower_load(lo, lv);
+            access_flags = 0;
+        }
+    }
 
     /* Signedness of a sub-int argument, for the one ABI that makes the
      * caller widen it (see IROPF_SEXT). Default argument promotion has
@@ -5325,8 +5342,8 @@ static IrOperand lower_formatted_output_builtin(Lower *lo, AstNode *e)
             for (pi = 0; pi < lo->va_pack->nargs; pi++) {
                 VaPackArg *pa = &lo->va_pack->args[pi];
 
-                lower_call_arg(lo, pa->type, pa->value, pa->access_flags, true,
-                               &budget, &args);
+                lower_call_arg(lo, pa->type, pa->value, pa->access_flags, false,
+                               true, &budget, &args);
             }
             continue;
         }
@@ -5334,7 +5351,7 @@ static IrOperand lower_formatted_output_builtin(Lower *lo, AstNode *e)
             IrOperand value = lower_rvalue(lo, arg);
 
             lower_call_arg(lo, sem(arg), value,
-                           lower_aggregate_access_flags(arg), i >= fixed,
+                           lower_aggregate_access_flags(arg), false, i >= fixed,
                            &budget, &args);
         }
     }
@@ -5713,8 +5730,8 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
             for (pi = 0; pi < lo->va_pack->nargs; pi++) {
                 VaPackArg *pa = &lo->va_pack->args[pi];
 
-                lower_call_arg(lo, pa->type, pa->value, pa->access_flags, true,
-                               &budget, &args);
+                lower_call_arg(lo, pa->type, pa->value, pa->access_flags, false,
+                               true, &budget, &args);
             }
             continue;
         }
@@ -5722,7 +5739,11 @@ static IrOperand lower_call(Lower *lo, AstNode *e)
         {
             IrOperand value = lower_rvalue(lo, a);
 
-            lower_call_arg(lo, sem(a), value, lower_aggregate_access_flags(a),
+            bool fixed_param = fty && fty->has_proto && i < fty->nparams;
+            Type *wire_type = fixed_param ? fty->params[i] : sem(a);
+
+            lower_call_arg(lo, wire_type, value,
+                           lower_aggregate_access_flags(a), fixed_param,
                            anonymous, &budget, &args);
         }
     }
@@ -6179,7 +6200,9 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
         }
         if (type_is_int128(from) || type_is_int128(to))
             return wide_cast(lo, e, from, to);
-        union_member = e->implicit ? NULL : type_union_cast_member(to, from);
+        union_member = e->implicit && !type_transparent_union_first_member(to)
+                           ? NULL
+                           : type_union_cast_member(to, from);
         if (union_member) {
             Type *member_type = union_member->type;
             TypeLayout member_layout = layout_of(lo->sema, member_type);

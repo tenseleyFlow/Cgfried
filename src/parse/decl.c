@@ -792,6 +792,11 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                     s->record->scalar_storage_order = here.scalar_storage_order;
                     here.scalar_storage_order = GNU_SSO_UNSPEC;
                 }
+                if (here.transparent_union && s->record &&
+                    s->record->is_definition && s->other_base == ABT_RECORD) {
+                    s->record->transparent_union = true;
+                    here.transparent_union = false;
+                }
                 if (here.may_alias && s->record && s->record->is_definition) {
                     s->record->may_alias = true;
                     here.may_alias = false;
@@ -1173,6 +1178,10 @@ static AstType *parse_param_list(Parser *p, AstType *ret)
                 warn_at(p->lang->warnings, WARN_ATTRIBUTES, at->span,
                         "'scalar_storage_order' attribute ignored on a "
                         "function parameter");
+            if (param_gnu.transparent_union)
+                warn_at(p->lang->warnings, WARN_ATTRIBUTES, at->span,
+                        "'transparent_union' attribute ignored on a function "
+                        "parameter");
             /* A directly-written `may_alias` on a parameter declaration has
              * no effect in gcc. The useful form is an attributed typedef in
              * the parameter's AstType, which is preserved normally. */
@@ -1541,6 +1550,8 @@ static AstNode *parse_record_specifier(Parser *p, bool is_union)
             rec->packed = true;
         if (inner.scalar_storage_order)
             rec->scalar_storage_order = inner.scalar_storage_order;
+        if (inner.transparent_union)
+            rec->transparent_union = true;
         if (inner.may_alias)
             rec->may_alias = true;
         if (inner.aligned_expr || inner.aligned_bare) {

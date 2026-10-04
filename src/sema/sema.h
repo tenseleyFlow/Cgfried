@@ -167,6 +167,13 @@ struct Type {
      * metadata, while layout, ABI classification, and compatibility remain
      * exactly those of the underlying C type. */
     bool may_alias;
+    /* A valid GNU transparent-union TYPE view.  This deliberately lives on
+     * Type rather than TagDecl: an attributed typedef must not make every
+     * spelling of the underlying union transparent.  The pointer is also
+     * the view's compatibility identity. GCC treats two independently
+     * attributed typedefs of one tag as distinct, while an ordinary alias of
+     * either retains its source view's identity. */
+    Type *transparent_union_identity;
     /* GNU scalar_storage_order attached to a TYPEDEF of a record creates an
      * alias-specific view: the named tag keeps its original representation,
      * while direct scalar/bit-field members reached through this view use the
@@ -450,6 +457,7 @@ typedef struct VmGoto {
 Type *type_basic(TypeKind k);
 Type *type_qualify(Arena *ar, const Type *t, unsigned quals);
 Type *type_may_alias(Arena *ar, const Type *t);
+Type *type_with_transparent_union(Arena *ar, const Type *t);
 Type *type_with_scalar_storage_order(Arena *ar, const Type *t, u8 order);
 Type *type_scalar_storage_order_alias(Arena *ar, const Type *t);
 u8 type_scalar_storage_order(const Type *t);
@@ -496,6 +504,8 @@ bool type_compatible(const Type *a, const Type *b);
  * match. Top-level qualifiers alone are ignored. */
 Member *type_union_cast_member(const Type *union_type,
                                const Type *operand_type);
+Member *type_transparent_union_first_member(const Type *t);
+bool type_transparent_union_param_compatible(const Type *a, const Type *b);
 /* GNU whole-array initialization copies values rather than binding one array
  * object to another, so qualifiers on each array element layer do not affect
  * compatibility. Bounds still must agree when both are present. */

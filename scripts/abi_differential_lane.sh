@@ -248,6 +248,64 @@ EOF
     try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
 }
 
+# A transparent union has two independent ABI obligations: calls accept a
+# member expression without a source cast, and the wire value uses the FIRST
+# member's convention rather than the aggregate union convention.  Keep the
+# proof mixed-compiler and bidirectional; two Cgfried objects could otherwise
+# agree on the same wrong convention.  The pair covers an aggregate first
+# member.  GCC's accepted non-first floating member is pinned by the native
+# language fixture instead: Clang applies a different source conversion there,
+# so it cannot serve as the arm64-macos oracle for that spelling.
+check_transparent_union_fixed() {
+    d=$WORK/fixed-transparent-union
+
+    rm -rf "$d"
+    mkdir -p "$d"
+    cat >"$d/abi.h" <<'EOF'
+typedef union {
+    int integer;
+    float real;
+} int_or_float __attribute__((transparent_union));
+typedef union {
+    void *generic;
+    const int *integer;
+} any_pointer __attribute__((transparent_union));
+struct pair { int x, y; };
+typedef union {
+    struct pair pair;
+} pair_union __attribute__((transparent_union));
+int tu_integer(int_or_float value);
+int tu_pointer(any_pointer value);
+int tu_pair(pair_union value);
+int tu_redeclared(int_or_float value);
+EOF
+    cat >"$d/caller.c" <<'EOF'
+#include "abi.h"
+int main(void)
+{
+    int_or_float object = {.integer = 19};
+    int pointed = 1;
+    if (tu_integer(37) != 37 || tu_integer(object) != 19)
+        return 1;
+    if (tu_pointer((void *)0) || !tu_pointer(&pointed))
+        return 2;
+    if (tu_pair((struct pair){4, 2}) != 42)
+        return 3;
+    if (tu_redeclared(8) != 9)
+        return 4;
+    return 0;
+}
+EOF
+    cat >"$d/callee.c" <<'EOF'
+#include "abi.h"
+int tu_integer(int_or_float value) { return value.integer; }
+int tu_pointer(any_pointer value) { return value.generic != (void *)0; }
+int tu_pair(pair_union value) { return value.pair.x * 10 + value.pair.y; }
+int tu_redeclared(int value) { return value + 1; }
+EOF
+    try_pair "$d" cgf-caller && try_pair "$d" cgf-callee
+}
+
 # mode(TI)/__int128 is represented as an address-backed aggregate inside
 # Cgfried, but all three psABIs pass it as one 16-byte integer value.  A
 # same-compiler test can silently agree on the wrong register pair, alignment,
@@ -700,6 +758,13 @@ minimize() {
 
 checked=0
 failed=0
+
+if check_transparent_union_fixed; then
+    checked=$((checked + 1))
+else
+    echo "abi_differential: REGRESSION on fixed transparent-union ABI" >&2
+    failed=$((failed + 1))
+fi
 
 if check_ti_varargs_fixed; then
     checked=$((checked + 1))

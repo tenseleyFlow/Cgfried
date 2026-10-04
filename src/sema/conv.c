@@ -626,6 +626,44 @@ static void assign_warn(Sema *s, WarnId id, Span sp, AssignCtx ctx,
     }
 }
 
+/* Select the union member whose value may initialize a transparent-union
+ * function argument.  Exact member types are the ordinary case.  GCC also
+ * admits the normal pointer bridge in both useful directions: a void-pointer
+ * expression may stand in for any object-pointer member, any object pointer
+ * may stand in for a void-pointer member, and a null pointer constant may
+ * stand in for any pointer member. */
+static Member *transparent_union_arg_member(Sema *s, Type *union_type,
+                                            AstNode *rhs)
+{
+    Member *m;
+    Type *rt;
+
+    if (!type_transparent_union_first_member(union_type) || !rhs ||
+        !(rt = rhs->sem_type))
+        return NULL;
+    m = type_union_cast_member(union_type, rt);
+    if (m)
+        return m;
+    for (m = union_type->tag->members; m; m = m->next) {
+        Type *mp;
+        Type *rp;
+
+        if (!m->type || m->is_bitfield || m->type->kind != TY_PTR)
+            continue;
+        if (type_is_integer(rt) && conv_is_npc(s, rhs))
+            return m;
+        if (rt->kind != TY_PTR)
+            continue;
+        mp = m->type->base;
+        rp = rt->base;
+        if (type_compatible(conv_strip_quals(s, mp), conv_strip_quals(s, rp)) ||
+            (is_void_ptr(m->type) && is_object_ptr(rt)) ||
+            (is_void_ptr(rt) && is_object_ptr(m->type)))
+            return m;
+    }
+    return NULL;
+}
+
 bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx)
 {
     AstNode *rhs = *rhs_slot;
@@ -640,6 +678,23 @@ bool conv_assignable(Sema *s, Type *lhs, AstNode **rhs_slot, AssignCtx ctx)
     rt = rhs->sem_type;
     if (!rt || rt->kind == TY_ERROR)
         return true;
+
+    if (ctx.kind == ACTX_ARG && type_transparent_union_first_member(lhs)) {
+        Member *m = transparent_union_arg_member(s, lhs, rhs);
+
+        if (m) {
+            if (!type_compatible(conv_strip_quals(s, m->type),
+                                 conv_strip_quals(s, rt))) {
+                AstNode *member_value = rhs;
+
+                if (!conv_assignable(s, m->type, &member_value, ctx))
+                    return false;
+                rhs = member_value;
+            }
+            *rhs_slot = conv_cast(s, rhs, conv_strip_quals(s, lhs));
+            return true;
+        }
+    }
 
     /* GNU permits a scalar initializer for a vector by converting it to the
      * lane type and broadcasting it.  This tranche has exactly one lane, so
