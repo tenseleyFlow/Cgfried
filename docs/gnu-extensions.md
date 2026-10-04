@@ -56,6 +56,7 @@ predefine.
 | `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
 | `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
 | `scalar_storage_order("big-endian" or "little-endian")` on struct/union definitions and typedef views | `tests/programs/lower-exec/exec_typedef_reverse_sso.c` | endian-stable wire records and GCC torture bit-field layouts, including integral/TI members and IEEE floating representations through binary128, with naturally aligned atomic forms |
+| `transparent_union` | `tests/programs/gnu/transparent_union.c` | glibc socket-address argument wrappers and GNU interfaces that accept one of several member types through the first member's ABI |
 | `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
 | `alias` | `tests/corpus/x86_64/int/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
 | `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
@@ -120,6 +121,27 @@ predefine.
 | hosted GNU `alloca(...)` alias | `tests/programs/gnu/alloca_alias.c` | GNU89 sources that use GCC's plain spelling without including `<alloca.h>` |
 | static whole-array initialization from compatible array compound literals | `tests/programs/gnu/compound_literal_array_initializer.c` | GCC torture PR48517 and static aggregate images copied from compound literals |
 | records containing variably sized members | `tests/corpus/x86_64/int/vla_record_copy.c` | historical GNU C code that assigns, passes, and retrieves runtime-sized records |
+
+`transparent_union` is a type-view property, not a license to treat a union
+as globally compatible with one of its members. Calls through a prototype may
+pass an exact member type, a null pointer constant for a pointer member, a
+`void *` expression for an object-pointer member, or an object pointer for a
+`void *` member. The argument is materialized once as a union value and passed
+using the first member's calling convention; a definition written with that
+first member type is a compatible redeclaration. A definition written with the
+union still receives a complete local union object.
+
+The eligibility check follows GCC's machine-representation rule. The natural
+union representation must match the first member; its mode may be an integer,
+pointer, or aggregate mode, but not a floating or vector mode. Record-level
+alignment can invalidate a scalar first-member mode; an odd-sized aggregate
+first member remains BLKmode, including GCC torture's highly aligned
+`pr91001.c` cases. Invalid or misplaced requests warn under `-Wattributes` and are
+ignored. Each attributed typedef creates a distinct compatibility view;
+ordinary aliases retain that view, and a record-definition spelling belongs
+to the tag's shared type. The fixed ABI differential links Cgfried with GCC or
+Clang in both directions so two Cgfried objects cannot agree on a wrong wire
+convention.
 
 The `vector_size` boundary is intentionally one shape rather than a promise of
 general GNU vector support. A signed or unsigned TI element with a 16-byte
@@ -767,22 +789,6 @@ read next year's headers.
 | `sentinel`, `nonstring`, `diagnose_if`, `access`, `alloc_size`, `alloc_align` | diagnostics only | glibc |
 | `noinline`, `hot`, `cold`, `artificial`, `no_instrument_function` | inliner and placement hints | glibc, musl |
 | `nothrow` | C has no exceptions | glibc |
-
-### Not yet implemented, and therefore refused rather than ignored
-
-These change layout, linkage or behaviour. Until their semantics land they
-are a hard error naming the attribute — which is what makes implementing them
-incrementally safe: at every point the compiler either does the right thing or
-refuses, never quietly the wrong one.
-
-`transparent_union`.
-
-One of those sits here against this sprint's original tiering, because the
-ignore-safety question overruled it:
-
-- **`transparent_union`** changes how the union is *passed* — the first
-  member's convention, not the union's. Ignoring it is an ABI mismatch. It
-  does not appear in musl, so refusing costs nothing.
 
 ## Refused
 

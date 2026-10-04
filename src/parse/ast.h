@@ -296,6 +296,10 @@ struct AstNode {
      * only the parser can distinguish a record position from a leading or
      * declarator attribute. */
     u8 scalar_storage_order; /* GnuScalarStorageOrder */
+    /* GNU transparent_union bound to this record definition.  Like packed,
+     * the between-keyword-and-tag and after-definition positions affect the
+     * record; a typedef-suffix spelling remains in GnuDeclAttrs instead. */
+    bool transparent_union;
     /* `may_alias` bound to this record definition. Like `packed`, position
      * matters: between `struct` and the tag, or after the closing brace,
      * changes the record type; a leading attribute before `struct` does not. */

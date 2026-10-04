@@ -94,6 +94,12 @@ typedef struct GnuDeclAttrs {
      * declaration path warns rather than silently dropping it. */
     bool packed;
     u8 scalar_storage_order; /* GnuScalarStorageOrder */
+    /* `transparent_union` is a TYPE property.  A valid union parameter is
+     * passed using its first member's calling convention and accepts any
+     * member type at a call site.  The parser binds record-position
+     * spellings directly to AST_RECORD_DECL; a typedef-position spelling
+     * reaches sema through this field and creates an attributed type view. */
+    bool transparent_union;
     /* `aligned(N)`. The argument is a constant EXPRESSION -- gcc accepts
      * `aligned(sizeof(long))` and headers use it -- so the parser records the
      * expression and sema folds it with the same evaluator `_Alignas` uses.
