@@ -492,7 +492,9 @@ static void dump_stmt(FILE *out, const AstNode *s, int depth)
         return;
     case AST_STMT_GOTO:
         indent(out, depth);
-        fprintf(out, "GOTO %s\n", s->name ? s->name : "?");
+        fprintf(out, "GOTO %s\n",
+                s->label_spelling ? s->label_spelling
+                                  : (s->name ? s->name : "?"));
         return;
     case AST_STMT_BREAK:
         indent(out, depth);
@@ -504,7 +506,9 @@ static void dump_stmt(FILE *out, const AstNode *s, int depth)
         return;
     case AST_STMT_LABEL:
         indent(out, depth);
-        fprintf(out, "LABEL %s\n", s->name ? s->name : "?");
+        fprintf(out, "LABEL %s\n",
+                s->label_spelling ? s->label_spelling
+                                  : (s->name ? s->name : "?"));
         dump_stmt(out, s->body, depth + 1);
         return;
     case AST_STMT_CASE:

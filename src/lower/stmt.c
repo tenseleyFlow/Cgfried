@@ -1433,6 +1433,51 @@ static void lower_stmt_impl(Lower *lo, AstNode *s)
     }
 }
 
+static AstNode *stmt_expr_value_stmt(AstNode *st)
+{
+    if (!st)
+        return NULL;
+    if (st->kind == AST_STMT_EXPR)
+        return st;
+    if (st->kind == AST_STMT_LABEL)
+        return stmt_expr_value_stmt(st->body);
+    if (st->kind == AST_STMT_COMPOUND && st->scope_neutral && st->nitems)
+        return stmt_expr_value_stmt(st->items[st->nitems - 1]);
+    return NULL;
+}
+
+/* Lower the label markers that wrap a statement expression's final value,
+ * then materialize that value rather than treating it as a discarded
+ * expression statement. */
+static IrOperand lower_stmt_expr_value(Lower *lo, AstNode *st)
+{
+    u32 i;
+
+    if (st->kind == AST_STMT_EXPR) {
+        IrOperand none;
+
+        if (!lo->terminated)
+            return lower_rvalue(lo, st->lhs);
+        memset(&none, 0, sizeof(none));
+        none.kind = IROP_NONE;
+        return none;
+    }
+    if (st->kind == AST_STMT_LABEL) {
+        u32 *hit = lower_u32map_get(&lo->labels, st->name, strlen(st->name));
+
+        if (hit) {
+            BlockId b = {*hit};
+
+            lower_branch_to(lo, b);
+            lower_at(lo, b);
+        }
+        return lower_stmt_expr_value(lo, st->body);
+    }
+    for (i = 0; i + 1 < st->nitems; i++)
+        lower_stmt(lo, st->items[i]);
+    return lower_stmt_expr_value(lo, st->items[st->nitems - 1]);
+}
+
 /* A GNU statement expression. Its body is an ordinary compound statement and
  * gets an ordinary LexScope -- what is NOT ordinary is the ORDER at the end:
  *
@@ -1464,9 +1509,8 @@ IrOperand lower_stmt_expr(Lower *lo, AstNode *e)
     /* The value is the last item, and ONLY if it is an expression statement:
      * a trailing declaration or a trailing `if` makes the whole thing void,
      * which sema has already typed. */
-    if (n && body->items[n - 1] && body->items[n - 1]->kind == AST_STMT_EXPR &&
-        body->items[n - 1]->lhs)
-        last = body->items[n - 1];
+    if (n)
+        last = stmt_expr_value_stmt(body->items[n - 1]);
     upto = last ? n - 1 : n;
 
     scope.token = VALUE_INVALID;
@@ -1476,8 +1520,8 @@ IrOperand lower_stmt_expr(Lower *lo, AstNode *e)
     lo->scopes = &scope;
     for (i = 0; i < upto; i++)
         lower_stmt(lo, body->items[i]);
-    if (last && !lo->terminated)
-        v = lower_rvalue(lo, last->lhs);
+    if (last)
+        v = lower_stmt_expr_value(lo, body->items[n - 1]);
     if (last && !lo->terminated &&
         (lower_aggregate_access_flags(last->lhs) & IRF_VOLATILE)) {
         TypeLayout l = layout_of(lo->sema, e->sem_type);

@@ -371,10 +371,9 @@ void test_expr_deferrals_and_errors(TestCtx *t)
      * with the __extension__ suppression, which is the half that would
      * otherwise regress silently. */
     expr_ok(t, "int f(int a) { return a ?: 1; }\n");
-    /* `__label__` is REFUSED, deliberately and not pending: block-scoped
-     * labels need mangling and our labels are interned with pointer
-     * comparison. docs/gnu-extensions.md carries the reasoning. */
-    expr_bad(t, "int f(int x){ __label__ d; if(x) goto d; d: return 1; }\n");
+    /* GNU local labels are private lexical identities even though ordinary C
+     * labels retain function scope. */
+    expr_ok(t, "int f(int x){ __label__ d; if(x) goto d; d: return 1; }\n");
     /* Statement expressions LAND in Sprint 55 -- what stays an error is the
      * FILE-SCOPE use, which gcc rejects too ("braced-group within expression
      * allowed only inside a function"). The accepting cases are pinned by

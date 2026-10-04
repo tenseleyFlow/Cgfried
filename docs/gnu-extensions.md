@@ -72,6 +72,7 @@ predefine.
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
 | extended `asm` — operands, constraints, symbolic `s`/`i` address constants, exact register clobbers, GNU local register variables, x86 `N`/`Nd`, and fixed+tied extra x86 outputs | `tests/corpus/x86_64/int/asm_local_register.c` | musl syscall wrappers and atomics; glibc `<sys/io.h>`; every libc's `arch/` |
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
+| block-scoped labels (`__label__`) | `tests/programs/gnu/local_label.c` | statement-expression macros that need a collision-free private jump target on every expansion |
 | `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
 | `__builtin_types_compatible_p`, `__builtin_choose_expr` | `tests/corpus/x86_64/int/builtin_type_query.c` | glibc's type-dispatch macros, Linux's `__same_type` |
 | `__builtin_constant_p(expr)` | `tests/torture/execute/bcp-1.c` | compile-time selection over literals and arithmetic, including optimized propagation through simple inline query wrappers |
@@ -804,7 +805,6 @@ silently rather than fail loudly.
 | all other `vector_size(...)` shapes and uses | the admitted one-lane TI form has a measured named-call ABI; general element counts, derived objects, operators, volatile/atomic access, static images, and anonymous argument transport do not | GNU SIMD sources outside GCC torture PR105613 |
 | nested functions | requires executable trampolines on the stack | none of our targets |
 | computed goto (`&&label`, `goto *p`) | out of the v0.1.0 scope contract | interpreters; not our corpora |
-| `__label__` (block-scoped labels) | our labels have FUNCTION scope and are interned by the lexer, with `label_find` comparing pointers, so block scoping means mangling and the parser holds no interner to mangle with. Accepting it as an ordinary label would compile the single-use case and report "duplicate label" on the sibling-block case gcc accepts — rejecting valid code while looking implemented | musl 0 uses, glibc headers 0; only clang's own sources |
 | empty struct / union (`struct E {}`, `struct { int :0; }`) | gcc gives these size ZERO, and `struct E arr[3]` then has `&arr[0] == &arr[1]` — measured. That breaks the "distinct objects have distinct addresses" property the shared alias service and the memory-safety lattice are both built on: allocation sites there are separated by byte-offset hulls, which cannot express two objects at one address with zero extent | musl 0, glibc's C headers 0 (every `/usr/include` hit is C++), Linux uapi 1 inside `__DECLARE_FLEX_ARRAY` |
 
 ## Notes that are easy to get wrong
@@ -883,3 +883,13 @@ expression) passes every test that does not observe ordering, and getting it
 backwards hands the caller a value read out of storage the cleanup was already
 given a chance to clobber. `tests/corpus/x86_64/int/stmt_expr.c` pins the
 order as `CTT`.
+
+**Local labels are lexical identities.** A `__label__ a, b;` declaration must
+precede every ordinary declaration and statement in its compound, matching
+GCC. Its names are visible through nested blocks and shadowed by an inner local
+label declaration; two sibling blocks or statement-expression macro
+expansions may therefore reuse the same spelling. The parser resolves each use
+to a private function-unique identity while its lexical scope is live, then the
+existing function-wide label, VLA-jump, cleanup, and lowering machinery handles
+that identity unchanged. Diagnostics and `-Wunused-label` retain the source
+spelling. This does not enable label addresses or computed goto.

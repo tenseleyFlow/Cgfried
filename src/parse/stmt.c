@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 
 #include "parse/parse.h"
@@ -28,7 +29,8 @@ static LabelEntry *label_find(Parser *p, const char *name)
     return NULL;
 }
 
-static LabelEntry *label_intern(Parser *p, const char *name, Span sp)
+static LabelEntry *label_intern(Parser *p, const char *name,
+                                const char *display_name, Span sp)
 {
     LabelEntry *e = label_find(p, name);
 
@@ -37,10 +39,109 @@ static LabelEntry *label_intern(Parser *p, const char *name, Span sp)
     e = arena_alloc(p->arena, sizeof(LabelEntry), _Alignof(LabelEntry));
     memset(e, 0, sizeof(*e));
     e->name = name;
+    e->display_name = display_name ? display_name : name;
     e->first_use = sp;
     e->next = p->labels;
     p->labels = e;
     return e;
+}
+
+static LocalLabelEntry *local_label_find(ParseScope *scope, const char *name)
+{
+    LocalLabelEntry *e;
+
+    if (!scope)
+        return NULL;
+    for (e = scope->local_labels; e; e = e->next)
+        if (e->name == name)
+            return e;
+    return NULL;
+}
+
+static LocalLabelEntry *local_label_visible(Parser *p, const char *name)
+{
+    ParseScope *scope;
+
+    for (scope = p->scope; scope; scope = scope->parent) {
+        LocalLabelEntry *e = local_label_find(scope, name);
+
+        if (e)
+            return e;
+    }
+    return NULL;
+}
+
+/* GNU local labels are resolved while lexical scope still exists.  Later
+ * passes intentionally continue to see ordinary function-wide label maps,
+ * keyed by a private spelling that C source cannot write because it contains
+ * dots.  The source spelling is retained separately for diagnostics. */
+static const char *label_identity(Parser *p, const char *name)
+{
+    LocalLabelEntry *e = local_label_visible(p, name);
+
+    return e ? e->private_name : name;
+}
+
+static AstNode *parse_local_label_decl(Parser *p, bool at_block_start)
+{
+    const Token *kw = parse_peek(p);
+    AstNode *error = NULL;
+
+    p->pos++;
+    if (!p->extension_depth)
+        warn_at(p->lang->warnings, WARN_PEDANTIC, kw->span,
+                "ISO C forbids label declarations");
+    if (!at_block_start) {
+        error = stmt_new(p, AST_ERROR, kw->span);
+        error->poisoned = true;
+        parse_error(p, kw,
+                    "a '__label__' declaration must precede every ordinary "
+                    "declaration and statement in its block");
+    }
+
+    for (;;) {
+        const Token *id = parse_peek(p);
+
+        if (id->kind != TOK_IDENT) {
+            parse_error(p, id,
+                        "expected a label name in '__label__' declaration");
+            break;
+        }
+        if (at_block_start) {
+            LocalLabelEntry *prior = local_label_find(p->scope, id->spelling);
+
+            if (prior) {
+                parse_error(p, id, "duplicate label declaration '%s'",
+                            id->spelling);
+                diag_emit(p->dc, DIAG_NOTE, prior->decl_span,
+                          "previous declaration of '%s' is here", id->spelling);
+            } else {
+                LocalLabelEntry *binding = arena_alloc(
+                    p->arena, sizeof(*binding), _Alignof(LocalLabelEntry));
+                LabelEntry *label;
+                char private_name[64];
+
+                memset(binding, 0, sizeof(*binding));
+                snprintf(private_name, sizeof(private_name), ".cgf.local.%u",
+                         (unsigned)++p->local_label_serial);
+                binding->name = id->spelling;
+                binding->private_name = arena_strdup(p->arena, private_name);
+                binding->decl_span = id->span;
+                binding->next = p->scope->local_labels;
+                p->scope->local_labels = binding;
+
+                label = label_intern(p, binding->private_name, id->spelling,
+                                     id->span);
+                label->local_decl = true;
+                label->decl_span = id->span;
+            }
+        }
+        p->pos++;
+        if (!parse_eat_punct(p, PUNCT_COMMA))
+            break;
+    }
+    parse_expect_punct(p, PUNCT_SEMI, "after a '__label__' declaration");
+    return error;
 }
 
 /* --- block items --------------------------------------------------------- */
@@ -49,7 +150,8 @@ static LabelEntry *label_intern(Parser *p, const char *name, Span sp)
  * by exactly the machinery Sprint 9 built: a leading typedef name means
  * declaration, an ordinary identifier means expression. `T * p;` is a
  * declaration iff T is a visible typedef, and multiplication otherwise. */
-static AstNode *parse_block_item(Parser *p, bool *saw_stmt)
+static AstNode *parse_block_item(Parser *p, bool *saw_stmt,
+                                 bool *at_block_start)
 {
     const Token *t;
 
@@ -64,6 +166,10 @@ static AstNode *parse_block_item(Parser *p, bool *saw_stmt)
      * declaration. Punctuation decides this two-token shape before the
      * typedef ambiguity does. QBE uses exactly this legal construction. */
     t = parse_peek(p);
+    if (t->kind == TOK_KEYWORD && t->kw == KW_LOCAL_LABEL)
+        return parse_local_label_decl(p, *at_block_start);
+
+    *at_block_start = false;
     if (t->kind == TOK_IDENT && parse_peek_n(p, 1)->kind == TOK_PUNCT &&
         parse_peek_n(p, 1)->punct == PUNCT_COLON) {
         *saw_stmt = true;
@@ -102,6 +208,7 @@ AstNode *parse_compound_stmt(Parser *p)
     AstNode *n = stmt_new(p, AST_STMT_COMPOUND, lb->span);
     StmtVec items = {NULL, 0, 0};
     bool saw_stmt = false;
+    bool at_block_start = true;
 
     parse_expect_punct(p, PUNCT_LBRACE, "to open a block");
     while (!parse_at_punct(p, PUNCT_RBRACE) && parse_peek(p)->kind != TOK_EOF) {
@@ -112,7 +219,7 @@ AstNode *parse_compound_stmt(Parser *p)
          * exits here — the driver turns the latch into exit 1. */
         if (diag_error_limit_reached(p->dc))
             break;
-        it = parse_block_item(p, &saw_stmt);
+        it = parse_block_item(p, &saw_stmt, &at_block_start);
 
         if (it)
             StmtVec_push(&items, it);
@@ -305,11 +412,18 @@ static AstNode *parse_goto(Parser *p)
     if (id->kind != TOK_IDENT) {
         parse_error(p, id, "expected a label name after 'goto'");
     } else {
-        n->name = id->spelling;
+        const char *identity = label_identity(p, id->spelling);
+        LabelEntry *entry;
+
+        n->name = identity;
+        n->label_spelling = id->spelling;
         /* A goto may precede its label, so record the use and reconcile
          * at the end of the function — this is the earliest moment an
          * undefined label is knowable. */
-        label_intern(p, id->spelling, id->span);
+        entry = label_intern(p, identity, id->spelling, id->span);
+        if (!entry->used)
+            entry->first_use = id->span;
+        entry->used = true;
         p->pos++;
     }
     parse_expect_punct(p, PUNCT_SEMI, "after 'goto'");
@@ -378,12 +492,14 @@ static AstNode *parse_named_label(Parser *p)
 {
     const Token *t = parse_peek(p);
     AstNode *n = stmt_new(p, AST_STMT_LABEL, t->span);
-    LabelEntry *e = label_intern(p, t->spelling, t->span);
+    const char *identity = label_identity(p, t->spelling);
+    LabelEntry *e = label_intern(p, identity, t->spelling, t->span);
 
     if (e->defined)
         parse_error(p, t, "duplicate label '%s'", t->spelling);
     e->defined = true;
-    n->name = t->spelling;
+    n->name = identity;
+    n->label_spelling = t->spelling;
     p->pos += 2;
     return n;
 }
@@ -460,29 +576,11 @@ AstNode *parse_stmt(Parser *p)
             return parse_return(p);
         case KW_GOTO:
             return parse_goto(p);
-        case KW_LOCAL_LABEL: {
-            /* REFUSED by name rather than accepted as an ordinary label.
-             * The point of `__label__` is that the name is scoped to the
-             * BLOCK, so two sibling blocks may each declare `done`. Our
-             * labels have function scope and are interned by the lexer,
-             * with label_find comparing POINTERS -- so block scoping means
-             * mangling, and the parser holds no interner to mangle with
-             * (see the note at src/parse/attr.c). Treating it as a plain
-             * label would compile the single-use case and report
-             * "duplicate label" on the sibling-block case gcc accepts,
-             * which is rejecting valid code while looking implemented. */
-            AstNode *n = stmt_new(p, AST_ERROR, t->span);
-
-            parse_error(p, t,
-                        "'__label__' block-scoped labels are not supported; "
-                        "our labels have function scope "
-                        "(docs/gnu-extensions.md)");
-            while (!parse_at_punct(p, PUNCT_SEMI) &&
-                   parse_peek(p)->kind != TOK_EOF)
-                p->pos++;
-            parse_eat_punct(p, PUNCT_SEMI);
-            return n;
-        }
+        case KW_LOCAL_LABEL:
+            /* A declaration is only a block item and must precede all other
+             * items. Reaching the statement parser means either condition
+             * was violated; consume it with the specific diagnostic. */
+            return parse_local_label_decl(p, false);
         case KW_BREAK: {
             AstNode *n = stmt_new(p, AST_STMT_BREAK, t->span);
             p->pos++;
@@ -623,15 +721,20 @@ AstNode *parse_func_body(Parser *p)
 
     /* Every goto must name a label defined SOMEWHERE in this function —
      * knowable only now, because a goto may precede its label. */
-    for (e = p->labels; e; e = e->next)
-        if (!e->defined)
+    for (e = p->labels; e; e = e->next) {
+        if (e->used && !e->defined)
             diag_emit(p->dc, DIAG_ERROR, e->first_use,
-                      "use of undeclared label '%s'", e->name);
+                      "use of undeclared label '%s'", e->display_name);
+        else if (e->local_decl && !e->defined && !e->used)
+            warn_at_ex(p->lang->warnings, WARN_UNUSED_LABEL, e->decl_span,
+                       WARN_SUPPRESS_IN_MACRO,
+                       "label '%s' declared but not defined", e->display_name);
+    }
     if (p->labels && !p->nerrors) {
         /* nerrors is the parser's own counter; label errors go straight to
          * the sink, so keep the count honest for callers that gate on it. */
         for (e = p->labels; e; e = e->next)
-            if (!e->defined)
+            if (e->used && !e->defined)
                 p->nerrors++;
     }
     p->labels = saved_labels;

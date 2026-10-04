@@ -9477,7 +9477,7 @@ and green post-publication CI.
   #174 `9064c174ff56986a1bbe069bef3bff6a53e71a8e` and that tested head, and
   merge/head tree `0bbeafab724fdb1c68b07ec448e11a3bc76db2bb` is
   byte-identical.
-- The active `s56.81-transparent-union` tranche starts from exact merged PR
+- The `s56.81-transparent-union` tranche started from exact merged PR
   #175. Homebrew GCC 16.2 oracles establish the non-obvious boundary:
   `transparent_union` is a distinct type view; separately attributed typedef
   views of the same tag are incompatible; a transparent parameter is
@@ -9524,7 +9524,67 @@ and green post-publication CI.
   retained stale decisions, and zero unbucketed or unresolved cells. Its
   additional bucket reshaping is the deterministic cumulative refresh since
   the prior report provenance `3ef477ee`; the exact PASS-set change remains
-  only the forty named cells.
+  only the forty named cells. Final PR #176 head
+  `9f2a7197f6ceb19933011e4caa3d8339d073fa42` completed with 28 successful
+  checks and nine intentional skips; the exact-head native-ARM nightly and
+  full bootstrap lattice also passed. It merged green-only as
+  `8e006f7cea3184f09ba911ebfa6627c55077f364`; its exact parents are merged
+  #175 `71f1c889471840b8eb445d56cb46ecec4d019798` and that tested head, and
+  merge/head tree `880ea4204776c1f712d4c976afa8d178157ef33a` is
+  byte-identical.
+- The active `s56.82-gnu-local-labels` tranche starts from exact merged PR
+  #176. Homebrew GCC 16.2 oracles pin declaration placement, comma and
+  consecutive declarations, duplicate rejection, lexical shadowing, sibling
+  and statement-expression reuse, out-of-scope behavior, undefined-label
+  diagnostics, the unused-declaration warning, pedantic behavior, and the
+  value of a trailing labeled expression in a GNU statement expression.
+
+  Cgfried now resolves each visible local-label spelling to a source-impossible
+  private identity while its lexical scope is live. The existing
+  function-wide goto, VLA-jump, cleanup, and lowering machinery then operates
+  on that identity unchanged, while AST dumps and diagnostics retain the
+  source spelling. Trailing label wrappers are transparent when sema and
+  lowering determine a statement expression's value. Seven permanent program
+  fixtures cover runtime macro reuse, shadowing, cleanup edges, declaration
+  placement and duplication, scope escape, used-but-undefined labels,
+  declared-but-undefined warnings, and pedantic mode.
+
+  Focused native arm64-macos execution is green at O0/O1/O2/O3/Os; six
+  O0/O2 assembly-emission cells across arm64-macos, arm64-linux, and
+  x86_64-linux-gnu are green. All seven new fixtures pass, GNU tiers report 70
+  implemented / 6 parsed-ignored / 7 refused, and pinned clang-format 22 plus
+  source-policy gates are clean. The complete Apple unit run reaches the
+  established eight-failure Darwin host-assumption baseline at 1,007 tests /
+  4,331,187 assertions. Normal and ASan+UBSan frontend fuzz each pass 2,000
+  mutations with zero findings and independently produce the intentionally
+  repinned 5,000-case digest `4d85674d6a54a03f`. Imported torture
+  `930118-1.c` now compiles through the former local-label refusal, leaving
+  only its expected legacy return-type warning.
+
+  PR #177 implementation head `854669d51d719bb7a9d2400ea0885cb350e4a603`
+  produced exactly five new x86 PASS cells in hosted run `37178249535` and
+  five matching ARM cells in exact-head native nightly `37178265315`, with
+  zero old-PASS regressions. The hosted PR x86 stream records GitHub's
+  synthetic merge and is confirmation-only. A fresh native Kasumi x86 matrix
+  at the exact implementation head has SHA-256
+  `ea40d3cc89ae2a780301548370d850da9db62aa876bcd27479fbe0f2332f63f9`;
+  the exact-head hosted ARM stream has SHA-256
+  `3822d3abbdd9e62a06d835f0792acebfa8d9f6d24fae41f13e6815f7348a24f6`.
+  Both name the implementation head and share compiler-source SHA-256
+  `656a2740b79549c0d79de3bd96cf99b3a0c499ff8176651441925fe32532948a`
+  plus identical harness and manifest hashes.
+
+  Formal `make torture-baseline` publishes exactly the ten target-complete
+  `930118-1.c` cells and raises the ratchet from 32,150 to 32,160 PASS cells
+  with zero deletions. The obsolete local-label refusal policy row is removed.
+  The regenerated report has 2,130 failed cells, 28 buckets, 23 applied policy
+  decisions, five retained stale decisions, and zero unbucketed or unresolved
+  cells. Reversing the two evidence streams regenerates both outputs
+  byte-identically; PASS and triage SHA-256 values are respectively
+  `80372e6e7d4b87120ddc2a02b3c0cbdf681bbcbdbaa96f51bd699924912c478a`
+  and
+  `14f90786537f5893e0dc80c52f180678f40fc089e12a4f724f8ca4b5a6e0e433`.
+  The publication commit and green post-publication CI remain to do.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
