@@ -1757,6 +1757,48 @@ void test_sema_gnu_int128_bitfield_initializer_images(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_gnu_f128_reverse_storage_initializer_images(TestCtx *t)
+{
+    SemaFix f;
+    AstNode *record = NULL;
+    u32 i;
+
+    run_sema(&f,
+             "struct R { _Float128 value; _Float128 values[2]; "
+             "_Atomic(_Float128) atomic; } "
+             "__attribute__" /* check_bans allow: compiler input */
+             "((scalar_storage_order(\"big-endian\"))); "
+             "static struct R record = "
+             "{1.0F128, {2.0F128, -3.0F128}, 5.0F128};\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    for (i = 0; i < f.tu->ndecls; i++) {
+        AstNode *d = f.tu->decls[i];
+
+        if (d && d->name && strcmp(d->name, "record") == 0)
+            record = d;
+    }
+    T_ASSERT(t, record != NULL);
+    if (record) {
+        InitImage image;
+
+        T_ASSERT(t, constexpr_eval_initializer(&f.sema, record->sem_type,
+                                               record->init, &image));
+        T_ASSERT_EQ_INT(t, image.size, 64);
+        T_ASSERT_EQ_INT(t, image.bytes[0], 0x3f);
+        T_ASSERT_EQ_INT(t, image.bytes[1], 0xff);
+        T_ASSERT_EQ_INT(t, image.bytes[16], 0x40);
+        T_ASSERT_EQ_INT(t, image.bytes[17], 0x00);
+        T_ASSERT_EQ_INT(t, image.bytes[32], 0xc0);
+        T_ASSERT_EQ_INT(t, image.bytes[33], 0x00);
+        T_ASSERT_EQ_INT(t, image.bytes[34], 0x80);
+        T_ASSERT_EQ_INT(t, image.bytes[48], 0x40);
+        T_ASSERT_EQ_INT(t, image.bytes[49], 0x01);
+        T_ASSERT_EQ_INT(t, image.bytes[50], 0x40);
+    }
+    sfix_free(&f);
+}
+
 void test_sema_gnu_mode_ti_constant_expressions(TestCtx *t)
 {
     SemaFix f;

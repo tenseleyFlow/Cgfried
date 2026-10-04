@@ -38,10 +38,10 @@ The machine-readable lane and cadence contract is `ci/bootstrap.yml`.
 
 ## Current status
 
-**RUNNING: 24/30 consecutive distinct UTC dates green.** The current strict
+**RUNNING: 25/30 consecutive distinct UTC dates green.** The current strict
 streak started on 2026-09-09. Matching-head x86 and ARM runs passed both
 optimization levels and retained all four required artifacts on September
-9--October 2. The September 11 scheduled run did not start; same-date
+9--October 3. The September 11 scheduled run did not start; same-date
 `workflow_dispatch` recovery completed the full hosted lattice before the UTC
 date ended, as the gate contract permits for a pre-bootstrap infrastructure
 failure. September 13 also passed the complete weekly reproducibility and
@@ -52,7 +52,7 @@ lattice. September 14--19 and September 21--26 each passed the four daily
 jobs at one exact head; no weekly work was due on those dates. September 27's
 daily and weekly scheduled runs share exact head `d2426812`; the daily lattice
 and all three weekly cross/reproducibility jobs passed. September 28--October
-2 each passed the four daily jobs at one exact head, and no weekly work was
+3 each passed the four daily jobs at one exact head, and no weekly work was
 due on those dates.
 
 The first streak began on 2026-08-13 and reached 5/30 through 2026-08-17. It
@@ -65,8 +65,8 @@ so it reset the streak. September 6 passed the complete weekly lattice.
 September 7 and 8 each had green hosted work, but the daily x86 and ARM jobs
 did not run at one matching commit; neither date continues a strict
 matching-head streak. September 9 is therefore the new day 1. September 10,
-the eligible September 11 recovery, and the September 12--October 2 scheduled
-runs are days 2--24. If uninterrupted, day 30 is 2026-10-08.
+the eligible September 11 recovery, and the September 12--October 3 scheduled
+runs are days 2--25. If uninterrupted, day 30 is 2026-10-08.
 
 The workflow previously scheduled only ARM every day and obtained x86 evidence
 accidentally from repository pushes. The current automation repair schedules
@@ -152,8 +152,9 @@ metric: the native fixed-link bootstrap currently supports Linux targets.
 | 2026-09-30 | `10211b61f7a5a3bc03940cc1baf6ea359e50264a` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36697741401](https://github.com/tenseleyFlow/Cgfried/actions/runs/36697741401) |
 | 2026-10-01 | `b96defe92febd7893deb78700e4efb24fe93c6f9` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36847156953](https://github.com/tenseleyFlow/Cgfried/actions/runs/36847156953) |
 | 2026-10-02 | `8b6d6571729044fbc9e1cde1a7331ce45f218af7` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 36991625528](https://github.com/tenseleyFlow/Cgfried/actions/runs/36991625528) |
+| 2026-10-03 | `1bab9c62784c80d0496786baa4c908483df7d20f` | PASS | PASS; repro N/A — not due | PASS | PASS | N/A — not due | [run 37112060098](https://github.com/tenseleyFlow/Cgfried/actions/runs/37112060098) |
 
-The August 29–October 2 reconciliation uses GitHub's workflow, job, and
+The August 29–October 3 reconciliation uses GitHub's workflow, job, and
 retained-artifact metadata. Every qualifying non-Sunday pair retains
 `sprint58-bootstrap-x86_64-linux-O0`,
 `sprint58-bootstrap-x86_64-linux-O2`,
@@ -168,6 +169,15 @@ run `35500570594`, retain those four plus
 `sprint58-bootstrap-arm64-cross-final`. All applicable jobs and workflows are
 green. This reconciliation does not claim a new full payload-rehash audit for
 those dates.
+
+The October 3 run retains the four required unexpired daily artifacts. The
+GitHub artifact API reports SHA-256 digests
+`bf445b934bbfd51dedf5121663deef510dd2e24bd22f6d77398534bd5cad3121`
+(ARM O0), `d1ea9b082d8599f26110ba14bb9f01d0070a78463b4dfbc8a110b2ac8ca80845`
+(ARM O2), `2282e6e2cd4925ded88f48f976e760a179bd924d127840fa1db967f34b5ff5a6`
+(x86 O0), and `ff2797c74f48395ce72f36a74f0e25672b9af9942df82689733d7e65ceb5c585`
+(x86 O2). All four jobs and the workflow are green. These are API metadata
+checks, not a separate download-and-rehash audit.
 
 The September 15--19 and 21--26 daily runs each retain the expected four
 unexpired fixed-point artifacts. September 20's daily run retains those same

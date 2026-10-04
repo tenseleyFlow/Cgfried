@@ -55,7 +55,7 @@ predefine.
 | `weak` | `tests/programs/gnu/attr_weak_overridden.c` | musl `weak_alias`, glibc |
 | `visibility("...")` | `tests/programs/gnu/attr_symbol_binding.c` | glibc headers (88 uses in /usr/include) |
 | `packed` | `tests/programs/gnu/attr_packed_layout.c` | musl, glibc, on-disk and wire structs everywhere |
-| `scalar_storage_order("big-endian" or "little-endian")` on struct/union definitions and typedef views | `tests/programs/lower-exec/exec_typedef_reverse_sso.c` | endian-stable wire records and GCC torture bit-field layouts, including integral/TI members and four- or eight-byte floating representations, with naturally aligned atomic forms |
+| `scalar_storage_order("big-endian" or "little-endian")` on struct/union definitions and typedef views | `tests/programs/lower-exec/exec_typedef_reverse_sso.c` | endian-stable wire records and GCC torture bit-field layouts, including integral/TI members and IEEE floating representations through binary128, with naturally aligned atomic forms |
 | `aligned` | `tests/programs/gnu/attr_aligned_layout.c` | glibc (17 uses in /usr/include), cache-line and SIMD code |
 | `alias` | `tests/corpus/x86_64/int/attr_alias.c` | musl's `weak_alias`, glibc's versioned symbols |
 | `used` | `tests/programs/gnu/attr_used.c` | version stamps, kept-alive tables, musl |
@@ -390,13 +390,16 @@ assignment plus prefix/postfix increment and decrement. Direct scalar-member
 access remains supported even though GCC's internal address-taking rule
 rejects that spelling; indexed arrays match GCC's accepted source surface.
 
-Floating members with four- or eight-byte representations use the same
-logical/physical split, including `float`, `double`, the matching `_FloatN`
-forms, and Apple ARM64's eight-byte `long double`. Static images, runtime
-initialization, ordinary assignment and updates preserve exact bits, including
-NaN payloads. Atomic floating loads and stores travel through exact-width
-integer carriers, and read-modify-write uses one strong compare-exchange loop
-whose expected and desired values stay in physical order. This deliberately
+IEEE floating members use the same logical/physical split, including `float`,
+`double`, the matching `_FloatN` forms, Apple ARM64's eight-byte `long double`,
+and 16-byte binary128 (`_Float128` on every target and `long double` on
+ARM64 Linux). Static images, runtime initialization, ordinary assignment and
+updates preserve exact bits, including NaN payloads. Four- and eight-byte
+atomic floating accesses travel through exact-width integer carriers.
+Binary128 materializes one address-backed 16-byte representation and uses the
+target's atomic 16-byte access or the generic libatomic buffer ABI. Every
+floating read-modify-write uses one strong compare-exchange loop whose
+expected and desired values stay in physical order. This deliberately
 preserves `_Atomic` more strongly than the measured GCC 16 indexed-array edge,
 which can lose contended floating updates.
 
@@ -417,10 +420,11 @@ runtime initialization,
 ordinary and atomic access, updates, unions, aliases, and address-taking
 restrictions all consult the selected view.
 
-Reverse-order floating representations wider than eight bytes, including F80
-and F128 on targets where they are wider, remain fail-closed for both record
-definitions and typedef views. An unsupported form is never accepted and then
-stored in native order; use a closed four- or eight-byte scalar representation.
+x87 F80 remains fail-closed for both record definitions and typedef views,
+matching GCC's `reverse storage order for XFmode` refusal. Its 16-byte storage
+contains only ten value bytes, so reversing the complete slot would not be a
+valid representation transform. An unsupported form is never accepted and
+then stored in native order; use an IEEE scalar representation instead.
 
 Cgfried implements a storage-bounded subset of GCC's nested flexible-array
 initializer extension. A static object may initialize a flexible tail below

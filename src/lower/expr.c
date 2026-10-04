@@ -22,6 +22,8 @@ static Type *sem(AstNode *e)
     return e->sem_type;
 }
 
+static IrOp arith_op_for(Lower *lo, u16 op, Type *t);
+
 static bool is_signed_ty(Lower *lo, Type *t)
 {
     return conv_is_signed(lo->sema, t);
@@ -38,6 +40,9 @@ static IrOperand wide_truth_ne(Lower *lo, IrOperand addr, Type *t,
                                u8 access_flags);
 static WideInt wide_load(Lower *lo, IrOperand addr, Type *t, u8 access_flags);
 static IrOperand wide_materialize(Lower *lo, Type *t, WideInt v);
+static IrOperand lower_f128_atomic_load(Lower *lo, const Lvalue *lv);
+static IrOperand lower_f128_atomic_store(Lower *lo, const Lvalue *lv,
+                                         IrOperand value);
 
 static ValueId build_source_arith(Lower *lo, IrOp op, IrType irty, IrOperand x,
                                   IrOperand y, Type *source_ty)
@@ -522,6 +527,31 @@ static IrOperand reverse_scalar_bytes(Lower *lo, IrOperand x)
 
         return ir_op_value(lo->fn, value);
     }
+    if (t == IRT_F128) {
+        ValueId slot = ir_build_alloca(&lo->b, lower_i64(16), 16);
+        IrOperand base = ir_op_value(lo->fn, slot);
+        IrOperand high_addr = addr_plus(lo, base, 8);
+        ValueId low;
+        ValueId high;
+        IrOperand reversed_low;
+        IrOperand reversed_high;
+        ValueId value;
+
+        /* Binary128 travels in a whole 16-byte FP/SIMD value, while byte
+         * reversal is integer representation work. Materializing once keeps
+         * the transform bit-exact (including NaN payloads), avoids adding a
+         * special 128-bit bitcast to the IR, and obeys both backends' existing
+         * memory law for wide floating values. */
+        ir_build_store_typed(&lo->b, x, base, 16, 0, 0);
+        low = ir_build_load_typed(&lo->b, IRT_I64, base, 8, 0, 0);
+        high = ir_build_load_typed(&lo->b, IRT_I64, high_addr, 8, 0, 0);
+        reversed_low = reverse_integer_bytes(lo, ir_op_value(lo->fn, high));
+        reversed_high = reverse_integer_bytes(lo, ir_op_value(lo->fn, low));
+        ir_build_store_typed(&lo->b, reversed_low, base, 8, 0, 0);
+        ir_build_store_typed(&lo->b, reversed_high, high_addr, 8, 0, 0);
+        value = ir_build_load_typed(&lo->b, IRT_F128, base, 16, 0, 0);
+        return ir_op_value(lo->fn, value);
+    }
     return reverse_integer_bytes(lo, x);
 }
 
@@ -648,6 +678,8 @@ IrOperand lower_load(Lower *lo, Lvalue lv)
         return reverse_bitfield_load(lo, &lv);
     if (lv.packed_bitfield)
         return packed_bitfield_load(lo, &lv);
+    if (!lv.is_bitfield && lv.is_atomic && lv.unit == IRT_F128)
+        return lower_f128_atomic_load(lo, &lv);
     if (!lv.is_bitfield && lv.is_atomic &&
         (lv.unit == IRT_F32 || lv.unit == IRT_F64)) {
         /* Atomic floating accesses use their exact-width integer
@@ -687,6 +719,8 @@ IrOperand lower_store(Lower *lo, Lvalue lv, IrOperand v)
     if (lv.packed_bitfield)
         return packed_bitfield_store(lo, &lv, v);
     if (!lv.is_bitfield) {
+        if (lv.is_atomic && lv.unit == IRT_F128)
+            return lower_f128_atomic_store(lo, &lv, v);
         if (lv.is_atomic && (lv.unit == IRT_F32 || lv.unit == IRT_F64)) {
             IrType ct = lv.unit == IRT_F32 ? IRT_I32 : IRT_I64;
             ValueId bits = ir_build1(&lo->b, IR_BITCAST, ct, v);
@@ -896,6 +930,47 @@ static IrOperand wide_atomic_store(Lower *lo, const Lvalue *lv, IrOperand src,
     /* The assignment expression's value is the captured RHS.  Returning the
      * destination address would make a later consumer reread the atomic. */
     return captured;
+}
+
+static IrOperand f128_materialize(Lower *lo, IrOperand value, Type *type)
+{
+    ValueId tmp = lower_temp(lo, type);
+    IrOperand addr = ir_op_value(lo->fn, tmp);
+
+    ir_build_store_typed(&lo->b, value, addr, 16, 0, lower_efftype(lo, type));
+    return addr;
+}
+
+static IrOperand f128_from_address(Lower *lo, IrOperand addr, Type *type)
+{
+    ValueId value = ir_build_load_typed(&lo->b, IRT_F128, addr, 16, 0,
+                                        lower_efftype(lo, type));
+
+    return ir_op_value(lo->fn, value);
+}
+
+static IrOperand lower_f128_atomic_load(Lower *lo, const Lvalue *lv)
+{
+    IrOperand physical = wide_atomic_load(lo, lv);
+    IrOperand logical =
+        lv->reverse_storage_order
+            ? wide_reverse_representation(lo, physical, lv->type)
+            : physical;
+
+    return f128_from_address(lo, logical, lv->type);
+}
+
+static IrOperand lower_f128_atomic_store(Lower *lo, const Lvalue *lv,
+                                         IrOperand value)
+{
+    IrOperand logical = f128_materialize(lo, value, lv->type);
+    IrOperand physical =
+        lv->reverse_storage_order
+            ? wide_reverse_representation(lo, logical, lv->type)
+            : logical;
+
+    (void)wide_atomic_store(lo, lv, physical, lv->type, 0);
+    return value;
 }
 
 IrOperand lower_int128_lvalue_load(Lower *lo, const Lvalue *lv)
@@ -1405,6 +1480,55 @@ static IrOperand lower_wide_atomic_update(Lower *lo, Lvalue lv, Type *lt,
     }
     lower_at(lo, done);
     return want_old ? expected : desired;
+}
+
+/* Binary128 atomic updates use the same address-buffer compare-exchange ABI
+ * as TI. The expected buffer stays in physical order across retries; only the
+ * floating arithmetic and the source expression result see logical order. */
+static IrOperand lower_f128_atomic_update(Lower *lo, Lvalue lv, Type *lt,
+                                          u16 op, IrOperand rhs, Type *rt,
+                                          bool want_old)
+{
+    Type *common = conv_uac_type(lo->sema, lt, rt);
+    IrOperand converted_rhs = lower_scalar_convert(lo, rhs, rt, common);
+    IrOperand expected_physical = wide_atomic_load(lo, &lv);
+    IrOperand old;
+    IrOperand desired;
+    BlockId retry = lower_new_block(lo, "f128.rmw.retry");
+    BlockId done = lower_new_block(lo, "f128.rmw.done");
+
+    ir_build_br(&lo->b, retry, NULL, 0);
+    lower_at(lo, retry);
+    {
+        IrOperand expected_logical =
+            lv.reverse_storage_order
+                ? wide_reverse_representation(lo, expected_physical, lt)
+                : expected_physical;
+        IrOperand left;
+        ValueId result;
+        IrOperand desired_common;
+        IrOperand desired_logical;
+        IrOperand desired_physical;
+        IrOperand success;
+
+        old = f128_from_address(lo, expected_logical, lt);
+        left = lower_scalar_convert(lo, old, lt, common);
+        result = build_source_arith(lo, arith_op_for(lo, op, common),
+                                    lower_irtype(lo, common), left,
+                                    converted_rhs, common);
+        desired_common = ir_op_value(lo->fn, result);
+        desired = lower_scalar_convert(lo, desired_common, common, lt);
+        desired_logical = f128_materialize(lo, desired, lt);
+        desired_physical =
+            lv.reverse_storage_order
+                ? wide_reverse_representation(lo, desired_logical, lt)
+                : desired_logical;
+        success = wide_atomic_compare_exchange(lo, &lv, expected_physical,
+                                               desired_physical);
+        ir_build_condbr(&lo->b, success, done, NULL, 0, retry, NULL, 0);
+    }
+    lower_at(lo, done);
+    return want_old ? old : desired;
 }
 
 static IrOperand lower_wide_binary(Lower *lo, AstNode *e)
@@ -2577,6 +2701,8 @@ static IrOperand lower_assign(Lower *lo, AstNode *e)
         }
         if (lv.is_atomic) {
             rhs = lower_rvalue(lo, e->rhs);
+            if (lv.unit == IRT_F128)
+                return lower_f128_atomic_update(lo, lv, lt, op, rhs, rt, false);
             return lower_atomic_update(lo, lv, lt, op, rhs, rt, false);
         }
         rhs = lower_rvalue(lo, e->rhs);
@@ -5750,6 +5876,10 @@ static IrOperand lower_incdec(Lower *lo, AstNode *e)
                             ? ir_op_iconst(IRT_I32, 1) /* converted below */
                             : ir_op_iconst(lower_irtype(lo, t), 1);
 
+        if (lv.unit == IRT_F128)
+            return lower_f128_atomic_update(lo, lv, t, op, one,
+                                            fp_or_ptr ? type_basic(TY_INT) : t,
+                                            e->is_postfix);
         return lower_atomic_update(lo, lv, t, op, one,
                                    fp_or_ptr ? type_basic(TY_INT) : t,
                                    e->is_postfix);

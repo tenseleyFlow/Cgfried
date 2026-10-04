@@ -2,7 +2,7 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak through 2026-10-02; compiler gaps through 2026-10-03): Sprints 0–57, 59, and 60 are CLOSED;
+**WHERE THINGS STAND (soak and compiler gaps through 2026-10-03): Sprints 0–57, 59, and 60 are CLOSED;
 Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
 Sprint 61 implementation and review are complete with an honest NOT READY
 closeout. Phases 1–11 are CLOSED.**
@@ -389,10 +389,13 @@ exercises the x86 atomic lane through the bundled assembler whenever it is
 built. PR #173's four- and eight-byte reverse-order floating tranche merged
 green-only as `1bab9c62784c80d0496786baa4c908483df7d20f`; its merge tree is
 byte-identical to tested head `9299f194d2c5d3b6079d53b53aec576445045032`.
-The active `s56.79-typedef-reverse-sso` tranche starts from that exact merge
-and implements alias-specific scalar-storage-order views without mutating the
-shared struct/union tag. The detailed ledger below records its current
-evidence and the remaining boundary order.
+PR #174's typedef-view reverse-order tranche merged green-only as
+`9064c174ff56986a1bbe069bef3bff6a53e71a8e`; its merge tree is byte-identical
+to tested head `6c2c9732778795416cc2522085851b0cc4abf249`. The active
+`s56.80-wide-float-reverse-sso` tranche starts from that exact merge and
+implements IEEE binary128 while retaining GCC's measured x87 F80 refusal. The
+detailed ledger below records its current evidence and exact representation
+boundary.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -763,14 +766,15 @@ ratchet while Sprint 58 remains open.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (10/30)
+## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (25/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
 hosted CI definitions are integrated. The first hosted streak reached 5/30
 through August 17, then reset on August 18 when the required x86 O0 job was
-cancelled before bootstrap and retained no artifact. August 19–28 are days
-1–10 of the current streak; the ledger still needs 20 consecutive dates, so
-do not call the sprint closed until that operational obligation is complete.
+cancelled before bootstrap and retained no artifact. A later streak reached
+17/30 before September 5 supplied no x86 run. The current September 9–October
+3 streak is 25/30; the ledger still needs five consecutive dates, so do not
+call the sprint closed until that operational obligation is complete.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
   comparisons over all 113 compiler/runtime assembly files, all 113 objects,
@@ -864,7 +868,7 @@ do not call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 24/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 25/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -929,7 +933,11 @@ do not call the sprint closed until that operational obligation is complete.
   seven-job lattice green. Scheduled runs `36405573219`, `36551609743`,
   `36697741401`, `36847156953`, and `36991625528` make September 28--October
   2 days 20--24, each with all four required daily jobs green; no weekly work
-  was due on those dates. The
+  was due on those dates. October 3 scheduled run
+  [`37112060098`](https://github.com/tenseleyFlow/Cgfried/actions/runs/37112060098)
+  at exact head `1bab9c62` is day 25: all four required fixed points passed,
+  and the four expected 90-day artifacts are unexpired and carry GitHub API
+  SHA-256 digests. No weekly work was due. The
   daily-hosted automation
   repair now launches all four required O0/O2 jobs together without depending
   on a push or fleet host. Continue recording distinct UTC dates and every due
@@ -9419,7 +9427,48 @@ and green post-publication CI.
   gate accepts one), now repaired. The final ordered continuation is green
   through five-target determinism, atomics, ABI/warning differentials, and
   pinned clang-format 22, with only declared missing-tool/sysroot skips. The
-  final publication commit and authoritative PR CI are the remaining gates.
+  final PR #174 head `6c2c9732778795416cc2522085851b0cc4abf249`
+  completed with 28 successful checks and nine intentional skips, including
+  sanitizer, x86 torture, both bootstrap workflows, and the 100,000-case
+  ASan+UBSan frontend fuzz lane. It merged green-only as
+  `9064c174ff56986a1bbe069bef3bff6a53e71a8e`; its exact parents are merged
+  #173 `1bab9c62784c80d0496786baa4c908483df7d20f` and that tested head, and
+  merge/head tree `cc426da7a2205e7585e7709c75ac91094761fd1b` is byte-identical.
+- The active `s56.80-wide-float-reverse-sso` tranche starts from exact merged
+  PR #174. The compiler oracle narrows the residual wide-float boundary:
+  Homebrew GCC 16.2 accepts IEEE binary128 reverse storage on Apple ARM64,
+  Ubuntu GCC 13 accepts `_Float128` on x86-64, and GCC rejects x87 `long
+  double` with its explicit `reverse storage order for XFmode` refusal.
+  Static images, runtime initialization, ordinary updates, indexed atomic
+  updates, and exact big-endian bytes are measured. The Apple GCC oracle
+  passes at O0/O1/O2/O3/Os.
+
+  Cgfried now admits binary128 while retaining the measured x87 F80 refusal.
+  Ordinary loads and stores materialize one exact 16-byte representation,
+  reverse the two 64-bit limbs and every byte within them, then reload the
+  logical F128 value. Atomic load/store reuse the established target-specific
+  16-byte access or generic libatomic buffer ABI. Atomic updates keep the
+  expected and desired buffers in physical order around one strong generic
+  compare-exchange loop while binary128 arithmetic remains in logical order.
+  The permanent runtime fixtures cover definition- and typedef-attached
+  static and automatic images, ordinary and atomic updates, assignment
+  results, exact NaN payload preservation, the reverse-field address
+  restriction, and four-thread CAS contention. GCC 16.2 on Apple ARM64 and
+  GCC 13 on x86-64 execute the expanded byte oracle at O0/O1/O2/O3/Os;
+  Cgfried does the same on both hosts, and the contended fixture passes at O0
+  and O2. Five-target assembly emission and lowering/typedef IR round trips
+  are green.
+
+  Native Apple validation reaches the established eight-failure Darwin
+  host-assumption baseline at 1,006 tests / 4,331,137 assertions, with every
+  affected test green. Linux passes 1,006 tests / 4,331,138 assertions and
+  all 857 program fixtures. The full normal Linux lattice is green through an
+  exact post-fuzz continuation; its only initial stop was the expected stale
+  corpus hash after the three new fixtures. Normal and ASan+UBSan frontend
+  fuzzing each complete 2,000 mutations with zero findings, and both 5,000-
+  case hash runs produce the intentionally repinned digest
+  `e5b117652b236087`. The full sanitizer run passes all units and all 857
+  program fixtures; its remaining long-form gates are still in progress.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
