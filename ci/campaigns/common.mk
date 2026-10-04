@@ -11,7 +11,7 @@ CGF_CAMPAIGN_CHECK ?= ci/campaigns/check-expected.sh
 .PHONY: campaign-expected-meta
 campaign-expected-meta: $(BUILD)/cgfried
 	ci/campaigns/test-expected.sh
-	ci/campaigns/test-arm64-compat.sh "$(BUILD)/cgfried"
+	ci/campaigns/test-arm64-native-ti.sh "$(BUILD)/cgfried"
 	ci/campaigns/test-curl.sh
 	ci/campaigns/test-musl-toolchain.sh
 	ci/campaigns/test-lua.sh

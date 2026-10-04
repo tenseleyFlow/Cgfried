@@ -24,14 +24,9 @@ case $mode in
         sole=${CGF_CAMPAIGN_MBEDTLS_SOLE:-}
         receipts=${CGF_CAMPAIGN_MBEDTLS_RECEIPTS:-}
         compiler=${CGF_CAMPAIGN_MBEDTLS_CGF:-}
-        compat=${CGF_CAMPAIGN_MBEDTLS_COMPAT:-}
         [ -x "$sole" ] || fail "sole-C wrapper is unavailable: $sole"
         [ -x "$compiler" ] || fail "Cgfried compiler is unavailable: $compiler"
         [ -n "$receipts" ] || fail "receipt root is unset"
-        if [ -n "$compat" ]; then
-            [ -f "$compat" ] || fail "compatibility header is missing: $compat"
-            set -- -include "$compat" "$@"
-        fi
         exec "$sole" cc "$receipts" "$compiler" "$@"
         ;;
     host)

@@ -29,12 +29,13 @@ grep -Fq '"-$level" -Wno-attributes -Wno-mem' \
 grep -Fq 'compile_profile=sprint-52-sqlite-scale-v1' \
     "$root/scripts/campaigns/sqlite.sh" ||
     fail "campaign receipts omit the compile profile"
-grep -Fq 'compat_policy=opaque-u64x2-align16-v1' \
+grep -Fq 'hosted_header_policy=native-ti-no-overlay-v1' \
     "$root/scripts/campaigns/sqlite.sh" ||
-    fail "campaign does not record the ARM64 hosted-header policy"
-grep -Fq 'yes:"$work/src/shell.c") set -- -include "$compat_header" "$@"' \
-    "$root/scripts/campaigns/sqlite.sh" ||
-    fail "ARM64 compatibility is not scoped to SQLite's shell translation unit"
+    fail "campaign does not record the native TI hosted-header policy"
+if grep -Fq 'arm64-linux-u128-storage.h' \
+    "$root/scripts/campaigns/sqlite.sh"; then
+    fail "campaign still injects the retired ARM64 integer-128 overlay"
+fi
 grep -Fq 'upstream-uint128-scan.err' "$root/scripts/campaigns/sqlite.sh" ||
     fail "campaign does not retain source-audit diagnostics"
 grep -Fq 'u128_scan_status=$?' "$root/scripts/campaigns/sqlite.sh" ||

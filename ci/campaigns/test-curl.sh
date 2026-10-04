@@ -48,8 +48,11 @@ grep -F 'unclassified host-GCC configure deviation' \
 
 grep -F '"$probe_ledger" "$host_only" "$cgf_only"' "$runner" >/dev/null ||
     fail "Curl runner does not use the fail-closed ledger helper"
-grep -F 'compat_policy=opaque-u64x2-align16-v1' "$runner" >/dev/null ||
-    fail "Curl runner does not record the ARM64 header policy"
+grep -F 'hosted-header-policy=native-ti-no-overlay-v1' "$runner" >/dev/null ||
+    fail "Curl runner does not record the native TI hosted-header policy"
+if grep -F 'arm64-linux-u128-storage.h' "$runner" >/dev/null; then
+    fail "Curl runner still injects the retired ARM64 integer-128 overlay"
+fi
 grep -F 'upstream-uint128-scan.err' "$runner" >/dev/null ||
     fail "Curl runner does not retain source-audit diagnostics"
 grep -F 'u128_scan_status=$?' "$runner" >/dev/null ||
