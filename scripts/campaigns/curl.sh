@@ -10,9 +10,6 @@ work=${CGF_CAMPAIGN_CURL_WORK:-$root/build/campaigns/curl}
 cgf=${CGF_CAMPAIGN_CURL_CGF:-$root/build/cgfried}
 hostcc=${CGF_CAMPAIGN_CURL_HOSTCC:-gcc}
 jobs=${CGF_CAMPAIGN_JOBS:-}
-compat_header_rel=ci/campaigns/compat/arm64-linux-u128-storage.h
-compat_header=$root/$compat_header_rel
-compat_policy=opaque-u64x2-align16-v1
 probe_ledger=$root/scripts/campaigns/curl-probe-ledger.sh
 
 fail() {
@@ -25,24 +22,15 @@ fail() {
 command -v "$hostcc" >/dev/null 2>&1 ||
     fail "host GCC is unavailable: $hostcc"
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is unavailable"
-[ -r "$compat_header" ] ||
-    fail "ARM64 hosted-header compatibility file is unreadable: $compat_header"
 [ -x "$probe_ledger" ] ||
     fail "configure-deviation ledger helper is not executable: $probe_ledger"
 
 compiler_target=$("$cgf" -dumpmachine) ||
     fail "cannot query Cgfried's target"
-compat_active=no
-compat_cppflags=
 case $compiler_target in
-    x86_64-linux-gnu) ;;
-    arm64-linux)
-        compat_active=yes
-        compat_cppflags="-include $compat_header"
-        ;;
+    x86_64-linux-gnu | arm64-linux) ;;
     *) fail "unsupported native campaign target: $compiler_target" ;;
 esac
-compat_header_sha256=$(sha256sum "$compat_header" | awk '{ print $1 }')
 
 printf '%s  %s\n' "$CURL_SHA256" "$archive" | sha256sum -c - >/dev/null ||
     fail "source checksum mismatch: $archive"
@@ -121,7 +109,7 @@ case $u128_scan_status in
 esac
 upstream_u128_count=$(wc -l <"$u128_matches" | tr -d ' ')
 [ "$upstream_u128_count" -eq 0 ] ||
-    fail "pinned Curl sources use unsupported integer-128 semantics"
+    fail "pinned Curl sources widened the audited hosted-header-only integer-128 surface"
 
 if [ -z "$jobs" ]; then
     jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1\n')
@@ -169,10 +157,9 @@ printf '%s\n' "$configure_options" >"$work/configure-options.txt"
     printf 'linker=%s\n' "$ld_path"
     printf 'jobs=%s\n' "$jobs"
     printf 'compiler-target=%s\n' "$compiler_target"
-    printf 'hosted-header-compatibility=%s\n' "$compat_active"
-    printf 'hosted-header-policy=%s\n' "$compat_policy"
-    printf 'hosted-header-path=%s\n' "$compat_header_rel"
-    printf 'hosted-header-sha256=%s\n' "$compat_header_sha256"
+    printf 'hosted-header-policy=native-ti-no-overlay-v1\n'
+    printf 'hosted-header-path=none\n'
+    printf 'hosted-header-sha256=none\n'
     printf 'upstream-uint128-occurrences=%s\n' "$upstream_u128_count"
 } >"$work/logs/commands.txt"
 
@@ -204,7 +191,7 @@ configure_lane() {
 }
 
 configure_lane host-gcc "$work/host-gcc-src" "$hostcc" ''
-configure_lane cgfried "$work/cgfried-src" "$cgf" "$compat_cppflags"
+configure_lane cgfried "$work/cgfried-src" "$cgf" ''
 
 # Preserve every cached probe result and a deterministic cross-compiler diff.
 # Compiler identity/flag-capability probes are kept in the raw snapshots but
@@ -322,8 +309,8 @@ fi
     printf 'baseline.configure\tPASS\tcompiler=host-gcc\n'
     printf 'build\tPASS\tcompiler=cgfried\n'
     printf 'configure\tPASS\tcompiler=cgfried,ice=0\n'
-    printf 'hosted-header.compat\tPASS\tCAMP-ALL-004;header-sha256=%s,policy=%s,scope=arm64-linux-system-headers,upstream-uses=%s\n' \
-        "$compat_header_sha256" "$compat_policy" "$upstream_u128_count"
+    printf 'hosted-header.native-ti\tPASS\tCAMP-ALL-004;policy=native-ti-no-overlay-v1,scope=linux-system-headers,upstream-uses=%s\n' \
+        "$upstream_u128_count"
     printf 'probe.deviations\tPASS\tCAMP-CURL-001+CAMP-CURL-002;rows=%s,sha256=%s,artifact=probe-deviations.txt\n' "$probe_deviations" "$probe_sha256"
     printf 'source.cache\tPASS\tmode=offline,sha256=%s\n' "$CURL_SHA256"
     printf 'source.pin\tPASS\tversion=%s\n' "$CURL_VERSION"

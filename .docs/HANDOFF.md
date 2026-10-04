@@ -395,9 +395,13 @@ to tested head `6c2c9732778795416cc2522085851b0cc4abf249`. PR #175's
 binary128 reverse-order tranche merged green-only as
 `71f1c889471840b8eb445d56cb46ecec4d019798`; merge/head tree
 `0bbeafab724fdb1c68b07ec448e11a3bc76db2bb` is byte-identical. The active
-`s56.81-transparent-union` tranche starts from that exact merge and implements
-GNU transparent-union type views, call conversion, and the first-member ABI.
-The detailed ledger below records its current evidence and publication plan.
+PR #176's transparent-union tranche merged green-only as
+`8e006f7cea3184f09ba911ebfa6627c55077f364`, and PR #177's GNU local-label
+tranche merged green-only as `103e49f79baef6905a4f2a86d2531a6d4ba3fa87`.
+The active `s56.83-arm64-native-ti-headers` tranche starts from that exact
+merge and retires the obsolete Linux integer-128 hosted-header overlay. The
+detailed ledger below records its current evidence and remaining native-Linux
+campaign proof.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9532,7 +9536,7 @@ and green post-publication CI.
   #175 `71f1c889471840b8eb445d56cb46ecec4d019798` and that tested head, and
   merge/head tree `880ea4204776c1f712d4c976afa8d178157ef33a` is
   byte-identical.
-- The active `s56.82-gnu-local-labels` tranche starts from exact merged PR
+- The `s56.82-gnu-local-labels` tranche started from exact merged PR
   #176. Homebrew GCC 16.2 oracles pin declaration placement, comma and
   consecutive declarations, duplicate rejection, lexical shadowing, sibling
   and statement-expression reuse, out-of-scope behavior, undefined-label
@@ -9584,7 +9588,34 @@ and green post-publication CI.
   `80372e6e7d4b87120ddc2a02b3c0cbdf681bbcbdbaa96f51bd699924912c478a`
   and
   `14f90786537f5893e0dc80c52f180678f40fc089e12a4f724f8ca4b5a6e0e433`.
-  The publication commit and green post-publication CI remain to do.
+  Final PR head `d9de181edb53c2c4c5b30f7142225e21ac05209b` completed with
+  28 successful checks and nine intentional skips. Exact-head native-ARM
+  nightly run `37179550449` and both bootstrap runs `37179527590` and
+  `37179530094` are green. PR #177 merged green-only as
+  `103e49f79baef6905a4f2a86d2531a6d4ba3fa87`; its exact parents are merged
+  #176 `8e006f7cea3184f09ba911ebfa6627c55077f364` and that tested head, and
+  merge/head tree `5d7825b15913aafb37288091e9c0eeba24206ade` is byte-identical.
+- The active `s56.83-arm64-native-ti-headers` tranche starts from exact merged
+  PR #177. The Linux PCRE2, Mbed TLS, Curl, and SQLite campaign lanes no longer
+  force-include the obsolete two-`u64`, non-arithmetic substitute for
+  `__uint128_t`; they use the compiler's completed native TI type in the real
+  hosted headers. Curl and SQLite publish a new
+  `hosted-header.native-ti` closure row, while PCRE2 and Mbed TLS retain
+  explicit `none` header provenance on Linux. The macOS PCRE2 header remains
+  deliberately isolated because it owns the separate Apple SDK `stdarg`
+  collision as well as its now-obsolete integer substitute.
+
+  The replacement `test-arm64-native-ti.sh` contract pins 16-byte width and
+  alignment, `__SIZEOF_INT128__`, constant and cross-limb operations, and O0
+  and O2 code generation on both Linux backends; it also fails if any of the
+  five relevant runners reintroduces the retired Linux overlay. Campaign
+  meta, exact-expected, sole-C provenance, reporting, fleet-SQLite, lint,
+  warning-matrix, format-matrix, pinned clang-format 22, and whitespace gates
+  are green. The current Apple SDK's real `<mach/arm/_structs.h>` parses with
+  the native TI arithmetic fixture. The complete local arm64-macos PCRE2
+  campaign is green with 35 translations, 35 certified project objects, 32
+  archive members, and three linked products. Native Linux PCRE2/Mbed TLS CI
+  and exact Curl/SQLite nightly lanes remain to run before publication.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

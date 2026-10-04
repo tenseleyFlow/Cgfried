@@ -22,7 +22,6 @@ hostcc=${CGF_CAMPAIGN_PCRE2_HOSTCC:-gcc}
 sole=${CGF_CAMPAIGN_PCRE2_SOLE_C:-$root/scripts/campaigns/sole-c.sh}
 jobs=${CGF_CAMPAIGN_JOBS:-}
 cflags=${CGF_CAMPAIGN_PCRE2_CFLAGS:--O2}
-linux_compat=$root/ci/campaigns/compat/arm64-linux-u128-storage.h
 macos_compat=$root/ci/campaigns/compat/arm64-macos-u128-storage.h
 
 [ -x "$cgf" ] || fail "cgfried compiler is missing or not executable: $cgf"
@@ -69,11 +68,7 @@ compiler_target=$("$cgf" -dumpmachine) || fail "cannot query Cgfried's target"
 compat_header=
 compat_policy=none
 case $compiler_target in
-    x86_64-linux-gnu) ;;
-    arm64-linux)
-        compat_header=$linux_compat
-        compat_policy=opaque-u64x2-align16-v1
-        ;;
+    x86_64-linux-gnu | arm64-linux) ;;
     arm64-macos)
         compat_header=$macos_compat
         compat_policy=opaque-u64x2-align16+cgf-stdarg-v1
@@ -196,7 +191,7 @@ configure_stage() {
             ;;
     esac
     [ "$(wc -l <"$u128_matches" | tr -d ' ')" -eq 0 ] ||
-        fail "pinned PCRE2 sources use unsupported integer-128 semantics"
+        fail "pinned PCRE2 sources widened the audited hosted-header-only integer-128 surface"
 
     {
         printf 'version=%s\n' "$PCRE2_VERSION"

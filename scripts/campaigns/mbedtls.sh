@@ -26,7 +26,6 @@ sole=${CGF_CAMPAIGN_MBEDTLS_SOLE_C:-$root/scripts/campaigns/sole-c.sh}
 cc_wrapper=${CGF_CAMPAIGN_MBEDTLS_CC_WRAPPER:-$root/scripts/campaigns/mbedtls-cc.sh}
 jobs=${CGF_CAMPAIGN_JOBS:-}
 cflags=${CGF_CAMPAIGN_MBEDTLS_CFLAGS:--O2}
-linux_compat=$root/ci/campaigns/compat/arm64-linux-u128-storage.h
 default_portable_config=$root/ci/campaigns/mbedtls-default-portable.h
 
 [ -x "$cgf" ] || fail "cgfried compiler is missing or not executable: $cgf"
@@ -66,21 +65,10 @@ make --version 2>/dev/null | grep -F 'GNU Make' >/dev/null ||
     fail "Mbed TLS campaign requires GNU make"
 
 compiler_target=$("$cgf" -dumpmachine) || fail "cannot query Cgfried's target"
-compat_header=
-compat_policy=none
 case $compiler_target in
-    x86_64-linux-gnu) ;;
-    arm64-linux)
-        compat_header=$linux_compat
-        compat_policy=opaque-u64x2-align16-v1
-        ;;
+    x86_64-linux-gnu | arm64-linux) ;;
     *) fail "unsupported native campaign target: $compiler_target" ;;
 esac
-compat_sha256=none
-if [ -n "$compat_header" ]; then
-    [ -r "$compat_header" ] || fail "hosted-header compatibility file is unreadable"
-    compat_sha256=$(sha256sum "$compat_header" | awk '{print $1}')
-fi
 default_portable_config_sha256=$(sha256sum "$default_portable_config" | awk '{print $1}')
 
 as_path=${CGF_AS_PATH:-$(command -v as 2>/dev/null || true)}
@@ -340,9 +328,9 @@ configure_stage() {
             "$default_portable_config_sha256"
         printf 'default_configuration_dialect=c17\n'
         printf 'default_test_scope=static-libraries-and-selftest\n'
-        printf 'compat_policy=%s\n' "$compat_policy"
-        printf 'compat_header=%s\n' "${compat_header:-none}"
-        printf 'compat_header_sha256=%s\n' "$compat_sha256"
+        printf 'hosted_header_policy=native-ti-no-overlay-v1\n'
+        printf 'hosted_header=none\n'
+        printf 'hosted_header_sha256=none\n'
     } >"$work/provenance.txt"
 }
 
@@ -495,7 +483,6 @@ set_wrapper_environment() {
     export CGF_CAMPAIGN_MBEDTLS_RECEIPTS=$active_receipts
     export CGF_CAMPAIGN_MBEDTLS_CGF=$cgf
     export CGF_CAMPAIGN_MBEDTLS_HOSTCC=$hostcc
-    export CGF_CAMPAIGN_MBEDTLS_COMPAT=$compat_header
     export CC=$cc_wrapper HOSTCC=$cc_wrapper
 }
 
