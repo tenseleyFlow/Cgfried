@@ -260,6 +260,10 @@ struct AstNode {
 
     /* AST_DECL / AST_FUNC_DEF */
     const char *name;
+    /* GNU local labels use a private `name` so function-wide maps can keep
+     * sibling declarations distinct.  Statements retain the source spelling
+     * here for diagnostics and AST dumps; NULL means `name` is already it. */
+    const char *label_spelling;
     AstType *type;
     /* AST_EXPR_TYPES_COMPATIBLE: the SECOND type name. `type` holds the
      * first, so the pair rides the node the same way va_arg's does. */

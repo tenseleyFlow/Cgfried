@@ -16,6 +16,23 @@
 
 static AstNode *expr(Sema *s, AstNode *e);
 
+/* Labels do not change the value of a GNU statement expression.  The parser
+ * keeps a single label wrapped around its statement and flattens adjacent
+ * labels into a scope-neutral compound, so look through exactly those two
+ * shapes when deciding whether the final statement is value-producing. */
+static AstNode *stmt_expr_value_stmt(AstNode *st)
+{
+    if (!st)
+        return NULL;
+    if (st->kind == AST_STMT_EXPR)
+        return st;
+    if (st->kind == AST_STMT_LABEL)
+        return stmt_expr_value_stmt(st->body);
+    if (st->kind == AST_STMT_COMPOUND && st->scope_neutral && st->nitems)
+        return stmt_expr_value_stmt(st->items[st->nitems - 1]);
+    return NULL;
+}
+
 static AstNode *poison(Sema *s, AstNode *e)
 {
     if (e) {
@@ -2933,7 +2950,7 @@ static AstNode *expr(Sema *s, AstNode *e)
 
         sema_stmt_in_expr(s, e->lhs);
         if (e->lhs && e->lhs->kind == AST_STMT_COMPOUND && e->lhs->nitems)
-            last = e->lhs->items[e->lhs->nitems - 1];
+            last = stmt_expr_value_stmt(e->lhs->items[e->lhs->nitems - 1]);
         if (last && last->kind == AST_STMT_EXPR && last->lhs &&
             last->lhs->sem_type)
             e->sem_type = last->lhs->sem_type;

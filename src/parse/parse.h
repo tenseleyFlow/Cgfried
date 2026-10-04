@@ -22,10 +22,21 @@ typedef struct ScopeEntry {
     struct ScopeEntry *next;
 } ScopeEntry;
 
+/* GNU `__label__` gives a label block scope without changing the scope of
+ * ordinary C labels.  The source spelling remains the lookup key; the
+ * private name is what rides the AST and all later function-wide maps. */
+typedef struct LocalLabelEntry {
+    const char *name;         /* interned source spelling */
+    const char *private_name; /* unique within the translation unit */
+    Span decl_span;
+    struct LocalLabelEntry *next;
+} LocalLabelEntry;
+
 typedef struct ParseScope {
-    ScopeEntry *ordinary;  /* ordinary identifiers (vars, typedefs, enums) */
-    ScopeEntry *tags;      /* struct/union/enum tags — separate namespace */
-    Ptrmap ordinary_index; /* interned name -> newest ordinary entry */
+    ScopeEntry *ordinary; /* ordinary identifiers (vars, typedefs, enums) */
+    ScopeEntry *tags;     /* struct/union/enum tags — separate namespace */
+    LocalLabelEntry *local_labels; /* GNU block-scoped label declarations */
+    Ptrmap ordinary_index;         /* interned name -> newest ordinary entry */
     struct ParseScope *parent;
 } ParseScope;
 
@@ -35,8 +46,12 @@ typedef struct ParseScope {
  * definitions are collected per function and reconciled at the closing
  * brace, which is the first moment "undefined label" is knowable. */
 typedef struct LabelEntry {
-    const char *name; /* interned */
+    const char *name;         /* function-unique identity */
+    const char *display_name; /* source spelling for diagnostics */
     bool defined;
+    bool used;
+    bool local_decl;
+    Span decl_span;
     Span first_use; /* for the undefined-label diagnostic */
     struct LabelEntry *next;
 } LabelEntry;
@@ -74,6 +89,7 @@ typedef struct Parser {
     u32 loop_depth;     /* `continue` outside a loop is an error */
     u32 break_depth;    /* loops AND switches both accept `break` */
     LabelEntry *labels; /* reset per function definition */
+    u32 local_label_serial;
     bool in_func_body;
     /* Name of the function whose body is being parsed. C11 6.4.2.2 makes
      * `__func__` behave as an implicit `static const char[]` definition in

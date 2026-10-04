@@ -10,6 +10,7 @@
 typedef struct LabelUse LabelUse;
 struct LabelUse {
     const char *name;
+    const char *display_name;
     Span span;
     bool defined;
     bool used;
@@ -45,7 +46,8 @@ static LabelUse *label_find(LabelUse *labels, const char *name)
     return NULL;
 }
 
-static LabelUse *label_get(Sema *s, LabelUse **labels, const char *name)
+static LabelUse *label_get(Sema *s, LabelUse **labels, const char *name,
+                           const char *display_name)
 {
     LabelUse *label = label_find(*labels, name);
 
@@ -54,6 +56,7 @@ static LabelUse *label_get(Sema *s, LabelUse **labels, const char *name)
     label = arena_alloc(s->arena, sizeof(*label), _Alignof(LabelUse));
     memset(label, 0, sizeof(*label));
     label->name = name;
+    label->display_name = display_name ? display_name : name;
     label->next = *labels;
     *labels = label;
     return label;
@@ -83,7 +86,7 @@ static void collect_labels(Sema *s, AstNode *st, LabelUse **labels)
         collect_labels(s, st->body, labels);
         return;
     case AST_STMT_LABEL: {
-        LabelUse *label = label_get(s, labels, st->name);
+        LabelUse *label = label_get(s, labels, st->name, st->label_spelling);
 
         if (label) {
             label->defined = true;
@@ -93,7 +96,7 @@ static void collect_labels(Sema *s, AstNode *st, LabelUse **labels)
         return;
     }
     case AST_STMT_GOTO: {
-        LabelUse *label = label_get(s, labels, st->name);
+        LabelUse *label = label_get(s, labels, st->name, st->label_spelling);
 
         if (label)
             label->used = true;
@@ -114,7 +117,7 @@ static void warn_unused_labels(Sema *s, AstNode *body)
         if (label->defined && !label->used)
             warn_at_ex(s->lang->warnings, WARN_UNUSED_LABEL, label->span,
                        WARN_SUPPRESS_IN_MACRO,
-                       "label '%s' defined but not used", label->name);
+                       "label '%s' defined but not used", label->display_name);
 }
 
 static bool contains_switch_label(AstNode *st)
