@@ -399,7 +399,7 @@ transparent-union tranche merged green-only as
 `8e006f7cea3184f09ba911ebfa6627c55077f364`, and PR #177's GNU local-label
 tranche merged green-only as `103e49f79baef6905a4f2a86d2531a6d4ba3fa87`.
 PR #178's ARM64 Linux native-TI hosted-header tranche merged green-only as
-`c4137b7ce2fa5f831f462340ba0e25d709441dda`. The active
+`c4137b7ce2fa5f831f462340ba0e25d709441dda`. Active PR #179's
 `s56.84-arm64-macos-stdarg-only` tranche starts from that exact merge and
 removes the corresponding obsolete integer-128 substitution from the macOS
 campaign header while preserving its independently required `va_list` guard.
@@ -9632,9 +9632,9 @@ and green post-publication CI.
   `c4137b7ce2fa5f831f462340ba0e25d709441dda`; its exact parents are merged
   #177 `103e49f79baef6905a4f2a86d2531a6d4ba3fa87` and that tested head, and
   merge/head tree `de1018bdbdf280e7abe44a26fa068338d01e92de` is byte-identical.
-- The active `s56.84-arm64-macos-stdarg-only` tranche starts from exact merged
-  PR #178. Its baseline reproducer proves the two independent behaviors in
-  the former combined header: without a guard, Apple
+- Active PR #179's `s56.84-arm64-macos-stdarg-only` tranche starts from exact
+  merged PR #178. Its baseline reproducer proves the two independent behaviors
+  in the former combined header: without a guard, Apple
   `sys/_types/_va_list.h` selects its non-GCC `void *` fallback and conflicts
   with Cgfried's shipped `va_list`; with the old header, the conflict is
   hidden but native TI casts and arithmetic fail because `__uint128_t` is
@@ -9652,7 +9652,12 @@ and green post-publication CI.
   provenance records policy `cgf-stdarg-va-list-v1` and header SHA-256
   `57b98ce71103063ad43e97272ac3ce9c322ec03b76487b6e8db233f5bb3c617c`.
   Campaign meta, warning/format matrices, pinned clang-format 22, and
-  whitespace gates are green. PR publication and CI remain to do.
+  whitespace gates are green. Implementation head
+  `9c913f2ec85267743f5b272e3ba5ea362fc78530` completed with 28 successful
+  checks and nine intentional skips. Standard run `37228755099`, exact-head
+  15-job nightly `37228772384`, and both bootstrap runs `37228751923` and
+  `37228755122` are fully green; the standard macOS job proves the new real-
+  SDK boundary and the 100,000-iteration sanitizer fuzz job is clean.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
