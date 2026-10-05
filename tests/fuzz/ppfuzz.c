@@ -399,10 +399,11 @@ int main(int argc, char **argv)
             }
             findings++;
         } else if (diff_mode && code == 0 &&
-                   !buf_mentions(&mutated, "__GNUC__")) {
-            /* __GNUC__ is a DELIBERATE divergence (we do not define it
-             * until Sprint 55 — see pp_predefine_all's policy comment), so
-             * inputs testing it are not fuzz findings. */
+                   !buf_mentions(&mutated, "__GNUC")) {
+            /* The __GNUC identity FAMILY is a deliberate dialect-scoped
+             * divergence: strict ISO mode withholds both the version tuple
+             * and the selected GNU inline-model spelling. Inputs testing any
+             * member are therefore not differential fuzz findings. */
             bool ok2, to2;
             int sig2;
             int gcode = run_pp("gcc", path, &theirs, &ok2, &to2, &sig2);

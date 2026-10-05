@@ -9684,13 +9684,19 @@ and green post-publication CI.
   against the real Apple SDK with no forced preprocessor header. Accordingly,
   `arm64-macos-self-syntax.h` is deleted; benchmark and runtime drivers retain
   only the independently required `va_list`/XNU include-next overlay and
-  record `arm64-macos-self-sdk-overlay-v3`. Both harness meta-tests are green,
-  as is a 2,000-iteration crash/hang preprocessor fuzz smoke. The monolithic
-  local `make test` remains inapplicable on Apple Silicon because host Clang
-  rejects the documented runtime `mode(TF)` carrier before tests execute;
-  focused Mac-native evidence and hosted CI divide that platform boundary
-  honestly. Implementation head is
-  `1b45b4ab28a5535e0b8ed453f58d0b4c5cdf4733`; CI is running.
+  record `arm64-macos-self-sdk-overlay-v3`. Both harness meta-tests are green.
+  Adding the new program fixture shifted the deterministic fuzz corpus and
+  exposed an old policy-filter defect at seed 1745: strict-mode
+  `__GNUC_STDC_INLINE__` was an intended identity divergence, but the filter
+  matched only the exact `__GNUC__` spelling. The filter now covers the whole
+  `__GNUC*` identity family; both 2,000-iteration crash/hang and differential
+  preprocessor fuzz smokes are green. The monolithic local `make test` remains
+  inapplicable on Apple Silicon because host Clang rejects the documented
+  runtime `mode(TF)` carrier before tests execute; focused Mac-native evidence
+  and hosted CI divide that platform boundary honestly. Native operator
+  implementation head is
+  `1b45b4ab28a5535e0b8ed453f58d0b4c5cdf4733`; final CI is pending the
+  fuzz-policy follow-up.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
