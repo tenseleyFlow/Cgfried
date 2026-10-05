@@ -9690,13 +9690,16 @@ and green post-publication CI.
   `__GNUC_STDC_INLINE__` was an intended identity divergence, but the filter
   matched only the exact `__GNUC__` spelling. The filter now covers the whole
   `__GNUC*` identity family; both 2,000-iteration crash/hang and differential
-  preprocessor fuzz smokes are green. The monolithic local `make test` remains
+  preprocessor fuzz smokes are green. The fixture also deliberately changes
+  the frontend fuzzer's sorted-corpus sequence; its 5,000-iteration digest is
+  repinned from `4d85674d6a54a03f` to independently matching local and hosted
+  value `b31c6e8300a19916`. The monolithic local `make test` remains
   inapplicable on Apple Silicon because host Clang rejects the documented
   runtime `mode(TF)` carrier before tests execute; focused Mac-native evidence
   and hosted CI divide that platform boundary honestly. Native operator
   implementation head is
-  `1b45b4ab28a5535e0b8ed453f58d0b4c5cdf4733`; final CI is pending the
-  fuzz-policy follow-up.
+  `1b45b4ab28a5535e0b8ed453f58d0b4c5cdf4733`; final CI is pending the digest
+  follow-up.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
