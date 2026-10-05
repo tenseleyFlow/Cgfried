@@ -9698,8 +9698,12 @@ and green post-publication CI.
   runtime `mode(TF)` carrier before tests execute; focused Mac-native evidence
   and hosted CI divide that platform boundary honestly. Native operator
   implementation head is
-  `1b45b4ab28a5535e0b8ed453f58d0b4c5cdf4733`; final CI is pending the digest
-  follow-up.
+  `1b45b4ab28a5535e0b8ed453f58d0b4c5cdf4733`. Final evidence head
+  `21bf9f4572449038053fc64350c2649410ce77f7` completed with 28 successful
+  checks and nine intentional skips. Standard run `37339740517`, push
+  bootstrap `37339733799`, and synthetic-merge bootstrap `37339740466` are
+  fully green; the standard run includes the clean 100,000-iteration frontend
+  fuzz job. PR #180 remains open pending green-only merge review.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
