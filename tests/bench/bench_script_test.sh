@@ -56,21 +56,17 @@ grep -Fx -- '-include' "$WORK/macos/argv.log" >/dev/null ||
 [ "$(grep -Fxc "$ROOT/tests/bench/compat/arm64-macos-syntax.h" \
     "$WORK/macos/argv.log")" -eq 1 ] ||
     fail "SQLite compatibility header was not scoped to one lane"
-[ "$(grep -Fxc "$ROOT/tests/bench/compat/arm64-macos-self-syntax.h" \
-    "$WORK/macos/argv.log")" -eq 1 ] ||
-    fail "self compatibility header was not scoped to one lane"
+if grep -F 'arm64-macos-self-syntax.h' "$WORK/macos/argv.log" >/dev/null; then
+    fail "retired self compatibility header was still forced"
+fi
 [ "$(grep -Fxc "$ROOT/tests/bench/compat/arm64-macos-self-overlay" \
     "$WORK/macos/argv.log")" -eq 1 ] ||
     fail "self SDK overlay was not scoped to one lane"
-if grep -Eq '^[[:space:]]*#[[:space:]]*include' \
-    "$ROOT/tests/bench/compat/arm64-macos-self-syntax.h"; then
-    fail "forced self compatibility header expanded the measured include surface"
-fi
 grep -Fx 'sqlite3.status=measured' "$WORK/macos/results.txt" >/dev/null ||
     fail "SQLite lane was not measured"
 grep -Fx 'self.status=measured' "$WORK/macos/results.txt" >/dev/null ||
     fail "self lane was not measured"
-grep -F ':1-files:arm64-macos-self-sdk-syntax-v2' \
+grep -F ':1-files:arm64-macos-self-sdk-overlay-v3' \
     "$WORK/macos/results.txt" >/dev/null || fail "self compatibility provenance missing"
 grep -Fx 'many-tu.status=measured' "$WORK/macos/results.txt" >/dev/null ||
     fail "many-tu lane was not measured"

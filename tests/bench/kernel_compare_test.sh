@@ -272,9 +272,9 @@ for field_value in control_protocol=fleet-control-v2 \
 done
 grep -Fx 'host=nomad-1' "$tmp/macos-control.log" >/dev/null ||
     fail "Darwin classifier input lacks host provenance"
-[ "$(grep -Fxc "$repo/tests/bench/compat/arm64-macos-self-syntax.h" \
-    "$tmp/runtime-cgf.log")" -eq 1 ] ||
-    fail "macOS compatibility header was not scoped to the cgf runtime compile"
+if grep -F 'arm64-macos-self-syntax.h' "$tmp/runtime-cgf.log" >/dev/null; then
+    fail "retired macOS compatibility header was still forced"
+fi
 [ "$(grep -Fxc "$repo/tests/bench/compat/arm64-macos-self-overlay" \
     "$tmp/runtime-cgf.log")" -eq 1 ] ||
     fail "macOS SDK overlay was not scoped to the cgf runtime compile"

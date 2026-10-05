@@ -245,6 +245,7 @@ typedef enum {
     MACRO_BUILTIN_FILE,    /* __FILE__: presumed path (honors #line) */
     MACRO_BUILTIN_LINE,    /* __LINE__: presumed line of the invocation */
     MACRO_BUILTIN_COUNTER, /* __COUNTER__: per-TU counter from 0 (gcc ext) */
+    MACRO_BUILTIN_HAS_INCLUDE, /* __has_include: #if-only header probe */
 } MacroBuiltinKind;
 
 typedef struct MacroDef {
@@ -637,6 +638,11 @@ SourceFile *pp_predefine_all(Preprocessor *pp);
  * #line arguments, argument pre-expansion). No cross-boundary rescan: a
  * function-like name whose `(` is not inside the list stays unexpanded. */
 u32 pp_expand_list(Preprocessor *pp, const PpToken *in, u32 n, PpToken **out);
+
+/* Side-effect-free include search for __has_include. This follows the active
+ * file's quote/angle chain but never loads a source, enters an include guard,
+ * records a dependency, or changes the include statistics. */
+bool pp_header_exists(Preprocessor *pp, const char *name, bool angled);
 
 /* Stream-side expansion attempt for one identifier token: returns true if
  * it consumed the token (expansion output pushed onto the rescan stack, or

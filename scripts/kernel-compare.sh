@@ -402,9 +402,7 @@ compile_runtime_cgf()
     shift 4
 
     if [ "$compile_target" = arm64-macos ]; then
-        set -- -include \
-            "$repo/tests/bench/compat/arm64-macos-self-syntax.h" \
-            -I "$repo/tests/bench/compat/arm64-macos-self-overlay" "$@"
+        set -- -I "$repo/tests/bench/compat/arm64-macos-self-overlay" "$@"
     fi
     if [ -n "$as_path" ]; then
         CGF_AS_PATH=$as_path "$cgf" --target="$compile_target" \
