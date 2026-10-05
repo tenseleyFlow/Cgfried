@@ -399,11 +399,15 @@ transparent-union tranche merged green-only as
 `8e006f7cea3184f09ba911ebfa6627c55077f364`, and PR #177's GNU local-label
 tranche merged green-only as `103e49f79baef6905a4f2a86d2531a6d4ba3fa87`.
 PR #178's ARM64 Linux native-TI hosted-header tranche merged green-only as
-`c4137b7ce2fa5f831f462340ba0e25d709441dda`. Active PR #179's
-`s56.84-arm64-macos-stdarg-only` tranche starts from that exact merge and
-removes the corresponding obsolete integer-128 substitution from the macOS
-campaign header while preserving its independently required `va_list` guard.
-The detailed ledger below records its current evidence.
+`c4137b7ce2fa5f831f462340ba0e25d709441dda`. PR #179's
+`s56.84-arm64-macos-stdarg-only` tranche merged green-only as
+`e90de2cdfcb9b55dd2c609204a213c53203ec451`; it removes the corresponding
+obsolete integer-128 substitution from the macOS campaign header while
+preserving its independently required `va_list` guard. Active PR #180's
+`s56.85-pp-has-include` tranche starts from that exact merge and replaces the
+Apple self-build compatibility definition with a native, side-effect-free
+`__has_include` operator. The detailed ledger below records its current
+evidence.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9632,7 +9636,7 @@ and green post-publication CI.
   `c4137b7ce2fa5f831f462340ba0e25d709441dda`; its exact parents are merged
   #177 `103e49f79baef6905a4f2a86d2531a6d4ba3fa87` and that tested head, and
   merge/head tree `de1018bdbdf280e7abe44a26fa068338d01e92de` is byte-identical.
-- Active PR #179's `s56.84-arm64-macos-stdarg-only` tranche starts from exact
+- PR #179's `s56.84-arm64-macos-stdarg-only` tranche starts from exact
   merged PR #178. Its baseline reproducer proves the two independent behaviors
   in the former combined header: without a guard, Apple
   `sys/_types/_va_list.h` selects its non-GCC `void *` fallback and conflicts
@@ -9658,6 +9662,35 @@ and green post-publication CI.
   15-job nightly `37228772384`, and both bootstrap runs `37228751923` and
   `37228755122` are fully green; the standard macOS job proves the new real-
   SDK boundary and the 100,000-iteration sanitizer fuzz job is clean.
+  PR #179 merged green-only as
+  `e90de2cdfcb9b55dd2c609204a213c53203ec451`; its exact parents are merged
+  #178 `c4137b7ce2fa5f831f462340ba0e25d709441dda` and tested head
+  `d25ee8406d58da7672109b601c41273f44842762`, and merge/head tree
+  `6784db65fab23a94549f2ece7cf5cebd125576e4` is byte-identical.
+- Active PR #180's `s56.85-pp-has-include` tranche starts from exact merged
+  PR #179. The preprocessor now exposes `__has_include` as a builtin operator
+  visible to `defined`, `#ifdef`, and Apple SDK fallback guards. Quote and
+  angle operands follow the active include-search graph after ordinary macro
+  expansion; probes only `fopen`/`fstat` candidate paths and never load a
+  source, record a dependency, enter a guard, or perturb include statistics.
+  Source redefinition and `#undef` retain the existing builtin-macro warning
+  and override semantics.
+
+  Four focused unit tests pin quote, angle, macro-operand, absent-header,
+  malformed-operand, redefinition/undefinition, and probe-then-include
+  behavior. They pass normally and under ASan+UBSan; all 47 preprocessor unit
+  tests (495 assertions) and all 58 native `arm64-macos` preprocessor program
+  fixtures are green. The complete non-runtime `src/*.c` self corpus parses
+  against the real Apple SDK with no forced preprocessor header. Accordingly,
+  `arm64-macos-self-syntax.h` is deleted; benchmark and runtime drivers retain
+  only the independently required `va_list`/XNU include-next overlay and
+  record `arm64-macos-self-sdk-overlay-v3`. Both harness meta-tests are green,
+  as is a 2,000-iteration crash/hang preprocessor fuzz smoke. The monolithic
+  local `make test` remains inapplicable on Apple Silicon because host Clang
+  rejects the documented runtime `mode(TF)` carrier before tests execute;
+  focused Mac-native evidence and hosted CI divide that platform boundary
+  honestly. Implementation head is
+  `1b45b4ab28a5535e0b8ed453f58d0b4c5cdf4733`; CI is running.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
