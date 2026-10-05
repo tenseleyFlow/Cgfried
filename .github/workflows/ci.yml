@@ -768,9 +768,10 @@ jobs:
   # Apple's. Both lanes skip loudly off arm64 Darwin, so this runner is the
   # only place they actually execute.
   #
-  # Hosted programs are NOT compiled here: Apple's headers use __attribute__
-  # unconditionally and __DARWIN_ALIAS needs asm labels, both Sprint 55.
-  # Everything below is freestanding by construction.
+  # Complete hosted programs are not compiled here: broader Apple headers
+  # still reach separately named extension boundaries. The audited stdarg/TI
+  # step below is a deliberately narrow hosted-header contract; every other
+  # lane remains freestanding by construction.
   macos-arm64:
     runs-on: macos-15
     steps:
@@ -805,6 +806,8 @@ jobs:
             echo "runner produced $got, not arm64-macos" >&2
             exit 1
           }
+      - name: Apple stdarg guard with native integer-128
+        run: ci/campaigns/test-arm64-macos-stdarg.sh build/cgfried
       - name: ABI programs, both linkers, signatures checked
         run: |
           sh tests/macos/run.sh build/cgfried > macos-lane.log 2>&1 || s=$?

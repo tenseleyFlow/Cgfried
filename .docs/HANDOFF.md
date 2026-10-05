@@ -394,14 +394,16 @@ PR #174's typedef-view reverse-order tranche merged green-only as
 to tested head `6c2c9732778795416cc2522085851b0cc4abf249`. PR #175's
 binary128 reverse-order tranche merged green-only as
 `71f1c889471840b8eb445d56cb46ecec4d019798`; merge/head tree
-`0bbeafab724fdb1c68b07ec448e11a3bc76db2bb` is byte-identical. The active
-PR #176's transparent-union tranche merged green-only as
+`0bbeafab724fdb1c68b07ec448e11a3bc76db2bb` is byte-identical. PR #176's
+transparent-union tranche merged green-only as
 `8e006f7cea3184f09ba911ebfa6627c55077f364`, and PR #177's GNU local-label
 tranche merged green-only as `103e49f79baef6905a4f2a86d2531a6d4ba3fa87`.
-The active `s56.83-arm64-native-ti-headers` tranche starts from that exact
-merge and retires the obsolete Linux integer-128 hosted-header overlay. The
-detailed ledger below records its current evidence and remaining native-Linux
-campaign proof.
+PR #178's ARM64 Linux native-TI hosted-header tranche merged green-only as
+`c4137b7ce2fa5f831f462340ba0e25d709441dda`. Active PR #179's
+`s56.84-arm64-macos-stdarg-only` tranche starts from that exact merge and
+removes the corresponding obsolete integer-128 substitution from the macOS
+campaign header while preserving its independently required `va_list` guard.
+The detailed ledger below records its current evidence.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9595,7 +9597,7 @@ and green post-publication CI.
   `103e49f79baef6905a4f2a86d2531a6d4ba3fa87`; its exact parents are merged
   #176 `8e006f7cea3184f09ba911ebfa6627c55077f364` and that tested head, and
   merge/head tree `5d7825b15913aafb37288091e9c0eeba24206ade` is byte-identical.
-- The active `s56.83-arm64-native-ti-headers` tranche starts from exact merged
+- The `s56.83-arm64-native-ti-headers` tranche started from exact merged
   PR #177. The Linux PCRE2, Mbed TLS, Curl, and SQLite campaign lanes no longer
   force-include the obsolete two-`u64`, non-arithmetic substitute for
   `__uint128_t`; they use the compiler's completed native TI type in the real
@@ -9622,8 +9624,40 @@ and green post-publication CI.
   nightly run `37182266303` is fully green; its native x86-64 and ARM64 Curl
   and SQLite jobs all pass the updated exact-result closure, alongside the
   rest of the nightly matrix. This proves all four affected FOSS projects on
-  both Linux architectures with no integer-128 overlay. Final
-  post-publication standard and bootstrap CI remain to run.
+  both Linux architectures with no integer-128 overlay. Final PR head
+  `8a19e70dd33c23b9b4be5684f08531f06ec04395` completed with 28 successful
+  checks and nine intentional skips. Standard run `37182897584`, exact-head
+  15-job nightly `37182903435`, and both bootstrap runs `37182895519` and
+  `37182897585` are fully green. PR #178 merged green-only as
+  `c4137b7ce2fa5f831f462340ba0e25d709441dda`; its exact parents are merged
+  #177 `103e49f79baef6905a4f2a86d2531a6d4ba3fa87` and that tested head, and
+  merge/head tree `de1018bdbdf280e7abe44a26fa068338d01e92de` is byte-identical.
+- Active PR #179's `s56.84-arm64-macos-stdarg-only` tranche starts from exact
+  merged PR #178. Its baseline reproducer proves the two independent behaviors
+  in the former combined header: without a guard, Apple
+  `sys/_types/_va_list.h` selects its non-GCC `void *` fallback and conflicts
+  with Cgfried's shipped `va_list`; with the old header, the conflict is
+  hidden but native TI casts and arithmetic fail because `__uint128_t` is
+  macro-replaced by an aggregate.
+
+  The replacement `arm64-macos-stdarg.h` now includes Cgfried's `stdarg.h`
+  and sets only Apple's public `_VA_LIST_T` guard. It defines no replacement
+  type. The permanent meta-test rejects any restored integer-128 substitute,
+  rejects non-macOS targets, and emits the combined variadic/native-TI fixture
+  at O0 and O2. On a native Mac it additionally compiles the real Apple
+  `sys/_types/_va_list.h` and `mach/arm/_structs.h` surfaces at both levels;
+  the same check is now a required `macos-arm64` CI step. The complete local
+  arm64-macos PCRE2 campaign passes exact closure with 35 translations, 35
+  certified project objects, 32 archive members, and three linked products;
+  provenance records policy `cgf-stdarg-va-list-v1` and header SHA-256
+  `57b98ce71103063ad43e97272ac3ce9c322ec03b76487b6e8db233f5bb3c617c`.
+  Campaign meta, warning/format matrices, pinned clang-format 22, and
+  whitespace gates are green. Implementation head
+  `9c913f2ec85267743f5b272e3ba5ea362fc78530` completed with 28 successful
+  checks and nine intentional skips. Standard run `37228755099`, exact-head
+  15-job nightly `37228772384`, and both bootstrap runs `37228751923` and
+  `37228755122` are fully green; the standard macOS job proves the new real-
+  SDK boundary and the 100,000-iteration sanitizer fuzz job is clean.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
