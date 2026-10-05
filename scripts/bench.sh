@@ -329,13 +329,12 @@ arm64-linux)
     ;;
 arm64-macos)
     # Keep the self corpus complete while insulating its syntax-only parse
-    # from Apple SDK declarations that require Clang preprocessor extensions
-    # or redeclare the va_list supplied by Cgfried's shipped stdarg.h.  The
-    # overlay intervenes only when a source naturally reaches those SDK
-    # headers; the forced header itself includes no unrelated SDK surface.
-    set -- -include "$ROOT/tests/bench/compat/arm64-macos-self-syntax.h" \
-        -I "$ROOT/tests/bench/compat/arm64-macos-self-overlay" "$@"
-    self_corpus="$self_corpus:arm64-macos-self-sdk-syntax-v2"
+    # from the SDK's second va_list typedef and private XNU layout assertions.
+    # Native __has_include support means no preprocessor compatibility header
+    # is forced into every measured translation unit. The overlay intervenes
+    # only when a source naturally reaches one of those SDK boundaries.
+    set -- -I "$ROOT/tests/bench/compat/arm64-macos-self-overlay" "$@"
+    self_corpus="$self_corpus:arm64-macos-self-sdk-overlay-v3"
     ;;
 esac
 run_lane self "$self_corpus" -Wno-mem -Wno-return-type \

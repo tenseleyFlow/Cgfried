@@ -316,6 +316,12 @@ bool pp_try_expand(Preprocessor *pp, const PpToken *t)
     if (!m)
         return false;
 
+    if (m->builtin_kind == MACRO_BUILTIN_HAS_INCLUDE) {
+        pp_diag_at(pp, DIAG_ERROR, t->loc, t->len,
+                   "operator '__has_include' may only be used in a "
+                   "preprocessing conditional");
+        return false;
+    }
     if (m->builtin_kind != MACRO_BUILTIN_NONE) {
         PpToken *one =
             arena_alloc(pp->arena, sizeof(PpToken), _Alignof(PpToken));
@@ -636,6 +642,52 @@ static size_t include_next_start(const PpFrame *frame, const PpSearchDir *chain,
     CGF_ICE("pp: #include_next origin missing from reconstructed chain "
             "(kind=%d index=%d)",
             (int)frame->found_kind, frame->found_index);
+}
+
+static bool header_exists_at(Preprocessor *pp, const char *dir,
+                             const char *name)
+{
+    size_t dlen = strlen(dir), nlen = strlen(name);
+    char *path = arena_alloc(pp->arena, dlen + nlen + 2, 1);
+    FILE *probe;
+    struct stat st;
+    bool exists;
+
+    if (strcmp(dir, ".") == 0) {
+        memcpy(path, name, nlen + 1);
+    } else {
+        memcpy(path, dir, dlen);
+        path[dlen] = '/';
+        memcpy(path + dlen + 1, name, nlen + 1);
+    }
+    probe = fopen(path, "rb");
+    if (!probe)
+        return false;
+    exists = fstat(fileno(probe), &st) == 0 && S_ISREG(st.st_mode);
+    fclose(probe);
+    return exists;
+}
+
+bool pp_header_exists(Preprocessor *pp, const char *name, bool angled)
+{
+    PpSearchDir chain[2 + 3 * PP_MAX_DIRS];
+    const char *includer_dir = ".";
+    PpDirIdentity includer_identity = {0};
+    size_t n, i;
+
+    if (!name[0])
+        return false;
+    if (name[0] == '/')
+        return header_exists_at(pp, "", name + 1);
+    if (!angled && cur_frame(pp))
+        source_dir_info(pp, cur_frame(pp)->lx.sf, &includer_dir,
+                        &includer_identity);
+    n = build_chain(pp, angled, includer_dir, includer_identity, chain,
+                    CGF_ARRAY_LEN(chain));
+    for (i = 0; i < n; i++)
+        if (header_exists_at(pp, chain[i].dir, name))
+            return true;
+    return false;
 }
 
 static SourceFile *try_open(Preprocessor *pp, const char *dir, const char *name,

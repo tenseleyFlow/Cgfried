@@ -516,6 +516,7 @@ PpToken pp_builtin_token(Preprocessor *pp, const MacroDef *m, SrcLoc loc)
     case MACRO_BUILTIN_COUNTER:
         snprintf(buf, sizeof(buf), "%u", (unsigned)pp->counter++);
         return make_tok(pp, PPTOK_PPNUM, buf, loc, 0);
+    case MACRO_BUILTIN_HAS_INCLUDE:
     case MACRO_BUILTIN_NONE:
         break;
     }
@@ -991,6 +992,18 @@ u32 pp_expand_list(Preprocessor *pp, const PpToken *in, u32 n, PpToken **out)
             i++;
             continue;
         }
+        if (m->builtin_kind == MACRO_BUILTIN_HAS_INCLUDE) {
+            /* Unlike value-producing dynamic builtins, __has_include is an
+             * operator. In a conditional its operand must undergo ordinary
+             * macro expansion before ppexpr resolves the search. */
+            if (!pp->in_if_line)
+                pp_diag_at(pp, DIAG_ERROR, t.loc, t.len,
+                           "operator '__has_include' may only be used in a "
+                           "preprocessing conditional");
+            PpTokVec_push(&res, t);
+            i++;
+            continue;
+        }
         if (m->builtin_kind != MACRO_BUILTIN_NONE) {
             PpToken b = pp_builtin_token(pp, m, t.loc);
             b.flags |= t.flags & (PPTOK_F_SPACE | PPTOK_F_BOL);
@@ -1247,6 +1260,7 @@ SourceFile *pp_predefine_all(Preprocessor *pp)
     register_dynamic(pp, "__FILE__", MACRO_BUILTIN_FILE);
     register_dynamic(pp, "__LINE__", MACRO_BUILTIN_LINE);
     register_dynamic(pp, "__COUNTER__", MACRO_BUILTIN_COUNTER);
+    register_dynamic(pp, "__has_include", MACRO_BUILTIN_HAS_INCLUDE);
     return sf;
 }
 

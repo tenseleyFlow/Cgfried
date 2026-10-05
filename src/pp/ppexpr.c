@@ -581,9 +581,11 @@ static PpVal eval_cond(EvalCtx *c, bool live)
 /* Replace `defined` and GNU `#predicate(answer)` operators before ordinary
  * macro expansion so their operands stay raw. A second pass handles either
  * operator when macro expansion produces it; generated `defined` is UB per
- * 6.10.1p4, but gcc evaluates it, so both extensions follow the same seam. */
+ * 6.10.1p4, but gcc evaluates it, so both extensions follow the same seam.
+ * __has_include is replaced only on that second pass: macros in its header
+ * operand must expand first. */
 static u32 replace_operators(Preprocessor *pp, const PpToken *in, u32 n,
-                             PpToken *out, bool *ok)
+                             PpToken *out, bool after_expansion, bool *ok)
 {
     u32 i = 0, o = 0;
 
@@ -615,6 +617,78 @@ static u32 replace_operators(Preprocessor *pp, const PpToken *in, u32 n,
             out[o].len = 1;
             out[o].loc = loc;
             o++;
+        } else if (after_expansion && in[i].kind == PPTOK_IDENT &&
+                   strcmp(in[i].spelling, "__has_include") == 0) {
+            const MacroDef *m = pp_macro_lookup(pp, "__has_include");
+
+            if (m && m->builtin_kind == MACRO_BUILTIN_HAS_INCLUDE) {
+                u32 j = i + 1;
+                u32 close;
+                char *name = NULL;
+                bool angled = false;
+                bool value;
+
+                if (j >= n || in[j].kind != PPTOK_PUNCT ||
+                    in[j].punct != PUNCT_LPAREN) {
+                    pp_diag_at(pp, DIAG_ERROR, in[i].loc, in[i].len,
+                               "operator '__has_include' requires a "
+                               "parenthesized header name");
+                    *ok = false;
+                    return 0;
+                }
+                j++;
+                if (j < n && in[j].kind == PPTOK_STRLIT && in[j].len >= 2 &&
+                    in[j].spelling[0] == '"' &&
+                    in[j].spelling[in[j].len - 1] == '"') {
+                    name = arena_strndup(pp->arena, in[j].spelling + 1,
+                                         in[j].len - 2);
+                    close = j + 1;
+                } else if (j < n && in[j].kind == PPTOK_PUNCT &&
+                           in[j].punct == PUNCT_LT) {
+                    Buf b;
+                    u32 k;
+
+                    angled = true;
+                    buf_init(&b);
+                    for (k = j + 1; k < n; k++) {
+                        if (in[k].kind == PPTOK_PUNCT &&
+                            in[k].punct == PUNCT_GT)
+                            break;
+                        if (b.len && (in[k].flags & PPTOK_F_SPACE))
+                            buf_push_u8(&b, ' ');
+                        buf_append(&b, in[k].spelling, in[k].len);
+                    }
+                    if (k < n && b.len) {
+                        name = arena_strndup(pp->arena, (const char *)b.data,
+                                             b.len);
+                        close = k + 1;
+                    } else {
+                        close = n;
+                    }
+                    buf_free(&b);
+                } else {
+                    close = n;
+                }
+                if (!name || close >= n || in[close].kind != PPTOK_PUNCT ||
+                    in[close].punct != PUNCT_RPAREN) {
+                    pp_diag_at(pp, DIAG_ERROR, in[i].loc, in[i].len,
+                               "operator '__has_include' expects "
+                               "\"FILENAME\" or <FILENAME>");
+                    *ok = false;
+                    return 0;
+                }
+                value = pp_header_exists(pp, name, angled);
+                memset(&out[o], 0, sizeof(PpToken));
+                out[o].kind = PPTOK_PPNUM;
+                out[o].spelling = value ? "1" : "0";
+                out[o].len = 1;
+                out[o].loc = in[i].loc;
+                out[o].flags = in[i].flags;
+                o++;
+                i = close + 1;
+                continue;
+            }
+            out[o++] = in[i++];
         } else if (in[i].kind == PPTOK_PUNCT && in[i].punct == PUNCT_HASH) {
             u32 consumed = 0;
             bool valid;
@@ -654,7 +728,7 @@ bool pp_eval_condition(Preprocessor *pp, const PpToken *toks, u32 n, SrcLoc loc)
     }
 
     scratch = arena_alloc(pp->arena, n * sizeof(PpToken), _Alignof(PpToken));
-    sn = replace_operators(pp, toks, n, scratch, &ok);
+    sn = replace_operators(pp, toks, n, scratch, false, &ok);
     if (!ok)
         return false;
     {
@@ -668,7 +742,7 @@ bool pp_eval_condition(Preprocessor *pp, const PpToken *toks, u32 n, SrcLoc loc)
         pp->in_if_line = false;
         scratch = arena_alloc(pp->arena, (en ? en : 1) * sizeof(PpToken),
                               _Alignof(PpToken));
-        sn = replace_operators(pp, ex, en, scratch, &ok);
+        sn = replace_operators(pp, ex, en, scratch, true, &ok);
         if (!ok)
             return false;
     }
