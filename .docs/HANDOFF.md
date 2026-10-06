@@ -9762,7 +9762,7 @@ and green post-publication CI.
   require GNU `readelf`; substituting LLVM `readelf` changes the harness's
   expected symbol-table text. Hosted CI remains the intended evidence for that
   host-tool-dependent test.
-- The active `s56.87-arm64-macos-va-list-header` tranche starts from exact
+- PR #182's `s56.87-arm64-macos-va-list-header` tranche starts from exact
   merged PR #181 `1bd96330a0c7db7ad9ebdd66823f0a4c663a9ff3`. Baseline strict-C17
   reproducers pin both failures behind the former workarounds: when Cgfried's
   `<stdarg.h>` arrived first it did not publish Apple's `_VA_LIST_T` ownership
@@ -9793,9 +9793,21 @@ and green post-publication CI.
   unit is green under ASan+UBSan, the 2,000-iteration frontend fuzz smoke has
   zero findings, and the 5,000-iteration sequence retains digest
   `4502ce910c679268`. Bans, warning/format matrices, unit registry, target-seam,
-  whitespace, and benchmark-routing checks are green; pinned clang-format 22
-  and the GNU-`readelf` kernel meta-test remain hosted-CI checks on this Mac.
-  Hosted CI evidence remains to be recorded before merge.
+  whitespace, and benchmark-routing checks are green. Hosted implementation
+  head `27ba21e0928a486833ffa51b749d2724a52194ad` completed with 28 successful
+  checks and nine intentional platform/policy skips. Standard CI
+  [run 37531949153](https://github.com/tenseleyFlow/Cgfried/actions/runs/37531949153)
+  passed all 24 executed jobs and its tag-only skip, including pinned
+  clang-format 22, the GNU-`readelf` kernel meta-test, native macOS ARM64,
+  both PCRE2 architectures, sanitizers, torture, and 100,000 frontend-fuzz
+  iterations with zero findings. Pull-request bootstrap
+  [run 37531949122](https://github.com/tenseleyFlow/Cgfried/actions/runs/37531949122)
+  and exact-head push bootstrap
+  [run 37531943804](https://github.com/tenseleyFlow/Cgfried/actions/runs/37531943804)
+  passed both applicable x86 O0/O2 jobs. The initial implementation head's
+  only red check was pinned-format drift in the new ABI test; mechanical
+  clang-format 22 commit `27ba21e0` corrected it before this complete green
+  run.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

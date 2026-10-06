@@ -53,3 +53,25 @@ header or include overlay. The pinned PCRE2 campaign supplies the real-world
 `<stdio.h>`-before-`<stdarg.h>` order: all 35 Cgfried translations, 35
 retained project objects, 32 archive members, three linked products, and three
 upstream tests pass while provenance records `compat_header=none`.
+
+## Hosted evidence
+
+PR #182 implementation head
+`27ba21e0928a486833ffa51b749d2724a52194ad` completed with 28 successful
+checks, nine intentional platform/policy skips, and no failure or pending
+check. Standard CI run
+[`37531949153`](https://github.com/tenseleyFlow/Cgfried/actions/runs/37531949153)
+passed all 24 executed jobs plus its expected tag-only skip. In particular,
+the native macOS ARM64 job ran the strict-C17 SDK boundary with policy
+`native-apple-stdarg-pack-v3`; both native Linux PCRE2 jobs passed without a
+compatibility header; the sanitizer and torture jobs passed; and the frontend
+fuzzer completed 100,000 iterations from seed 1 with zero findings.
+
+Pull-request bootstrap run
+[`37531949122`](https://github.com/tenseleyFlow/Cgfried/actions/runs/37531949122)
+and exact-head push bootstrap run
+[`37531943804`](https://github.com/tenseleyFlow/Cgfried/actions/runs/37531943804)
+both passed their applicable x86_64 O0/O2 jobs. The first implementation
+attempt exposed only pinned clang-format 22 drift in the new ABI unit; commit
+`27ba21e0` applies that mechanical formatting correction, and the complete
+matrix above is against the corrected exact head.
