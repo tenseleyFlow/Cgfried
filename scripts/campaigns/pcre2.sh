@@ -22,7 +22,6 @@ hostcc=${CGF_CAMPAIGN_PCRE2_HOSTCC:-gcc}
 sole=${CGF_CAMPAIGN_PCRE2_SOLE_C:-$root/scripts/campaigns/sole-c.sh}
 jobs=${CGF_CAMPAIGN_JOBS:-}
 cflags=${CGF_CAMPAIGN_PCRE2_CFLAGS:--O2}
-macos_compat=$root/ci/campaigns/compat/arm64-macos-stdarg.h
 
 [ -x "$cgf" ] || fail "cgfried compiler is missing or not executable: $cgf"
 [ -x "$sole" ] || fail "sole-C wrapper is missing or not executable: $sole"
@@ -70,18 +69,12 @@ compat_policy=none
 case $compiler_target in
     x86_64-linux-gnu | arm64-linux) ;;
     arm64-macos)
-        compat_header=$macos_compat
-        compat_policy=cgf-stdarg-va-list-v1
+        compat_policy=native-apple-stdarg-v2
         ;;
     *) fail "unsupported native campaign target: $compiler_target" ;;
 esac
 compat_cppflags=
 compat_sha256=none
-if [ -n "$compat_header" ]; then
-    [ -r "$compat_header" ] || fail "hosted-header compatibility file is unreadable"
-    compat_cppflags="-include $compat_header"
-    compat_sha256=$(sha256sum "$compat_header" | awk '{print $1}')
-fi
 
 as_path=${CGF_AS_PATH:-$(command -v as 2>/dev/null || true)}
 ld_path=${CGF_LD_PATH:-$(command -v ld 2>/dev/null || true)}

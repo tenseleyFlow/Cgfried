@@ -401,9 +401,6 @@ compile_runtime_cgf()
     compile_source=$4
     shift 4
 
-    if [ "$compile_target" = arm64-macos ]; then
-        set -- -I "$repo/tests/bench/compat/arm64-macos-self-overlay" "$@"
-    fi
     if [ -n "$as_path" ]; then
         CGF_AS_PATH=$as_path "$cgf" --target="$compile_target" \
             -std=gnu17 "-$compile_opt" "$@" -o "$compile_output" \
@@ -560,7 +557,7 @@ measure_runtime()
         [ -z "$sysroot_include" ] || echo "sysroot_include=$sysroot_include"
         [ -z "$sysroot_crt" ] || echo "sysroot_crt=$sysroot_crt"
         if [ "$runtime_target" = arm64-macos ]; then
-            echo 'cgf_sdk_compat=arm64-macos-kernel-runtime-v2'
+            echo 'cgf_sdk_compat=arm64-macos-kernel-native-v3'
         fi
         echo 'timeit_protocol=sprint-52-median-mad-v1'
     } >"$runtime_tmp"

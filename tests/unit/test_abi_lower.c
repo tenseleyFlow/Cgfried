@@ -608,6 +608,22 @@ void test_abi_apple_va_list_cursor_requires_unqualified_lvalue(TestCtx *t)
 {
     AbiFix f;
 
+    /* Apple's SDK uses void * as the documented non-GCC fallback when a
+     * public SDK header owns va_list before Cgfried's <stdarg.h>. It has the
+     * same one-pointer ABI and remains an object whose stored cursor advances. */
+    T_ASSERT(t,
+             run_abi_target(&f,
+                            "typedef void *va_list;\n"
+                            "int f(int n, ...) { va_list ap, copy;\n"
+                            "  __builtin_va_start(ap, n);\n"
+                            "  __builtin_va_copy(copy, ap);\n"
+                            "  int value = __builtin_va_arg(copy, int);\n"
+                            "  __builtin_va_end(copy); __builtin_va_end(ap);\n"
+                            "  return value; }\n",
+                            CGF_TARGET_ARM64_MACOS));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    abi_free(&f);
+
     /* Apple's va_list is a pointer OBJECT whose stored cursor each builtin
      * updates. Lvalue conversion used to strip const into an implicit cast;
      * lowering then tried to take that rvalue cast's address and ICEd. */
@@ -616,6 +632,23 @@ void test_abi_apple_va_list_cursor_requires_unqualified_lvalue(TestCtx *t)
                                 "int f(int n, ...) { const va_list ap;\n"
                                 "  return __builtin_va_arg(ap, int); }\n",
                                 CGF_TARGET_ARM64_MACOS));
+    T_ASSERT(t, f.errors > 0);
+    abi_free(&f);
+
+    T_ASSERT(t,
+             !run_abi_target(&f,
+                             "typedef void *va_list;\n"
+                             "void f(int n, ...) { const va_list ap = 0;\n"
+                             "  __builtin_va_start(ap, n); }\n",
+                             CGF_TARGET_ARM64_MACOS));
+    T_ASSERT(t, f.errors > 0);
+    abi_free(&f);
+
+    T_ASSERT(t,
+             !run_abi_target(&f,
+                             "void f(int n, ...) { int *ap;\n"
+                             "  __builtin_va_start(ap, n); }\n",
+                             CGF_TARGET_ARM64_MACOS));
     T_ASSERT(t, f.errors > 0);
     abi_free(&f);
 

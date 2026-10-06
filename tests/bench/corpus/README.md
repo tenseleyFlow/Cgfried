@@ -23,13 +23,12 @@ extensions as compiler features. Results
 record the suffix `arm64-macos-sdk-syntax-v1`, so this target-specific corpus
 environment cannot be confused with an unmodified SDK parse.
 
-The complete self lane uses Cgfried's native `__has_include` operator; no
-preprocessor compatibility header is forced into its translation units. An
-`include_next` overlay still handles the SDK's second `va_list` typedef only
-when a source naturally reaches that header. Native `#pragma pack` support
-keeps the SDK's XNU layout assertions enabled and eliminates the former Mach
-header override. Its provenance suffix is
-`arm64-macos-self-sdk-overlay-v4`.
+The complete self lane reaches the unmodified Apple SDK. Cgfried's native
+`__has_include` and `#pragma pack` support keep the SDK's feature probes and
+XNU layout assertions enabled, while the shipped `<stdarg.h>` participates in
+Apple's public `va_list` ownership protocol. No preprocessor compatibility
+header or `include_next` overlay is used. Its provenance suffix is
+`arm64-macos-self-sdk-native-v1`.
 
 The file is public-domain SQLite deliverable code.  The benchmark defines
 `SQLITE_DISABLE_INTRINSIC=1` because Cgfried intentionally has no generic
