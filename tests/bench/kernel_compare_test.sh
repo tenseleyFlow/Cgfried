@@ -259,7 +259,7 @@ grep -F 'sysroot_include=/nix/store/fixture-glibc-dev/include' \
     "$tmp/macos-runtime.txt" >/dev/null || fail "runtime include provenance is missing"
 grep -F 'sysroot_crt=/nix/store/fixture-glibc/lib' \
     "$tmp/macos-runtime.txt" >/dev/null || fail "runtime CRT provenance is missing"
-grep -F 'cgf_sdk_compat=arm64-macos-kernel-runtime-v1' \
+grep -F 'cgf_sdk_compat=arm64-macos-kernel-runtime-v2' \
     "$tmp/macos-runtime.txt" >/dev/null || fail "runtime SDK compatibility provenance is missing"
 for field in power_profile scaling_driver energy_performance_preference; do
     [ "$(grep -c "^$field=unavailable$" "$tmp/macos-runtime.txt")" -eq 1 ] ||
@@ -278,6 +278,8 @@ fi
 [ "$(grep -Fxc "$repo/tests/bench/compat/arm64-macos-self-overlay" \
     "$tmp/runtime-cgf.log")" -eq 1 ] ||
     fail "macOS SDK overlay was not scoped to the cgf runtime compile"
+[ ! -e "$repo/tests/bench/compat/arm64-macos-self-overlay/mach/port.h" ] ||
+    fail "retired XNU assertion-bypass overlay was restored"
 [ ! -e "$tmp/work-runtime/static.txt" ] ||
     fail "runtime-only mode traversed static measurement"
 [ ! -e "$tmp/work-runtime/dashboard.tmp.md" ] ||

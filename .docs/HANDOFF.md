@@ -403,11 +403,13 @@ PR #178's ARM64 Linux native-TI hosted-header tranche merged green-only as
 `s56.84-arm64-macos-stdarg-only` tranche merged green-only as
 `e90de2cdfcb9b55dd2c609204a213c53203ec451`; it removes the corresponding
 obsolete integer-128 substitution from the macOS campaign header while
-preserving its independently required `va_list` guard. Active PR #180's
-`s56.85-pp-has-include` tranche starts from that exact merge and replaces the
-Apple self-build compatibility definition with a native, side-effect-free
-`__has_include` operator. The detailed ledger below records its current
-evidence.
+preserving its independently required `va_list` guard. PR #180's
+`s56.85-pp-has-include` tranche merged green-only as
+`7eab8e88fae9c8e1a3db2412211505c442b426de`; it replaces the Apple self-build
+compatibility definition with a native, side-effect-free `__has_include`
+operator. The active `s56.86-pragma-pack-layout` branch starts from that exact
+merge and implements the Apple/XNU ABI-layout gap described in the detailed
+ledger below.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9667,7 +9669,7 @@ and green post-publication CI.
   #178 `c4137b7ce2fa5f831f462340ba0e25d709441dda` and tested head
   `d25ee8406d58da7672109b601c41273f44842762`, and merge/head tree
   `6784db65fab23a94549f2ece7cf5cebd125576e4` is byte-identical.
-- Active PR #180's `s56.85-pp-has-include` tranche starts from exact merged
+- PR #180's `s56.85-pp-has-include` tranche starts from exact merged
   PR #179. The preprocessor now exposes `__has_include` as a builtin operator
   visible to `defined`, `#ifdef`, and Apple SDK fallback guards. Quote and
   angle operands follow the active include-search graph after ordinary macro
@@ -9703,7 +9705,60 @@ and green post-publication CI.
   checks and nine intentional skips. Standard run `37339740517`, push
   bootstrap `37339733799`, and synthetic-merge bootstrap `37339740466` are
   fully green; the standard run includes the clean 100,000-iteration frontend
-  fuzz job. PR #180 remains open pending green-only merge review.
+  fuzz job. PR #180 merged green-only as
+  `7eab8e88fae9c8e1a3db2412211505c442b426de`; its exact parents are merged
+  #179 `e90de2cdfcb9b55dd2c609204a213c53203ec451` and tested head
+  `15fb04ac80f13e56e50e87ed5898755e0ec86534`, and merge/head tree
+  `824de8cc075c53a42f4b833cd3962a0bc46029a2` is byte-identical.
+- The active `s56.86-pragma-pack-layout` tranche starts from exact merged PR
+  #180. Cgfried now implements the common GCC/Clang `#pragma pack` surface:
+  direct/reset forms, unnamed and named push/pop stacks, `_Pragma`, `-E`
+  preservation, and `-Wpragmas` diagnostics. Preprocessing records lexical
+  state changes by sequence so the later parser can bind the active cap to
+  each record definition. Layout, lvalue alignment, static and runtime
+  initializers, ordinary and reverse-order bit-fields, unions, runtime-sized
+  records, and lowering all consume one effective member-alignment rule.
+
+  The measured contract distinguishes a pack cap from the one-byte `packed`
+  attribute: values 1/2/4/8/16 cap member alignment; explicit member alignment
+  remains capped; completed-record alignment may still rise; any active cap
+  selects continuous bit-field allocation; and zero-width barriers preserve
+  the existing target split. A reduced-alignment `_Atomic` member fails
+  closed. Focused unit coverage passes normally (345 pragma-pack assertions
+  across preprocessor and layout tests, seven runtime-record lowering
+  assertions, plus the existing 54 packed-bitfield assertions) and under
+  ASan+UBSan. The executable fixture passes native
+  arm64-macos at O0/O1/O2/O3/Os and reaches code generation for all five
+  supported targets at O0/O2. The 2,000-iteration frontend fuzz smoke has no
+  findings; adding the new sorted-corpus fixture intentionally moves the
+  5,000-iteration digest from `b31c6e8300a19916` to `4502ce910c679268`.
+  Extending that fixture through GNU records containing VLA members found one
+  adjacent pre-existing seam: dynamic extent and offsets were correct, but
+  `_Alignof` still observed the one-byte recovery layout and array subscripts
+  discarded their member alignment provenance. Static layout now retains a
+  runtime member's known alignment while lowering still computes its extent,
+  and array decay/subscript lowering carries the capped address guarantee.
+  GCC 16.2, Cgfried's native executions, and the focused IR unit agree on the
+  pack-2 runtime record.
+
+  Most importantly, Cgfried compiles the unmodified Apple
+  `<mach/message.h>` with its real XNU size assertions enabled:
+  `mach_msg_context_trailer_t` is 60 bytes and `mach_msg_mac_trailer_t` is 68.
+  The native CI boundary now pins those layouts and verifies that the header
+  restores default packing. The old `mach/port.h` overlay that replaced the
+  assertion macro with `_Static_assert(1, ...)` is deleted; the independently
+  required `sys/_types/_va_list.h` overlay remains. Benchmark provenance moves
+  from `arm64-macos-self-sdk-overlay-v3` to `v4`. The native SDK gate,
+  benchmark harness meta-test, bans, whitespace, and pinned clang-format 22
+  checks are green. The complete local unit runner retains the exact eight
+  failures reproduced on untouched merged PR #180: one ARM emitter text-shape
+  test, five Linux-link-argv tests, the Linux CRT probe, and the arena host
+  allocation-count test. The result is 1,014 tests / 4,331,553 assertions / 8
+  inherited failures, with no new unit failure. The kernel benchmark
+  meta-test cannot run faithfully on this Mac because its host prerequisites
+  require GNU `readelf`; substituting LLVM `readelf` changes the harness's
+  expected symbol-table text. Hosted CI remains the intended evidence for that
+  host-tool-dependent test.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
