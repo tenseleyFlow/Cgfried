@@ -415,6 +415,7 @@ static void complete_struct(Sema *s, TagDecl *tag, const AstNode *rec)
     /* Set BEFORE the member walk: add_member consults it, so that a record's
      * own `packed` and a member's are one rule with one implementation. */
     tag->packed = rec->packed;
+    tag->pack_align = rec->pack_align;
     tag->scalar_storage_order = rec->scalar_storage_order;
     tag->type->may_alias |= rec->may_alias;
     if (rec->record_aligned_expr || rec->record_aligned_bare) {
@@ -787,18 +788,30 @@ static void add_member(Sema *s, TagDecl *tag, Member **last, const AstNode *m,
         mem->deprecated = m->gnu.deprecated;
         mem->deprecated_msg = m->gnu.deprecated_msg;
         mem->packed = tag->packed || m->gnu.packed;
+        mem->pack_align = tag->pack_align;
         mem->scalar_storage_order = tag->scalar_storage_order;
-        if (mem->packed) {
+        if (mem->packed || mem->pack_align) {
+            u64 natural_align = mt ? layout_of(s, mt).align : 0;
+
             /* Ordinary unaligned loads and stores are fine on both targets;
              * the exclusive instructions that implement _Atomic on arm64 are
              * not. An atomic that silently is not one is worse than an
              * error. */
-            if (mt && (mt->quals & CGF_QUAL_ATOMIC)) {
+            if (mt && (mt->quals & CGF_QUAL_ATOMIC) &&
+                (mem->packed ||
+                 member_effective_align(mem, natural_align) < natural_align)) {
                 s->nerrors++;
-                diag_emit(s->dc, DIAG_ERROR, m->span,
-                          "an _Atomic member of a packed struct is not "
-                          "supported: the atomic instructions require natural "
-                          "alignment (docs/gnu-extensions.md)");
+                if (mem->packed)
+                    diag_emit(s->dc, DIAG_ERROR, m->span,
+                              "an _Atomic member of a packed struct is not "
+                              "supported: the atomic instructions require "
+                              "natural alignment (docs/gnu-extensions.md)");
+                else
+                    diag_emit(s->dc, DIAG_ERROR, m->span,
+                              "an _Atomic member whose alignment is reduced "
+                              "by #pragma pack is not supported: the atomic "
+                              "instructions require natural alignment "
+                              "(docs/gnu-extensions.md)");
             }
         }
         if (*last)

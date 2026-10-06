@@ -1539,6 +1539,7 @@ static AstNode *parse_record_specifier(Parser *p, bool is_union)
     NodeVec members = {NULL, 0, 0};
 
     rec->is_union = is_union;
+    rec->pack_align = pp_pack_align_at_seq(p->pp, rec->span.seq);
     /* `struct __attr__((packed)) S { ... };` -- the attribute sits between the
      * keyword and the tag and binds to the record. Measured against gcc, as
      * is the negative: a LEADING attribute, before the keyword, is ignored. */

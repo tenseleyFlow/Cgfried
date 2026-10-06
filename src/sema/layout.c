@@ -210,6 +210,18 @@ static void layout_struct(Sema *s, TagDecl *tag)
         u64 natural_align;
 
         if (!m->type || !layout_is_complete_for_size(m->type)) {
+            if (m->type && type_is_runtime_sized(m->type)) {
+                /* A VLA member has no static extent, but its alignment is
+                 * still known. Keep the placeholder offsets intentionally
+                 * small; lowering performs the real runtime walk. The tag's
+                 * alignment, and therefore _Alignof, must nevertheless use
+                 * the member's effective requirement. */
+                u64 runtime_align =
+                    member_effective_align(m, layout_of(s, m->type).align);
+
+                if (runtime_align > align)
+                    align = runtime_align;
+            }
             /* A flexible array member has no size and contributes none;
              * anything else incomplete was already diagnosed. */
             m->offset = position_ceil_byte(position);
@@ -219,7 +231,7 @@ static void layout_struct(Sema *s, TagDecl *tag)
         }
         ml = layout_of(s, m->type);
         natural_align = ml.align;
-        malign = natural_align;
+        malign = member_effective_align(m, natural_align);
         if (!m->is_bitfield && ml.size == 0)
             has_zero_sized_member = true;
         /* `packed` drops the member's alignment to 1. The record's own
@@ -228,13 +240,10 @@ static void layout_struct(Sema *s, TagDecl *tag)
          * easy to miss: force the offsets alone and the offsets are right
          * while sizeof keeps its tail padding. Measured against gcc in
          * .docs/audits/packed-layout.md. */
-        if (m->packed)
-            malign = 1;
-        /* _Alignas on a member raises BOTH its own placement and the
-         * record's alignment (6.7.5): the record must be aligned strictly
-         * enough that every member lands where it asked to. */
-        if (m->align_override > malign)
-            malign = m->align_override;
+        /* _Alignas/`aligned` normally raises placement and record alignment.
+         * An active #pragma pack cap applies after that request, matching
+         * GCC/Clang; the explicit `packed` attribute keeps its established
+         * composition rule when no pragma cap is active. */
 
         if (m->is_bitfield) {
             u64 unit_bits = declared_bits(s, m->type);
@@ -270,8 +279,13 @@ static void layout_struct(Sema *s, TagDecl *tag)
             }
             /* An explicit GNU `aligned` still controls placement even when
              * `packed` reduced the implicit requirement to one byte. */
-            if (m->align_override)
-                position_align_bytes(&position, m->align_override);
+            if (m->align_override) {
+                u64 bit_align = m->align_override;
+
+                if (m->pack_align && bit_align > m->pack_align)
+                    bit_align = m->pack_align;
+                position_align_bytes(&position, bit_align);
+            }
             /* Rule 1: place at the current bit offset unless the field
              * would STRADDLE a boundary of its declared type — that is,
              * unless it fits in what remains of the current declared-type
@@ -279,7 +293,7 @@ static void layout_struct(Sema *s, TagDecl *tag)
              * implementations miss: in `struct { char a:7; int b:25; }`
              * the int window is bytes 0-3, bits 7..31 are free, and 25
              * fits — so b lands at bit 7, NOT at bit 32. */
-            if (!m->packed) {
+            if (!member_uses_packed_bits(m)) {
                 u64 used_in_window =
                     (position.byte % ml.size) * 8 + position.bit;
 
@@ -341,8 +355,16 @@ static void layout_union(Sema *s, TagDecl *tag)
         m->offset = 0;
         m->bit_shift = 0;
         m->laid_out = true;
-        if (!m->type || !layout_is_complete_for_size(m->type))
+        if (!m->type || !layout_is_complete_for_size(m->type)) {
+            if (m->type && type_is_runtime_sized(m->type)) {
+                u64 runtime_align =
+                    member_effective_align(m, layout_of(s, m->type).align);
+
+                if (runtime_align > align)
+                    align = runtime_align;
+            }
             continue;
+        }
         ml = layout_of(s, m->type);
         natural_align = ml.align;
         m->container_size = ml.size;
@@ -351,15 +373,14 @@ static void layout_union(Sema *s, TagDecl *tag)
         /* A packed UNION keeps every member's SIZE -- they all start at 0, so
          * nothing can be misplaced -- and loses only its alignment. gcc:
          * `union { char a; double d; } packed` is 8 bytes, aligned 1. */
-        if (m->packed)
-            ml.align = 1;
+        ml.align = member_effective_align(m, ml.align);
         /* An _Alignas or `aligned` on a union MEMBER raises the union's own
          * alignment, exactly as it does in a struct. layout_union never read
          * align_override at all, so both spellings were silently ignored here
          * while working in a struct -- found by the layout differential the
          * first time it generated `aligned` on a union member. */
-        if (m->align_override > ml.align)
-            ml.align = m->align_override;
+        /* member_effective_align already composes explicit alignment with
+         * both the packed attribute and the active pragma cap. */
         if (m->is_bitfield) {
             /* Every union member starts at bit 0. A ZERO-WIDTH bitfield
              * occupies no storage at all. Linux AAPCS64 nevertheless makes

@@ -458,6 +458,92 @@ void test_pp_pragma_macro_stack_diagnostics(TestCtx *t)
     mfix_free(&f);
 }
 
+void test_pp_pragma_pack_state_and_diagnostics(TestCtx *t)
+{
+    MacFix f;
+    PpToken toks[32];
+    u32 i;
+    u32 n;
+    bool saw_pragma;
+    bool saw_pack;
+
+    /* State is lexical, including named-stack unwinding and _Pragma.  The
+     * parser runs only after preprocessing, so each token sequence must still
+     * recover the cap that was active when that token was produced. */
+    mfix_init(&f);
+    n = run_pp(&f,
+               "natural\n"
+               "#pragma pack(4)\nfour\n"
+               "#pragma pack(push, checkpoint, 2)\ntwo\n"
+               "#pragma pack(push, 1)\none\n"
+               "#pragma pack(pop, checkpoint)\nrestored\n"
+               "_Pragma(\"pack(push, 8)\")\neight\n"
+               "_Pragma(\"pack(pop)\")\nback\n"
+               "#pragma pack(push)\nsame\n"
+               "#pragma pack(pop)\nsameback\n"
+               "#pragma pack(push, namedonly)\nnamed\n"
+               "#pragma pack(2)\ntemporary\n"
+               "#pragma pack(pop, namedonly)\nnamedback\n"
+               "#pragma pack(16)\nsixteen\n"
+               "#pragma pack(0)\nzero\n"
+               "#pragma pack(4)\nagainfour\n"
+               "#pragma pack()\nreset\n",
+               toks, CGF_ARRAY_LEN(toks));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    T_ASSERT_EQ_INT(t, n, 16);
+    if (n == 16) {
+        static const int want[] = {0, 4, 2, 1, 4,  8, 4, 4,
+                                   4, 4, 2, 4, 16, 0, 4, 0};
+
+        for (i = 0; i < CGF_ARRAY_LEN(want); i++)
+            T_ASSERT_EQ_INT(
+                t,
+                pp_pack_align_at_seq(
+                    &f.pp, pp_span(&f.pp, toks[i].loc, toks[i].len).seq),
+                want[i]);
+    }
+    mfix_free(&f);
+
+    /* Unsupported alignments and unmatched pops are warnings, while an
+     * inactive conditional group has no effect and emits no diagnostic. */
+    mfix_init(&f);
+    n = run_pp(&f,
+               "#pragma pack(3)\n"
+               "#pragma pack(pop)\n"
+               "#if 0\n#pragma pack(7)\n#endif\nkept\n",
+               toks, CGF_ARRAY_LEN(toks));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 2);
+    T_ASSERT_EQ_INT(t, f.last_warn_id, WARN_PRAGMAS);
+    T_ASSERT_EQ_INT(t, n, 1);
+    if (n == 1)
+        T_ASSERT_EQ_INT(
+            t,
+            pp_pack_align_at_seq(&f.pp,
+                                 pp_span(&f.pp, toks[0].loc, toks[0].len).seq),
+            0);
+    mfix_free(&f);
+
+    /* A recognized pack pragma remains visible in preprocessor output. */
+    mfix_init(&f);
+    f.pp.emit_pragmas = true;
+    n = run_pp(&f, "#pragma pack(push, 4)\nbody\n", toks, CGF_ARRAY_LEN(toks));
+    saw_pragma = false;
+    saw_pack = false;
+    for (i = 0; i < n && i < CGF_ARRAY_LEN(toks); i++) {
+        if (strcmp(toks[i].spelling, "pragma") == 0)
+            saw_pragma = true;
+        if (strcmp(toks[i].spelling, "pack") == 0)
+            saw_pack = true;
+    }
+    T_ASSERT(t, saw_pragma);
+    T_ASSERT(t, saw_pack);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    mfix_free(&f);
+}
+
 void test_pp_predefines_do_not_claim_iec559(TestCtx *t)
 {
     MacFix f;

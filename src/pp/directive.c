@@ -1205,10 +1205,185 @@ static void pragma_diagnostic(Preprocessor *pp, PpToken *toks, u32 n,
                "#pragma GCC diagnostic");
 }
 
+u8 pp_pack_align_at_seq(const Preprocessor *pp, u32 seq)
+{
+    size_t lo = 0;
+    size_t hi;
+
+    if (!pp || !seq)
+        return 0;
+    hi = pp->npack_events;
+    /* Events are appended in preprocessing order. Find the first one that
+     * does not precede this token, then read its predecessor. */
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+
+        if (pp->pack_events[mid].seq && pp->pack_events[mid].seq < seq)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    return lo ? pp->pack_events[lo - 1].align : 0;
+}
+
+static void pack_event_append(Preprocessor *pp, u8 align, SrcLoc anchor)
+{
+    PpPackEvent *event;
+
+    pp->pack_align = align;
+    if (pp->npack_events == pp->pack_events_cap) {
+        size_t cap = pp->pack_events_cap ? pp->pack_events_cap * 2 : 8;
+        PpPackEvent *grown =
+            arena_alloc(pp->arena, cap * sizeof(*grown), _Alignof(PpPackEvent));
+
+        if (pp->npack_events)
+            memcpy(grown, pp->pack_events, pp->npack_events * sizeof(*grown));
+        pp->pack_events = grown;
+        pp->pack_events_cap = cap;
+    }
+    event = &pp->pack_events[pp->npack_events++];
+    event->seq = pragma_seq(pp, anchor);
+    event->align = align;
+}
+
+static bool pack_alignment(const PpToken *tok, u8 *align)
+{
+    if (tok->kind != PPTOK_PPNUM)
+        return false;
+    if (strcmp(tok->spelling, "0") == 0) {
+        *align = 0;
+        return true;
+    }
+    if (strcmp(tok->spelling, "1") == 0 || strcmp(tok->spelling, "2") == 0 ||
+        strcmp(tok->spelling, "4") == 0 || strcmp(tok->spelling, "8") == 0 ||
+        strcmp(tok->spelling, "16") == 0) {
+        *align = (u8)(tok->spelling[0] == '1' && tok->spelling[1] == '6'
+                          ? 16
+                          : tok->spelling[0] - '0');
+        return true;
+    }
+    return false;
+}
+
+static void pack_push(Preprocessor *pp, const char *name)
+{
+    PpPackSave *save =
+        arena_alloc(pp->arena, sizeof(*save), _Alignof(PpPackSave));
+
+    save->name = name;
+    save->align = pp->pack_align;
+    save->next = pp->pack_stack;
+    pp->pack_stack = save;
+}
+
+static bool pack_pop(Preprocessor *pp, const char *name, u8 *align)
+{
+    PpPackSave *save = pp->pack_stack;
+
+    if (name)
+        while (save && (!save->name || strcmp(save->name, name) != 0))
+            save = save->next;
+    if (!save)
+        return false;
+    *align = save->align;
+    pp->pack_stack = save->next;
+    return true;
+}
+
+static bool pack_comma(const PpToken *tok)
+{
+    return tok->kind == PPTOK_PUNCT && tok->punct == PUNCT_COMMA;
+}
+
+/* GCC and Clang agree on this common surface: pack(n), pack()/pack(0),
+ * push with an optional name/alignment, and pop with an optional name.
+ * Alignment is a maximum member alignment, not an alias for packed(1). */
+static void pragma_pack(Preprocessor *pp, PpToken *toks, u32 n, SrcLoc anchor)
+{
+    u32 inner;
+    u8 align;
+    const char *action;
+    const char *name = NULL;
+
+    if (n < 3 || toks[1].kind != PPTOK_PUNCT || toks[1].punct != PUNCT_LPAREN ||
+        toks[n - 1].kind != PPTOK_PUNCT || toks[n - 1].punct != PUNCT_RPAREN) {
+        goto malformed;
+    }
+    inner = n - 3;
+    if (inner == 0) {
+        pack_event_append(pp, 0, anchor);
+        return;
+    }
+    if (inner == 1 && pack_alignment(&toks[2], &align)) {
+        pack_event_append(pp, align, anchor);
+        return;
+    }
+    if (toks[2].kind != PPTOK_IDENT)
+        goto malformed;
+    action = toks[2].spelling;
+    if (strcmp(action, "push") == 0) {
+        bool set_align = false;
+
+        if (inner == 1) {
+            /* no operands */
+        } else if (inner == 3 && pack_comma(&toks[3])) {
+            if (pack_alignment(&toks[4], &align)) {
+                set_align = true;
+            } else if (toks[4].kind == PPTOK_IDENT) {
+                name = toks[4].spelling;
+            } else {
+                goto malformed;
+            }
+        } else if (inner == 5 && pack_comma(&toks[3]) &&
+                   toks[4].kind == PPTOK_IDENT && pack_comma(&toks[5]) &&
+                   pack_alignment(&toks[6], &align)) {
+            name = toks[4].spelling;
+            set_align = true;
+        } else {
+            goto malformed;
+        }
+        pack_push(pp, name);
+        if (set_align)
+            pack_event_append(pp, align, anchor);
+        return;
+    }
+    if (strcmp(action, "pop") == 0) {
+        if (inner == 1) {
+            name = NULL;
+        } else if (inner == 3 && pack_comma(&toks[3]) &&
+                   toks[4].kind == PPTOK_IDENT) {
+            name = toks[4].spelling;
+        } else {
+            goto malformed;
+        }
+        if (!pack_pop(pp, name, &align)) {
+            if (name)
+                pp_warn_at(pp, WARN_PRAGMAS, toks[2].loc, toks[2].len,
+                           "#pragma pack(pop, %s) has no matching push", name);
+            else
+                pp_warn_at(pp, WARN_PRAGMAS, toks[2].loc, toks[2].len,
+                           "#pragma pack(pop) has no matching push");
+            return;
+        }
+        pack_event_append(pp, align, anchor);
+        return;
+    }
+
+malformed:
+    pp_warn_at(pp, WARN_PRAGMAS, anchor, 1,
+               "malformed '#pragma pack' directive; expected pack(n), "
+               "pack(push[, name][, n]), or pack(pop[, name])");
+}
+
 /* Returns true if the pragma line should pass through to -E output. */
 static bool directive_pragma(Preprocessor *pp, PpToken *toks, u32 n,
                              SrcLoc anchor)
 {
+    if (n >= 1 && toks[0].kind == PPTOK_IDENT &&
+        strcmp(toks[0].spelling, "pack") == 0) {
+        pragma_pack(pp, toks, n, anchor);
+        return true;
+    }
     if (n >= 1 && toks[0].kind == PPTOK_IDENT &&
         (strcmp(toks[0].spelling, "push_macro") == 0 ||
          strcmp(toks[0].spelling, "pop_macro") == 0)) {

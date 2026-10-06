@@ -655,9 +655,10 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
             p->lo->sema, cursor->scalar_storage_order);
         u64 unit_byte =
             (member->offset / member->container_size) * member->container_size;
-        u64 start_bit = member->packed ? member->bit_shift
-                                       : (member->offset - unit_byte) * 8 +
-                                             member->bit_shift;
+        u64 start_bit =
+            member_uses_packed_bits(member)
+                ? member->bit_shift
+                : (member->offset - unit_byte) * 8 + member->bit_shift;
 
         if (member->bit_width) {
             u64 first_byte = cursor->off + member->offset;
@@ -670,10 +671,12 @@ static void plan_cursor_value(InitPlan *p, const PlanCursor *cursor,
         for (bit = 0; bit < member->bit_width; bit++) {
             u64 logical = reverse ? start_bit + (member->bit_width - 1 - bit)
                                   : member->bit_shift + bit;
-            u64 byte = cursor->off +
-                       (reverse ? (member->packed ? member->offset : unit_byte)
-                                : member->offset) +
-                       logical / 8;
+            u64 byte =
+                cursor->off +
+                (reverse ? (member_uses_packed_bits(member) ? member->offset
+                                                            : unit_byte)
+                         : member->offset) +
+                logical / 8;
             u8 at = reverse ? (u8)(7 - logical % 8) : (u8)(logical % 8);
             u8 mask = (u8)(1u << at);
 
@@ -987,8 +990,9 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
 
         v = lower_scalar_convert(lo, v, r->e->sem_type, (Type *)m->type);
         memset(&lv, 0, sizeof(lv));
-        lv.addr = off_addr(lo, base,
-                           r->off + (i64)(m->packed ? m->offset : unit_byte));
+        lv.addr = off_addr(
+            lo, base,
+            r->off + (i64)(member_uses_packed_bits(m) ? m->offset : unit_byte));
         lv.type = m->type;
         switch (m->container_size) {
         case 1:
@@ -1004,15 +1008,15 @@ static void emit_rt_store(Lower *lo, InitPlan *p, IrOperand base, RtStore *r)
             lv.unit = IRT_I64;
             break;
         }
-        lv.align = m->packed ? 1 : (u32)m->container_size;
+        lv.align = member_uses_packed_bits(m) ? 1 : (u32)m->container_size;
         lv.etype = lower_efftype(lo, m->type);
         lv.is_bitfield = true;
-        lv.packed_bitfield = m->packed;
+        lv.packed_bitfield = member_uses_packed_bits(m);
         lv.reverse_storage_order = sema_scalar_storage_order_reversed(
             lo->sema, r->scalar_storage_order);
-        lv.bit_shift =
-            (u8)(m->packed ? m->bit_shift
-                           : (m->offset - unit_byte) * 8 + m->bit_shift);
+        lv.bit_shift = (u8)(member_uses_packed_bits(m)
+                                ? m->bit_shift
+                                : (m->offset - unit_byte) * 8 + m->bit_shift);
         lv.bit_width = (u8)m->bit_width;
         lv.is_signed = m->bitfield_is_signed;
         lv.is_volatile = (p->access_flags & IRF_VOLATILE) != 0;

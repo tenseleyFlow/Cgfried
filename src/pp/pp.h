@@ -284,6 +284,24 @@ typedef struct PpMacroSave {
     struct PpMacroSave *next;
 } PpMacroSave;
 
+/* #pragma pack is translation-unit state rather than a token.  Retain every
+ * effective change by lexical sequence so a parser that runs after the whole
+ * preprocessing phase can still recover the cap active at each record
+ * definition.  align == 0 means the target's ordinary alignment rules. */
+typedef struct PpPackEvent {
+    u32 seq;
+    u8 align;
+} PpPackEvent;
+
+/* GCC/Clang's optional identifiers name stack checkpoints.  A named pop
+ * discards that checkpoint and every newer one, restoring the state saved by
+ * the named push. */
+typedef struct PpPackSave {
+    const char *name; /* interned; NULL for an unnamed push */
+    u8 align;
+    struct PpPackSave *next;
+} PpPackSave;
+
 /* GNU cpplib assertions occupy a namespace separate from macros. Answers are
  * token sequences: leading/trailing whitespace is insignificant, while the
  * presence of whitespace between two answer tokens participates in identity.
@@ -464,6 +482,12 @@ typedef struct Preprocessor {
     size_t macro_events_cap;
     PpMacroSave *macro_saves; /* #pragma push_macro snapshots */
 
+    u8 pack_align;            /* live #pragma pack cap; 0 = target default */
+    PpPackEvent *pack_events; /* arena-owned lexical state history */
+    size_t npack_events;
+    size_t pack_events_cap;
+    PpPackSave *pack_stack;
+
     PpFrame *frames; /* include stack; frames[nframes-1] is active */
     size_t nframes;
     size_t frames_cap;
@@ -595,6 +619,9 @@ bool pp_macro_stack_pop(Preprocessor *pp, const char *name, SrcLoc loc);
  * redefinitions and #undef directives. */
 const MacroDef *pp_macro_lookup_at_seq(const Preprocessor *pp, const char *name,
                                        u32 seq);
+/* Effective #pragma pack alignment immediately before lexical sequence seq.
+ * Zero means ordinary target alignment. */
+u8 pp_pack_align_at_seq(const Preprocessor *pp, u32 seq);
 /* As `defined`/#ifdef see it: macros PLUS _Pragma (gcc+clang parity). */
 bool pp_name_is_defined(const Preprocessor *pp, const char *name);
 
