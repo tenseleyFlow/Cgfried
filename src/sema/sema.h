@@ -101,6 +101,7 @@ struct Member {
      * reads exactly this field, so member-level and record-level packing are
      * the same rule applied to a different set of members. */
     bool packed;
+    u8 pack_align; /* enclosing record's #pragma pack cap; 0 = default */
     u8 scalar_storage_order; /* inherited from the containing TagDecl */
     bool laid_out;
     /* `deprecated` on the member itself. Flattened rather than a whole
@@ -147,10 +148,30 @@ struct TagDecl {
                                alignment drops to 1 with it -- forgetting the
                                second half gives right offsets and wrong
                                sizeof (.docs/audits/packed-layout.md) */
+    u8 pack_align;          /* #pragma pack member-alignment cap; 0 = default */
     u8 scalar_storage_order; /* GnuScalarStorageOrder */
     Span span;
     Type *type; /* the one Type node that names this tag */
 };
+
+/* `packed` and #pragma pack share the continuous bit-field allocation rule,
+ * but only the attribute forces alignment one.  Keep those concepts separate
+ * so pack(2/4/8/16) cannot silently become pack(1). */
+static inline bool member_uses_packed_bits(const Member *m)
+{
+    return m && (m->packed || m->pack_align != 0);
+}
+
+static inline u64 member_effective_align(const Member *m, u64 natural)
+{
+    u64 align = m && m->packed ? 1 : natural;
+
+    if (m && m->align_override > align)
+        align = m->align_override;
+    if (m && m->pack_align && align > m->pack_align)
+        align = m->pack_align;
+    return align;
+}
 
 struct Type {
     TypeKind kind;

@@ -73,7 +73,7 @@ static void lower_mem_ranges(Lower *lo, Type *t, u64 base, LowerMemRanges *out)
 
                 if (m->bit_width == 0 || m->container_size == 0)
                     continue;
-                if (m->packed) {
+                if (member_uses_packed_bits(m)) {
                     u64 first = m->offset;
                     u64 last = first + (m->bit_shift + m->bit_width + 7) / 8;
 
@@ -682,13 +682,7 @@ static u64 lower_runtime_type_align(Lower *lo, Type *t);
 
 static u64 lower_runtime_member_align(Lower *lo, const Member *m)
 {
-    u64 align = lower_runtime_type_align(lo, m->type);
-
-    if (m->packed)
-        align = 1;
-    if (m->align_override > align)
-        align = m->align_override;
-    return align;
+    return member_effective_align(m, lower_runtime_type_align(lo, m->type));
 }
 
 static u64 lower_runtime_type_align(Lower *lo, Type *t)
@@ -799,9 +793,14 @@ static IrOperand lower_runtime_record_layout(Lower *lo, Type *t,
                     bits = lower_size_align_up(lo, bits, barrier);
                     continue;
                 }
-                if (m->align_override)
-                    bits = lower_size_align_up(lo, bits, m->align_override * 8);
-                if (!m->packed && unit_bits) {
+                if (m->align_override) {
+                    u64 bit_align = m->align_override;
+
+                    if (m->pack_align && bit_align > m->pack_align)
+                        bit_align = m->pack_align;
+                    bits = lower_size_align_up(lo, bits, bit_align * 8);
+                }
+                if (!member_uses_packed_bits(m) && unit_bits) {
                     IrOperand used = lower_size_binary(
                         lo, IR_UREM, bits, lower_i64((i64)unit_bits));
                     IrOperand need = lower_size_binary(lo, IR_IADD, used,

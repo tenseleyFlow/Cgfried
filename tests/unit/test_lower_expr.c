@@ -3594,6 +3594,38 @@ void test_lower_runtime_record_member_offsets_and_alignment(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_runtime_record_pragma_pack_alignment(TestCtx *t)
+{
+    LowFix f;
+    const char *ir;
+    const char *alignment;
+    const char *alignment_ret;
+    const char *use;
+
+    T_ASSERT(t,
+             run_lower(&f, "#pragma pack(push, 2)\n"
+                           "unsigned long alignment(int n) {\n"
+                           "  struct S { char lead; long long values[n]; };\n"
+                           "  return _Alignof(struct S);\n"
+                           "}\n"
+                           "void use(int n) {\n"
+                           "  struct S { char lead; long long values[n]; } v;\n"
+                           "  v.values[1] = 7;\n"
+                           "}\n"
+                           "#pragma pack(pop)\n"));
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    ir = txt(&f);
+    alignment = strstr(ir, "func i64 @alignment(i32 %0)");
+    use = strstr(ir, "func void @use(i32 %0)");
+    alignment_ret = alignment ? strstr(alignment, "ret i64 2") : NULL;
+    T_ASSERT(t, alignment != NULL && use != NULL && alignment < use);
+    T_ASSERT(t, alignment_ret != NULL && use != NULL && alignment_ret < use);
+    T_ASSERT(t, use && strstr(use, ", align 2, etype aggregate") != NULL);
+    T_ASSERT(t, use && strstr(use, "store i64") != NULL);
+    T_ASSERT(t, use && strstr(use, "align 2, etype i64") != NULL);
+    low_free(&f);
+}
+
 void test_lower_runtime_record_copy_uses_cached_extent(TestCtx *t)
 {
     LowFix f;

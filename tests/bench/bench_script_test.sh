@@ -62,11 +62,13 @@ fi
 [ "$(grep -Fxc "$ROOT/tests/bench/compat/arm64-macos-self-overlay" \
     "$WORK/macos/argv.log")" -eq 1 ] ||
     fail "self SDK overlay was not scoped to one lane"
+[ ! -e "$ROOT/tests/bench/compat/arm64-macos-self-overlay/mach/port.h" ] ||
+    fail "retired XNU assertion-bypass overlay was restored"
 grep -Fx 'sqlite3.status=measured' "$WORK/macos/results.txt" >/dev/null ||
     fail "SQLite lane was not measured"
 grep -Fx 'self.status=measured' "$WORK/macos/results.txt" >/dev/null ||
     fail "self lane was not measured"
-grep -F ':1-files:arm64-macos-self-sdk-overlay-v3' \
+grep -F ':1-files:arm64-macos-self-sdk-overlay-v4' \
     "$WORK/macos/results.txt" >/dev/null || fail "self compatibility provenance missing"
 grep -Fx 'many-tu.status=measured' "$WORK/macos/results.txt" >/dev/null ||
     fail "many-tu lane was not measured"

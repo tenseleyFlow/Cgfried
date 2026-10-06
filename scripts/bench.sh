@@ -329,12 +329,13 @@ arm64-linux)
     ;;
 arm64-macos)
     # Keep the self corpus complete while insulating its syntax-only parse
-    # from the SDK's second va_list typedef and private XNU layout assertions.
+    # from the SDK's second va_list typedef.
     # Native __has_include support means no preprocessor compatibility header
     # is forced into every measured translation unit. The overlay intervenes
-    # only when a source naturally reaches one of those SDK boundaries.
+    # only when a source naturally reaches that SDK boundary. Native pragma
+    # pack support leaves the SDK's XNU layout assertions fully enabled.
     set -- -I "$ROOT/tests/bench/compat/arm64-macos-self-overlay" "$@"
-    self_corpus="$self_corpus:arm64-macos-self-sdk-overlay-v3"
+    self_corpus="$self_corpus:arm64-macos-self-sdk-overlay-v4"
     ;;
 esac
 run_lane self "$self_corpus" -Wno-mem -Wno-return-type \

@@ -246,6 +246,10 @@ static AstNode *conv_decay_impl(Sema *s, AstNode *e, bool warn_storage_order)
         AstNode *c = conv_cast(s, e, p);
 
         c->is_lvalue = false;
+        /* Preserve the address guarantee of an aligned/packed array member
+         * through its array-to-pointer conversion. A later subscript must
+         * not rediscover only the element type's stronger natural alignment. */
+        c->sem_lvalue_align = e->sem_lvalue_align;
         c->sem_reverse_storage_order = e->sem_reverse_storage_order;
         return c;
     }

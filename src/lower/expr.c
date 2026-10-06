@@ -1894,6 +1894,8 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
         {
             Lvalue lv = lv_of(lo, result, sem(e));
 
+            if (e->sem_lvalue_align && e->sem_lvalue_align < lv.align)
+                lv.align = (u32)e->sem_lvalue_align;
             lv.reverse_storage_order = e->sem_reverse_storage_order;
             return lv;
         }
@@ -1928,8 +1930,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
              * does not have: `int b` at offset 1 is 1-aligned. The verifier
              * calls under-alignment honest and over-alignment an error, so
              * the claim has to come down. */
-            if (m->packed || (rec->tag && rec->tag->packed))
-                lv.align = 1;
+            lv.align = (u32)member_effective_align(m, lv.align);
             if (e->sem_lvalue_align && e->sem_lvalue_align < lv.align)
                 lv.align = (u32)e->sem_lvalue_align;
             if (rec->kind == TY_UNION)
@@ -1937,7 +1938,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e)
             lv.reverse_storage_order = e->sem_reverse_storage_order;
             return lv;
         }
-        if (m->packed) {
+        if (member_uses_packed_bits(m)) {
             /* `off` includes anonymous-member nesting plus this member's
              * byte offset. Rebase to the containing record, then address the
              * first byte touched by the packed field; lower_load/store gather
@@ -4448,7 +4449,7 @@ static void clear_padding_mark_bitfield(u8 *mask, u64 mask_size, u64 base,
     u64 start_bit = member->bit_shift;
     u32 i;
 
-    if (reverse && !member->packed) {
+    if (reverse && !member_uses_packed_bits(member)) {
         u64 unit_byte =
             (member->offset / member->container_size) * member->container_size;
 
@@ -6213,8 +6214,7 @@ IrOperand lower_rvalue(Lower *lo, AstNode *e)
             IrOperand value = lower_rvalue(lo, e->lhs);
             u32 align = (u32)(member_layout.align ? member_layout.align : 1);
 
-            if (union_member->packed || (to->tag && to->tag->packed))
-                align = 1;
+            align = (u32)member_effective_align(union_member, align);
             if (lower_is_aggregate(member_type)) {
                 u8 flags = lower_aggregate_access_flags(e->lhs);
 

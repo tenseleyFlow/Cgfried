@@ -560,7 +560,7 @@ measure_runtime()
         [ -z "$sysroot_include" ] || echo "sysroot_include=$sysroot_include"
         [ -z "$sysroot_crt" ] || echo "sysroot_crt=$sysroot_crt"
         if [ "$runtime_target" = arm64-macos ]; then
-            echo 'cgf_sdk_compat=arm64-macos-kernel-runtime-v1'
+            echo 'cgf_sdk_compat=arm64-macos-kernel-runtime-v2'
         fi
         echo 'timeit_protocol=sprint-52-median-mad-v1'
     } >"$runtime_tmp"

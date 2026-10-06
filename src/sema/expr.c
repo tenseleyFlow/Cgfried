@@ -1102,10 +1102,8 @@ static AstNode *expr_member(Sema *s, AstNode *e)
     e->sem_type = ot->quals ? type_qualify(s->arena, member_type, ot->quals)
                             : member_type;
     {
-        u64 member_align = m->packed ? 1 : layout_of(s, m->type).align;
-
-        if (m->align_override > member_align)
-            member_align = m->align_override;
+        u64 member_align =
+            member_effective_align(m, layout_of(s, m->type).align);
         /* A dot expression cannot promise stronger alignment than its base
          * object. This matters for a direct GNU-aligned object whose record
          * type remains naturally aligned: `underaligned.member` inherits the
@@ -1161,9 +1159,11 @@ static AstNode *expr_index(Sema *s, AstNode *e)
     /* `a[i]` is `*(a + i)`, so either operand may be the pointer. */
     if (is_ptr(base->sem_type) && type_is_integer(idx->sem_type)) {
         e->sem_type = base->sem_type->base;
+        e->sem_lvalue_align = base->sem_lvalue_align;
         e->sem_reverse_storage_order = base->sem_reverse_storage_order;
     } else if (type_is_integer(base->sem_type) && is_ptr(idx->sem_type)) {
         e->sem_type = idx->sem_type->base;
+        e->sem_lvalue_align = idx->sem_lvalue_align;
         e->sem_reverse_storage_order = idx->sem_reverse_storage_order;
     } else {
         err(s, e->span, "invalid subscript of '%s' by '%s'",

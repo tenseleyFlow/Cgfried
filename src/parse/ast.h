@@ -296,6 +296,10 @@ struct AstNode {
      * silently ignores a LEADING one, and by the time sema sees a GnuDeclAttrs
      * the three positions are indistinguishable. */
     bool packed;
+    /* Active #pragma pack alignment cap at this record definition. Zero is
+     * the target default. Unlike `packed`, a nonzero value caps rather than
+     * unconditionally replacing member alignment with one. */
+    u8 pack_align;
     /* GNU scalar_storage_order bound to this record definition. Like packed,
      * only the parser can distinguish a record position from a leading or
      * declarator attribute. */

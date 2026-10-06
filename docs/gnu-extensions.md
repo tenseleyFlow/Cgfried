@@ -117,6 +117,7 @@ predefine.
 | `#ident` / `#sccs` | `tests/programs/gnu/ident_directive.c` | source and generated version strings retained in ELF object metadata |
 | `#assert` / `#unassert` and `#predicate(answer)` | `tests/programs/gnu/pp_assertions.c` | legacy system headers and GCC torture sources that still use cpplib assertions |
 | `#pragma push_macro` / `pop_macro` | `tests/programs/gnu/pragma_macro_stack.c` | headers that temporarily replace a public macro and then restore the caller's definition |
+| `#pragma pack` / `_Pragma("pack(...)")` | `tests/programs/gnu/pragma_pack_layout.c` | ABI records in Apple XNU headers and wire/on-disk formats that cap member alignment without forcing every field to byte alignment |
 | `__alignof__` / `__alignof` expression and incomplete-type forms | `tests/programs/gnu/alignof_extensions.c` | GCC-compatible alignment queries used by allocators, stack-alignment checks, and historical system code |
 | non-defining `extern void` linker symbols | `tests/programs/gnu/extern_void_symbol.c` | linker-script boundary symbols whose address participates in a static integer relocation |
 | hosted GNU `alloca(...)` alias | `tests/programs/gnu/alloca_alias.c` | GNU89 sources that use GCC's plain spelling without including `<alloca.h>` |
@@ -496,6 +497,29 @@ operand are raw preprocessing tokens: a macro named `push_macro` cannot change
 the operation, and a macro that expands to a string is not accepted as the
 operand. Encoding prefixes are ignored while escapes remain undecoded,
 matching GCC's token-level name rule.
+
+`#pragma pack` implements the common GCC/Clang state machine: `pack(n)`,
+`pack()`/`pack(0)`, `pack(push[, name][, n])`, and `pack(pop[, name])`, with
+`n` restricted to 1, 2, 4, 8, or 16. A named pop restores the state saved by
+that checkpoint and discards it plus every newer stack entry. `_Pragma`
+reaches the same handler, inactive conditional groups do not change state,
+malformed directives diagnose through `-Wpragmas`, and recognized directives
+remain visible under `-E`. The complete pre-implementation oracle table is in
+`.docs/audits/pragma-pack-layout.md`.
+
+The active value is a maximum member-alignment cap, not an alias for
+`__attribute__((packed))`: `pack(4)` places a `long long` after a leading
+`char` at offset 4 and gives the record alignment 4. Member-level `aligned`
+requests are capped, while an alignment on the completed record may still
+raise its alignment. Any active cap uses GCC/Clang's continuous bit-field
+allocation rule; zero-width fields retain their target-specific allocation
+barrier and AAPCS64 record-alignment contribution. Static initializers,
+runtime reads/writes, volatile accesses, reverse storage order, unions, and
+runtime-sized record layout all consume the same effective alignment and
+bit-position rules. A cap that would under-align an `_Atomic` member is a hard
+error. The native macOS gate compiles the unmodified `<mach/message.h>` and
+keeps its XNU size assertions enabled, including the 60-byte context trailer
+and 68-byte MAC trailer that exposed the missing feature.
 
 GNU `__alignof__` accepts either a type name or an unevaluated unary
 expression. Expression queries preserve alignment attached to a declaration

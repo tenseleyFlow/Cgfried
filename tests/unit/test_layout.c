@@ -271,6 +271,164 @@ void test_layout_records(TestCtx *t)
     rec_is(t, "struct S { _Alignas(8) char c; int i; };", 8, 8);
 }
 
+void test_layout_pragma_pack(TestCtx *t)
+{
+    static const TargetKind targets[] = {
+        CGF_TARGET_X86_64_LINUX_GNU, CGF_TARGET_ARM64_LINUX,
+        CGF_TARGET_ARM64_MACOS,      CGF_TARGET_X86_64_LINUX_MUSL,
+        CGF_TARGET_X86_64_FREEBSD,
+    };
+    static const char source[] =
+        "struct Natural { char c; long long x; };\n"
+        "#pragma pack(4)\n"
+        "struct Four { char c; long long x; };\n"
+        "#pragma pack(push, checkpoint, 2)\n"
+        "struct Two { char c; long long x; };\n"
+        "#pragma pack(push, 1)\n"
+        "struct One { char c; long long x; };\n"
+        "#pragma pack(pop, checkpoint)\n"
+        "struct Restored { char c; long long x; };\n"
+        "_Pragma(\"pack(push, 8)\")\n"
+        "struct Eight { char c; long long x; };\n"
+        "_Pragma(\"pack(pop)\")\n"
+        "struct Back { char c; long long x; };\n"
+        "#pragma pack()\n"
+        "struct Reset { char c; long long x; };\n"
+        "#pragma pack(push, 1)\n"
+        "struct MemberAligned { char c; long long x "
+        "__attribute__((aligned(8))); };\n" /* check_bans allow */
+        "struct RecordAligned { char c; long long x; } "
+        "__attribute__((aligned(16)));\n" /* check_bans allow */
+        "union PackedUnion { char c; long long x; };\n"
+        "#pragma pack(pop)\n"
+        "#pragma pack(push, 2)\n"
+        "struct Bits2 { unsigned char a:7; unsigned int b:26; "
+        "unsigned char z; };\n"
+        "#pragma pack(pop)\n"
+        "#pragma pack(push, 4)\n"
+        "struct Bits4 { unsigned char a:7; unsigned long long b:58; "
+        "unsigned char z; };\n"
+        "#pragma pack(pop)\n"
+        "#pragma pack(push, 1)\n"
+        "struct Zero { char c; unsigned long long :0; char z; };\n"
+        "#pragma pack(pop)\n";
+    struct Expected {
+        const char *name;
+        u64 size;
+        u64 align;
+        u64 second_offset;
+    } expected[] = {
+        {"Natural", 16, 8, 8},      {"Four", 12, 4, 4},
+        {"Two", 10, 2, 2},          {"One", 9, 1, 1},
+        {"Restored", 12, 4, 4},     {"Eight", 16, 8, 8},
+        {"Back", 12, 4, 4},         {"Reset", 16, 8, 8},
+        {"MemberAligned", 9, 1, 1}, {"RecordAligned", 16, 16, 1},
+        {"PackedUnion", 8, 1, 0},
+    };
+    u32 i;
+
+    /* The common GCC/Clang surface is target-independent for ordinary
+     * LP64 members. Named pop discards newer checkpoints, _Pragma follows
+     * the same state machine, member alignment requests remain capped, and a
+     * record-level alignment request may still raise the completed type. */
+    for (i = 0; i < CGF_ARRAY_LEN(targets); i++) {
+        LayFix f;
+        u32 j;
+
+        (void)run_lay(&f, source, targets[i]);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        T_ASSERT_EQ_INT(t, f.warnings, 0);
+        for (j = 0; j < CGF_ARRAY_LEN(expected); j++) {
+            Symbol *sym = scope_lookup(
+                f.sema.file_scope,
+                intern_str(&f.in, intern_cstr(&f.in, expected[j].name)),
+                NS_TAG);
+
+            T_ASSERT(t, sym && sym->tag);
+            if (sym && sym->tag) {
+                TypeLayout l = layout_of(&f.sema, sym->tag->type);
+                Member *second =
+                    sym->tag->members ? sym->tag->members->next : NULL;
+
+                T_ASSERT(t, l.size == expected[j].size);
+                T_ASSERT(t, l.align == expected[j].align);
+                T_ASSERT(t, second != NULL);
+                if (second)
+                    T_ASSERT(t, second->offset == expected[j].second_offset);
+            }
+        }
+
+        /* Any active cap selects continuous bit-field allocation, while the
+         * cap itself (rather than byte alignment) remains the record ABI. */
+        {
+            Symbol *bits2 = scope_lookup(
+                f.sema.file_scope,
+                intern_str(&f.in, intern_cstr(&f.in, "Bits2")), NS_TAG);
+            Symbol *bits4 = scope_lookup(
+                f.sema.file_scope,
+                intern_str(&f.in, intern_cstr(&f.in, "Bits4")), NS_TAG);
+            Member *z2;
+            Member *z4;
+
+            T_ASSERT(t, bits2 && bits2->tag && bits4 && bits4->tag);
+            if (bits2 && bits2->tag && bits4 && bits4->tag) {
+                TypeLayout l2 = layout_of(&f.sema, bits2->tag->type);
+                TypeLayout l4 = layout_of(&f.sema, bits4->tag->type);
+
+                z2 = bits2->tag->members->next->next;
+                z4 = bits4->tag->members->next->next;
+                T_ASSERT(t, l2.size == 6 && l2.align == 2 && z2->offset == 5);
+                T_ASSERT(t, l4.size == 12 && l4.align == 4 && z4->offset == 9);
+            }
+        }
+
+        /* Zero-width fields retain their target ABI boundary. Linux AAPCS64
+         * also makes that boundary a record alignment; the other targets do
+         * not, exactly as for the existing packed-attribute rule. */
+        {
+            Symbol *zero = scope_lookup(
+                f.sema.file_scope,
+                intern_str(&f.in, intern_cstr(&f.in, "Zero")), NS_TAG);
+
+            T_ASSERT(t, zero && zero->tag);
+            if (zero && zero->tag) {
+                TypeLayout l = layout_of(&f.sema, zero->tag->type);
+                Member *z = zero->tag->members->next->next;
+
+                if (targets[i] == CGF_TARGET_ARM64_LINUX)
+                    T_ASSERT(t, l.size == 16 && l.align == 8);
+                else
+                    T_ASSERT(t, l.size == 9 && l.align == 1);
+                T_ASSERT(t, z->offset == 8);
+            }
+        }
+        lay_free(&f);
+    }
+
+    /* A cap that preserves an atomic member's natural alignment is harmless;
+     * one that lowers it must fail closed because arm64 exclusive operations
+     * cannot implement a silently unaligned atomic object. */
+    {
+        LayFix f;
+
+        (void)run_lay(&f,
+                      "#pragma pack(push, 8)\n"
+                      "struct A { _Atomic long long value; };\n"
+                      "#pragma pack(pop)\n",
+                      CGF_TARGET_ARM64_MACOS);
+        T_ASSERT_EQ_INT(t, f.errors, 0);
+        lay_free(&f);
+
+        (void)run_lay(&f,
+                      "#pragma pack(push, 1)\n"
+                      "struct A { _Atomic long long value; };\n"
+                      "#pragma pack(pop)\n",
+                      CGF_TARGET_ARM64_MACOS);
+        T_ASSERT_EQ_INT(t, f.errors, 1);
+        lay_free(&f);
+    }
+}
+
 void test_layout_huge_object_offsets(TestCtx *t)
 {
     static const TargetKind targets[] = {

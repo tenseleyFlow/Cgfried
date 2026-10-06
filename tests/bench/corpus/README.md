@@ -25,10 +25,11 @@ environment cannot be confused with an unmodified SDK parse.
 
 The complete self lane uses Cgfried's native `__has_include` operator; no
 preprocessor compatibility header is forced into its translation units. An
-`include_next` overlay still handles the SDK's second `va_list` typedef and
-private XNU layout assertions only when a source naturally reaches those
-headers; no Mach header is injected into every timed translation unit. Its
-provenance suffix is `arm64-macos-self-sdk-overlay-v3`.
+`include_next` overlay still handles the SDK's second `va_list` typedef only
+when a source naturally reaches that header. Native `#pragma pack` support
+keeps the SDK's XNU layout assertions enabled and eliminates the former Mach
+header override. Its provenance suffix is
+`arm64-macos-self-sdk-overlay-v4`.
 
 The file is public-domain SQLite deliverable code.  The benchmark defines
 `SQLITE_DISABLE_INTRINSIC=1` because Cgfried intentionally has no generic

@@ -2851,8 +2851,9 @@ static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
     reverse =
         sema_scalar_storage_order_reversed(c->s, cursor->scalar_storage_order);
     unit_byte = (m->offset / m->container_size) * m->container_size;
-    start_bit =
-        m->packed ? m->bit_shift : (m->offset - unit_byte) * 8 + m->bit_shift;
+    start_bit = member_uses_packed_bits(m)
+                    ? m->bit_shift
+                    : (m->offset - unit_byte) * 8 + m->bit_shift;
     /* Clear exactly the selected bit-field before setting its new value.
      * This preserves neighboring fields in the same container while making
      * a later union/member designator replace, rather than OR with, the
@@ -2867,9 +2868,11 @@ static void fill_bitfield(InitCtx *c, const FillCursor *cursor, AstNode *item)
     for (b = 0; b < m->bit_width; b++) {
         u64 logical =
             reverse ? start_bit + (m->bit_width - 1 - b) : m->bit_shift + b;
-        u64 byte = cursor->off +
-                   (reverse ? (m->packed ? m->offset : unit_byte) : m->offset) +
-                   logical / 8;
+        u64 byte =
+            cursor->off +
+            (reverse ? (member_uses_packed_bits(m) ? m->offset : unit_byte)
+                     : m->offset) +
+            logical / 8;
         u8 bit = reverse ? (u8)(7 - logical % 8) : (u8)(logical % 8);
         u8 mask = (u8)(1u << bit);
 
