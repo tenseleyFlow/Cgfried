@@ -156,6 +156,34 @@ configure_libpng() {
         fail "$label configure did not select the pinned zlib interface"
 }
 
+resolved_link_libraries() {
+    destination=$1
+    dependency=$2
+    awk -v pinned_zlib="$dependency/libz.a" '
+        $1 == "LIBS" && $2 == "=" {
+            assignments++
+            for (i = 3; i <= NF; i++) {
+                if ($i == "-lz") {
+                    library = pinned_zlib
+                    zlib_count++
+                } else if ($i == "-lm") {
+                    library = $i
+                } else {
+                    unexpected = 1
+                    continue
+                }
+                printf "%s%s", separator, library
+                separator = " "
+            }
+        }
+        END {
+            if (assignments != 1 || zlib_count != 1 || unexpected)
+                exit 1
+            print ""
+        }
+    ' "$destination/Makefile"
+}
+
 audit_archive() {
     format=$1
     input=$2
@@ -249,14 +277,17 @@ build_libpng() {
     destination=$2
     dependency=$3
     compiler=${4:-}
+    if ! libraries=$(resolved_link_libraries "$destination" "$dependency"); then
+        fail "$label configure produced unsupported dependency libraries"
+    fi
     status=0
     if [ -n "$compiler" ]; then
         LC_ALL=C SOURCE_DATE_EPOCH=0 "$make_cmd" -C "$destination" -j"$jobs" \
-            "CC=$compiler" "LIBS=$dependency/libz.a" all \
+            "CC=$compiler" "LIBS=$libraries" all \
             >"$logs/$label/build.log" 2>&1 || status=$?
     else
         LC_ALL=C SOURCE_DATE_EPOCH=0 "$make_cmd" -C "$destination" -j"$jobs" \
-            "LIBS=$dependency/libz.a" all >"$logs/$label/build.log" 2>&1 || status=$?
+            "LIBS=$libraries" all >"$logs/$label/build.log" 2>&1 || status=$?
     fi
     if [ "$status" -ne 0 ]; then
         tail -240 "$logs/$label/build.log" >&2
@@ -302,14 +333,17 @@ test_libpng() {
     destination=$2
     dependency=$3
     compiler=${4:-}
+    if ! libraries=$(resolved_link_libraries "$destination" "$dependency"); then
+        fail "$label configure produced unsupported dependency libraries"
+    fi
     status=0
     if [ -n "$compiler" ]; then
         LC_ALL=C SOURCE_DATE_EPOCH=0 "$make_cmd" -C "$destination" -j"$jobs" \
-            "CC=$compiler" "LIBS=$dependency/libz.a" check \
+            "CC=$compiler" "LIBS=$libraries" check \
             >"$logs/$label/test.log" 2>&1 || status=$?
     else
         LC_ALL=C SOURCE_DATE_EPOCH=0 "$make_cmd" -C "$destination" -j"$jobs" \
-            "LIBS=$dependency/libz.a" check >"$logs/$label/test.log" 2>&1 || status=$?
+            "LIBS=$libraries" check >"$logs/$label/test.log" 2>&1 || status=$?
     fi
     if [ "$status" -ne 0 ]; then
         tail -280 "$logs/$label/test.log" >&2

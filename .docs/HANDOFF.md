@@ -9840,12 +9840,16 @@ and green post-publication CI.
   inherited Apple-host failures: 1,015 tests / 4,331,572 assertions. The new
   boundary test is green under ASan+UBSan; campaign meta, target-seam, bans,
   POSIX-shell parsing, pinned clang-format 22, and whitespace checks are green.
-  The first hosted x86-64/ARM64 campaign pair found one harness-only
-  portability error: Linux adds `-lm` and platform-dependent whitespace to
-  the generated `LIBS` assignment, while the preflight expected macOS's
-  literal spelling. The repaired check parses the assignment and requires the
-  exact `-lz` token; final product links remain independently constrained to
-  the absolute pinned archive and sole-C receipts prove that closure.
+  The first hosted x86-64/ARM64 campaign pair found two harness-only
+  portability errors around the same generated assignment: Linux adds `-lm`
+  and platform-dependent whitespace to `LIBS`, while the initial preflight
+  expected macOS's literal spelling and the first repair then replaced the
+  complete assignment with only pinned zlib. The repaired preflight parses
+  the assignment and requires the exact `-lz` token. Product/test links replace
+  only that token with the absolute pinned archive, preserve the recognized
+  system `-lm`, and reject any unexpected library token; sole-C receipts still
+  prove the pinned project closure. The complete clean native ARM64 macOS
+  campaign remains green after that correction.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
