@@ -146,7 +146,13 @@ configure_libpng() {
         fail "$label configure failed"
     fi
     [ -f "$destination/Makefile" ] || fail "$label configure produced no Makefile"
-    grep -F 'LIBS = -lz' "$destination/Makefile" >/dev/null ||
+    awk '
+        $1 == "LIBS" && $2 == "=" {
+            for (i = 3; i <= NF; i++)
+                if ($i == "-lz") found = 1
+        }
+        END { exit !found }
+    ' "$destination/Makefile" ||
         fail "$label configure did not select the pinned zlib interface"
 }
 
