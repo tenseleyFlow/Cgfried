@@ -836,6 +836,8 @@ static u32 floating_precision(Sema *s, const Type *t)
 
     if (!t)
         return 0;
+    if (t->kind == TY_FLOAT16)
+        return 11;
     if (t->kind == TY_FLOAT || t->kind == TY_FLOAT32)
         return 24;
     if (t->kind == TY_DOUBLE || t->kind == TY_FLOAT64 || t->kind == TY_FLOAT32X)

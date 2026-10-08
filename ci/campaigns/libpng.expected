@@ -1,0 +1,14 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+baseline.build	PASS	compiler=host-cc,opt=O2
+baseline.test.upstream	PASS	cases=36
+build	PASS	libraries=2,objects=40
+compiler.sole-c	PASS	project-objects=40,archive-members=30,linked-products=10
+configure	PASS	hardware-optimizations=off,mode=static,zlib=pinned
+dependency.zlib	PASS	archive-members=15,sole-c=yes,version=1.3.1
+hosted-header.float16	PASS	policy=declaration-layout-only,value-codegen=refused
+linkage	PASS	binaries=10,libraries=2,static=yes
+parity.outputs	PASS	artifacts=pngout.png,commands=pngtest-strict
+source.archive	PASS	sha256=d80dd2a38a37f803cb9b6ac7b14bd6e74ddc3b654780a8380bdf93523fdb4389
+source.pin	PASS	commit=cd952f49f722c8ef3d2097b7fd0078399e2c4b2e,version=1.6.59
+test.upstream	PASS	cases=36,opt=O2

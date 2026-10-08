@@ -100,6 +100,10 @@ static TypeLayout basic_layout(Sema *s, const Type *t)
         r.size = 16;
         r.align = 16;
         return r;
+    case TY_FLOAT16:
+        r.size = 2;
+        r.align = 2;
+        return r;
     case TY_FLOAT:
     case TY_FLOAT32:
         r.size = 4;
@@ -599,9 +603,10 @@ static void classify_into(Sema *s, Type *t, u64 off, AbiClass cls[2],
             cls[idx + 1] = merge(cls[idx + 1], ABI_SSEUP);
         return;
     }
-    if (t->kind == TY_FLOAT || t->kind == TY_DOUBLE || t->kind == TY_LDOUBLE ||
-        t->kind == TY_FLOAT32 || t->kind == TY_FLOAT64 ||
-        t->kind == TY_FLOAT32X || t->kind == TY_FLOAT64X) {
+    if (t->kind == TY_FLOAT16 || t->kind == TY_FLOAT || t->kind == TY_DOUBLE ||
+        t->kind == TY_LDOUBLE || t->kind == TY_FLOAT32 ||
+        t->kind == TY_FLOAT64 || t->kind == TY_FLOAT32X ||
+        t->kind == TY_FLOAT64X) {
         cls[idx] = merge(cls[idx], ABI_SSE);
     } else {
         cls[idx] = merge(cls[idx], ABI_INTEGER);
@@ -732,6 +737,7 @@ static bool hfa_walk(Sema *s, Type *t, Type **base, int *count)
             return false;
     }
     switch (t->kind) {
+    case TY_FLOAT16:
     case TY_FLOAT:
     case TY_DOUBLE:
     case TY_LDOUBLE:

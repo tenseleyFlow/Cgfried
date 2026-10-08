@@ -345,6 +345,58 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Third post-v0.1.0 large-FOSS rung. The complete static libpng release and
+  # its checksum-pinned zlib dependency are sole-C certified on both native
+  # Linux architectures. All 36 upstream tests and a byte-for-byte pngtest
+  # host differential must pass from the offline archive cache.
+  campaign-libpng:
+    name: campaign-libpng (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: cache the pinned libpng and zlib archives
+        uses: actions/cache@v5
+        with:
+          path: build/campaigns/dl
+          key: campaign-libpng-1.6.59-d80dd2a38a37f803cb9b6ac7b14bd6e74ddc3b654780a8380bdf93523fdb4389-zlib-1.3.1-9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
+      - name: build the compiler and verify the campaign contract
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          scripts/campaign-lint.sh
+          tests/scripts/campaign_contract_test.sh
+      - name: populate the verified cache and run the offline campaign
+        run: |
+          make campaign-libpng-fetch
+          CGF_CAMPAIGN_OFFLINE=1 make libpng-expected
+      - name: retain libpng campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-foss-libpng-${{ matrix.arch }}
+          path: |
+            build/campaigns/libpng/results.txt
+            build/campaigns/libpng/provenance.txt
+            build/campaigns/libpng/sole-c/**
+            build/campaigns/libpng/sole-c-closure.tsv
+            build/campaigns/libpng/sole-c-report.txt
+            build/campaigns/libpng/logs/**
+            build/campaigns/libpng/parity/**
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS
@@ -808,6 +860,8 @@ jobs:
           }
       - name: Apple stdarg guard with native integer-128
         run: ci/campaigns/test-arm64-macos-stdarg.sh build/cgfried
+      - name: Apple math headers with declaration-only _Float16
+        run: ci/campaigns/test-float16-hosted-boundary.sh build/cgfried
       - name: ABI programs, both linkers, signatures checked
         run: |
           sh tests/macos/run.sh build/cgfried > macos-lane.log 2>&1 || s=$?

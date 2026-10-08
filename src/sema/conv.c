@@ -376,6 +376,8 @@ static u32 floating_rep_bits(Sema *s, const Type *t)
 static int floating_equal_rank(TypeKind kind)
 {
     switch (kind) {
+    case TY_FLOAT16:
+        return 3016;
     case TY_FLOAT128:
         return 3128;
     case TY_FLOAT64:

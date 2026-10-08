@@ -31,6 +31,7 @@ typedef struct {
     int total_bytes;
 } SfFormat;
 
+extern const SfFormat SF_BINARY16;
 extern const SfFormat SF_BINARY32;
 extern const SfFormat SF_BINARY64;
 extern const SfFormat SF_X87_80;

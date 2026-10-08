@@ -779,8 +779,8 @@ void test_softfp_mul_wide_product(TestCtx *t)
  * FINITE value in every format instead of overflowing to infinity. */
 void test_softfp_div_by_subnormal_overflows(TestCtx *t)
 {
-    static const SfFormat *formats[] = {&SF_BINARY32, &SF_BINARY64,
-                                        &SF_BINARY128};
+    static const SfFormat *formats[] = {&SF_BINARY16, &SF_BINARY32,
+                                        &SF_BINARY64, &SF_BINARY128};
     size_t k;
 
     for (k = 0; k < sizeof(formats) / sizeof(formats[0]); k++) {

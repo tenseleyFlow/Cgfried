@@ -21,6 +21,8 @@ SfFormat constexpr_format_of(Sema *s, const Type *t)
     if (!t)
         return SF_BINARY64;
     switch (t->kind) {
+    case TY_FLOAT16:
+        return SF_BINARY16;
     case TY_FLOAT:
     case TY_FLOAT32:
         return SF_BINARY32;

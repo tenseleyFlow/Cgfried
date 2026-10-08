@@ -23,7 +23,7 @@ for target in arm64-linux x86_64-linux-gnu; do
     done
 done
 
-for runner in pcre2.sh mbedtls.sh mbedtls-cc.sh curl.sh sqlite.sh; do
+for runner in pcre2.sh mbedtls.sh mbedtls-cc.sh curl.sh sqlite.sh libpng.sh; do
     if grep -F "$linux_overlay" "$root/scripts/campaigns/$runner" >/dev/null; then
         fail "$runner still injects the retired Linux integer-128 overlay"
     fi

@@ -113,6 +113,40 @@ void test_sema_basic_types_interned(TestCtx *t)
     T_ASSERT(t, !type_compatible(type_basic(TY_CHAR), type_basic(TY_SCHAR)));
 }
 
+void test_sema_float16_hosted_declaration_boundary(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "typedef _Float16 hosted_half;\n"
+             "extern _Float16 hosted_math(_Float16);\n"
+             "extern _Float16 hosted_object;\n"
+             "_Float16 *pointer_object;\n"
+             "_Static_assert(sizeof(_Float16) == 2, \"size\");\n"
+             "_Static_assert(_Alignof(_Float16) == 2, \"align\");\n"
+             "_Static_assert(!__builtin_types_compatible_p(_Float16, float), "
+             "\"distinct\");\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f, "_Float16 object;\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f, "_Float16 identity(_Float16 x) { return x; }\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "extern _Float16 hosted_math(_Float16);\n"
+             "extern _Float16 hosted_object;\n"
+             "int use(void) { return (int)hosted_math(hosted_object); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
+}
+
 void test_sema_gnu_int128_spellings_share_ti_types(TestCtx *t)
 {
     SemaFix f;

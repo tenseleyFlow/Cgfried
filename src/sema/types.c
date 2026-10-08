@@ -321,7 +321,7 @@ bool type_is_vector(const Type *t)
 
 bool type_is_floating(const Type *t)
 {
-    return t && t->kind >= TY_FLOAT && t->kind <= TY_FLOAT64X;
+    return t && t->kind >= TY_FLOAT16 && t->kind <= TY_FLOAT64X;
 }
 
 int sema_builtin_classify_type(const Type *type, bool type_name_form)
@@ -877,6 +877,8 @@ static const char *basic_name(TypeKind k)
         return "signed mode(TI) integer";
     case TY_UINT128:
         return "unsigned mode(TI) integer";
+    case TY_FLOAT16:
+        return "_Float16";
     case TY_FLOAT:
         return "float";
     case TY_DOUBLE:

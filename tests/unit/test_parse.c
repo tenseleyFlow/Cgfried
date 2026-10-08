@@ -425,7 +425,8 @@ void test_parse_floatn_pedantic_warnings(TestCtx *t)
 {
     ParseFix f;
     static const char *const types[] = {
-        "_Float32", "_Float64", "_Float32x", "_Float64x", "_Float128",
+        "_Float16",  "_Float32",  "_Float64",
+        "_Float32x", "_Float64x", "_Float128",
     };
     char src[96];
     u32 i;

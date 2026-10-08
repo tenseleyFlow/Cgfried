@@ -1096,6 +1096,8 @@ static Type *base_type_from_ast(Sema *s, const AstType *at, Span span)
         return type_basic(TY_INT128);
     case ABT_UINT128:
         return type_basic(TY_UINT128);
+    case ABT_FLOAT16:
+        return type_basic(TY_FLOAT16);
     case ABT_FLOAT:
         return type_basic(TY_FLOAT);
     case ABT_DOUBLE:
@@ -5271,6 +5273,106 @@ static void check_va_pack_uses(Sema *s, AstNode *n, Symbol *current)
         check_va_pack_uses(s, n->designators[i], current);
 }
 
+/* Apple SDK 15 and later publishes unconditional _Float16 prototypes from
+ * <math.h>. They are declarations, not evidence that a translation unit uses
+ * a half-precision value. Keep that hosted-header surface parseable without
+ * silently lowering it as float (which would be an ABI bug): definitions and
+ * evaluated values remain an explicit boundary until IRT_F16 exists.
+ *
+ * Pointers stop the walk because their runtime representation is independent
+ * of the pointed-to type. Aggregates and arrays do not: passing or copying one
+ * by value can expose AAPCS64's HFA and storage rules. */
+static bool type_contains_float16_value(const Type *t)
+{
+    const Member *m;
+    u32 i;
+
+    if (!t)
+        return false;
+    switch (t->kind) {
+    case TY_FLOAT16:
+        return true;
+    case TY_PTR:
+        return false;
+    case TY_ARRAY:
+        return type_contains_float16_value(t->base);
+    case TY_FUNC:
+        if (type_contains_float16_value(t->base))
+            return true;
+        for (i = 0; i < t->nparams; i++)
+            if (type_contains_float16_value(t->params[i]))
+                return true;
+        return false;
+    case TY_STRUCT:
+    case TY_UNION:
+        if (!t->tag)
+            return false;
+        for (m = t->tag->members; m; m = m->next)
+            if (type_contains_float16_value(m->type))
+                return true;
+        return false;
+    default:
+        return false;
+    }
+}
+
+static bool float16_object_definition(const AstNode *n)
+{
+    return n && n->kind == AST_DECL && n->sym && n->sym->kind == SYM_VAR &&
+           (n->sym->defined || n->sym->tentative) &&
+           type_contains_float16_value(n->sem_type);
+}
+
+static void check_float16_boundary(Sema *s, AstNode *n, bool enclosed)
+{
+    bool blocks_children = enclosed;
+    u32 i;
+
+    if (!n)
+        return;
+    if (!enclosed && n->kind == AST_FUNC_DEF &&
+        type_contains_float16_value(n->sem_type)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, n->span,
+                  "defining a function whose type contains '_Float16' is "
+                  "not yet supported; declarations and type queries are "
+                  "supported for hosted-header interoperability");
+        blocks_children = true;
+    } else if (!enclosed && float16_object_definition(n)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, n->span,
+                  "defining an object whose type contains '_Float16' is not "
+                  "yet supported; extern declarations and type queries are "
+                  "supported for hosted-header interoperability");
+        blocks_children = true;
+    } else if (!enclosed && n->kind >= AST_EXPR_INT &&
+               n->kind <= AST_EXPR_STMT && !n->unevaluated &&
+               type_contains_float16_value(n->sem_type)) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, n->span,
+                  "evaluated '_Float16' values are not yet supported; "
+                  "declarations and type queries are supported for "
+                  "hosted-header interoperability");
+        blocks_children = true;
+    }
+    if (n->unevaluated)
+        blocks_children = true;
+
+    check_float16_boundary(s, n->lhs, blocks_children);
+    check_float16_boundary(s, n->mid, blocks_children);
+    check_float16_boundary(s, n->rhs, blocks_children);
+    check_float16_boundary(s, n->init, blocks_children);
+    check_float16_boundary(s, n->body, blocks_children);
+    check_float16_boundary(s, n->desig_index, blocks_children);
+    check_float16_boundary(s, n->desig_range_end, blocks_children);
+    for (i = 0; i < n->nargs; i++)
+        check_float16_boundary(s, n->args[i], blocks_children);
+    for (i = 0; i < n->nitems; i++)
+        check_float16_boundary(s, n->items[i], blocks_children);
+    for (i = 0; i < n->ndesignators; i++)
+        check_float16_boundary(s, n->designators[i], blocks_children);
+}
+
 void sema_run(Sema *s, AstNode *tu)
 {
     u32 i;
@@ -5281,5 +5383,7 @@ void sema_run(Sema *s, AstNode *tu)
         sema_decl(s, tu->decls[i]);
     for (i = 0; i < tu->ndecls; i++)
         check_va_pack_uses(s, tu->decls[i], NULL);
+    for (i = 0; i < tu->ndecls; i++)
+        check_float16_boundary(s, tu->decls[i], false);
     sema_finish(s);
 }
