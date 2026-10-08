@@ -59,17 +59,19 @@ grep -Fx -- '-include' "$WORK/macos/argv.log" >/dev/null ||
 if grep -F 'arm64-macos-self-syntax.h' "$WORK/macos/argv.log" >/dev/null; then
     fail "retired self compatibility header was still forced"
 fi
-[ "$(grep -Fxc "$ROOT/tests/bench/compat/arm64-macos-self-overlay" \
-    "$WORK/macos/argv.log")" -eq 1 ] ||
-    fail "self SDK overlay was not scoped to one lane"
+if grep -F 'arm64-macos-self-overlay' "$WORK/macos/argv.log" >/dev/null; then
+    fail "retired self SDK overlay was still injected"
+fi
+[ ! -e "$ROOT/tests/bench/compat/arm64-macos-self-overlay/sys/_types/_va_list.h" ] ||
+    fail "retired va_list overlay was restored"
 [ ! -e "$ROOT/tests/bench/compat/arm64-macos-self-overlay/mach/port.h" ] ||
     fail "retired XNU assertion-bypass overlay was restored"
 grep -Fx 'sqlite3.status=measured' "$WORK/macos/results.txt" >/dev/null ||
     fail "SQLite lane was not measured"
 grep -Fx 'self.status=measured' "$WORK/macos/results.txt" >/dev/null ||
     fail "self lane was not measured"
-grep -F ':1-files:arm64-macos-self-sdk-overlay-v4' \
-    "$WORK/macos/results.txt" >/dev/null || fail "self compatibility provenance missing"
+grep -F ':1-files:arm64-macos-self-sdk-native-v1' \
+    "$WORK/macos/results.txt" >/dev/null || fail "native self SDK provenance missing"
 grep -Fx 'many-tu.status=measured' "$WORK/macos/results.txt" >/dev/null ||
     fail "many-tu lane was not measured"
 grep -Fx 'sqlite3.corpus=sqlite-amalgamation-3500400:arm64-macos-sdk-syntax-v1' \
@@ -175,4 +177,4 @@ set -e
 grep -F 'control helper is not executable' "$WORK/unknown-class/stderr" \
     >/dev/null || fail "arbitrary host-class refusal diagnostic is missing"
 
-echo 'bench_script_test: fleet controls, shared-CI provenance, measured lanes, and macOS shim are target-scoped'
+echo 'bench_script_test: fleet controls, shared-CI provenance, measured lanes, and native macOS SDK routing are target-scoped'

@@ -260,6 +260,9 @@ static bool is_ptr(const Type *t)
  * already decayed to a pointer at the record, so the test is "pointer to the
  * element type". Apple's va_list is a plain `char *` OBJECT, so the argument
  * arrives as that pointer itself and the test is "compatible with va_list".
+ * In strict ISO mode, an Apple SDK header included before <stdarg.h> uses its
+ * documented non-GCC `void *` fallback; that is representation-identical and
+ * is accepted only for this target and only as an unqualified lvalue.
  * Lowering makes the two uniform by taking the ADDRESS in the second case --
  * decay does it for free in the first. */
 static AstNode *expr_va_list_cursor(Sema *s, AstNode *e)
@@ -292,7 +295,11 @@ static bool is_va_list_cursor(Sema *s, const AstNode *e)
          * object. A cast/rvalue has nowhere to store the advanced cursor;
          * const/volatile/restrict/_Atomic variants are likewise rejected by
          * Clang on Apple rather than silently stripped. */
-        return e->is_lvalue && type_compatible(t, va);
+        return e->is_lvalue &&
+               (type_compatible(t, va) ||
+                (s->target.kind == CGF_TARGET_ARM64_MACOS &&
+                 t->kind == TY_PTR && t->quals == 0 && t->base &&
+                 t->base->kind == TY_VOID && t->base->quals == 0));
     return is_ptr(t) && va->base &&
            type_compatible(conv_strip_quals(s, t->base),
                            conv_strip_quals(s, va->base));

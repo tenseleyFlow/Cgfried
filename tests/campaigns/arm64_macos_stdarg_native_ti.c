@@ -1,14 +1,14 @@
+#ifdef CGF_APPLE_SDK_VA_LIST_FIRST
+#include <stdio.h>
+#endif
+#include <stdarg.h>
+
 #ifndef _VA_LIST_T
-#error "the Apple SDK va_list redeclaration must be suppressed"
+#error "Cgfried's Apple stdarg must publish the SDK va_list guard"
 #endif
 
 #ifndef __SIZEOF_INT128__
 #error "native GNU integer-128 support must remain advertised"
-#endif
-
-/* This is the incompatible Apple SDK fallback when _VA_LIST_T is absent. */
-#ifndef _VA_LIST_T
-typedef void *va_list;
 #endif
 
 _Static_assert(sizeof(__uint128_t) == 16, "native TI width");

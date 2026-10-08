@@ -407,9 +407,12 @@ preserving its independently required `va_list` guard. PR #180's
 `s56.85-pp-has-include` tranche merged green-only as
 `7eab8e88fae9c8e1a3db2412211505c442b426de`; it replaces the Apple self-build
 compatibility definition with a native, side-effect-free `__has_include`
-operator. The active `s56.86-pragma-pack-layout` branch starts from that exact
-merge and implements the Apple/XNU ABI-layout gap described in the detailed
-ledger below.
+operator. PR #181's `s56.86-pragma-pack-layout` tranche merged green-only as
+`1bd96330a0c7db7ad9ebdd66823f0a4c663a9ff3`; its tested head is
+`8bdfb0005a687e8c78853d72dba774b5463b26dc`. The active
+`s56.87-arm64-macos-va-list-header` branch starts from that exact merge and
+retires the final Apple self-build SDK overlay through native stdarg/header
+interoperation, as described in the detailed ledger below.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -9710,7 +9713,7 @@ and green post-publication CI.
   #179 `e90de2cdfcb9b55dd2c609204a213c53203ec451` and tested head
   `15fb04ac80f13e56e50e87ed5898755e0ec86534`, and merge/head tree
   `824de8cc075c53a42f4b833cd3962a0bc46029a2` is byte-identical.
-- The active `s56.86-pragma-pack-layout` tranche starts from exact merged PR
+- PR #181's `s56.86-pragma-pack-layout` tranche started from exact merged PR
   #180. Cgfried now implements the common GCC/Clang `#pragma pack` surface:
   direct/reset forms, unnamed and named push/pop stacks, `_Pragma`, `-E`
   preservation, and `-Wpragmas` diagnostics. Preprocessing records lexical
@@ -9759,6 +9762,52 @@ and green post-publication CI.
   require GNU `readelf`; substituting LLVM `readelf` changes the harness's
   expected symbol-table text. Hosted CI remains the intended evidence for that
   host-tool-dependent test.
+- PR #182's `s56.87-arm64-macos-va-list-header` tranche starts from exact
+  merged PR #181 `1bd96330a0c7db7ad9ebdd66823f0a4c663a9ff3`. Baseline strict-C17
+  reproducers pin both failures behind the former workarounds: when Cgfried's
+  `<stdarg.h>` arrived first it did not publish Apple's `_VA_LIST_T` ownership
+  guard, and when `<stdio.h>` arrived first the SDK's documented non-GCC
+  `void *` fallback conflicted with Cgfried's later `char *` typedef and was
+  rejected by every `va_*` builtin.
+
+  The shipped header now supports Apple's re-entrant `__need_va_list`
+  request, publishes `_VA_LIST_T` when it owns the typedef, and retains an
+  SDK-owned typedef when the SDK arrived first. Sema accepts the ABI-equivalent
+  unqualified `void *` lvalue cursor only on arm64 macOS while continuing to
+  reject qualified cursors, rvalues, non-void pointer types, and every Linux
+  use. This preserves the deliberate rule that strict ISO modes do not claim
+  GNU compiler identity.
+
+  The native O0/O2 gate covers both header orders, partial and full stdarg,
+  native TI arithmetic, and the real XNU packing assertions. The complete
+  107-source self corpus reaches the unmodified SDK with no forced header or
+  include overlay; benchmark provenance becomes
+  `arm64-macos-self-sdk-native-v1`, and kernel runtime provenance becomes
+  `arm64-macos-kernel-native-v3`. The forced PCRE2 stdarg header and final
+  `sys/_types/_va_list.h` overlay are deleted. The clean native PCRE2 campaign
+  is green with 35 certified translations, 35 project objects, 32 archive
+  members, three linked products, all three upstream tests, and provenance
+  `compat_policy=native-apple-stdarg-v2`, `compat_header=none`. The complete
+  local unit runner has the same eight inherited Apple-host failures as PR
+  #181 and no new failure: 1,014 tests / 4,331,559 assertions. The focused ABI
+  unit is green under ASan+UBSan, the 2,000-iteration frontend fuzz smoke has
+  zero findings, and the 5,000-iteration sequence retains digest
+  `4502ce910c679268`. Bans, warning/format matrices, unit registry, target-seam,
+  whitespace, and benchmark-routing checks are green. Hosted implementation
+  head `27ba21e0928a486833ffa51b749d2724a52194ad` completed with 28 successful
+  checks and nine intentional platform/policy skips. Standard CI
+  [run 37531949153](https://github.com/tenseleyFlow/Cgfried/actions/runs/37531949153)
+  passed all 24 executed jobs and its tag-only skip, including pinned
+  clang-format 22, the GNU-`readelf` kernel meta-test, native macOS ARM64,
+  both PCRE2 architectures, sanitizers, torture, and 100,000 frontend-fuzz
+  iterations with zero findings. Pull-request bootstrap
+  [run 37531949122](https://github.com/tenseleyFlow/Cgfried/actions/runs/37531949122)
+  and exact-head push bootstrap
+  [run 37531943804](https://github.com/tenseleyFlow/Cgfried/actions/runs/37531943804)
+  passed both applicable x86 O0/O2 jobs. The initial implementation head's
+  only red check was pinned-format drift in the new ABI test; mechanical
+  clang-format 22 commit `27ba21e0` corrected it before this complete green
+  run.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

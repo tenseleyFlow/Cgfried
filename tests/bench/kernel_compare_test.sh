@@ -259,8 +259,8 @@ grep -F 'sysroot_include=/nix/store/fixture-glibc-dev/include' \
     "$tmp/macos-runtime.txt" >/dev/null || fail "runtime include provenance is missing"
 grep -F 'sysroot_crt=/nix/store/fixture-glibc/lib' \
     "$tmp/macos-runtime.txt" >/dev/null || fail "runtime CRT provenance is missing"
-grep -F 'cgf_sdk_compat=arm64-macos-kernel-runtime-v2' \
-    "$tmp/macos-runtime.txt" >/dev/null || fail "runtime SDK compatibility provenance is missing"
+grep -F 'cgf_sdk_compat=arm64-macos-kernel-native-v3' \
+    "$tmp/macos-runtime.txt" >/dev/null || fail "native runtime SDK provenance is missing"
 for field in power_profile scaling_driver energy_performance_preference; do
     [ "$(grep -c "^$field=unavailable$" "$tmp/macos-runtime.txt")" -eq 1 ] ||
         fail "Darwin runtime did not record exactly one unavailable $field"
@@ -275,9 +275,11 @@ grep -Fx 'host=nomad-1' "$tmp/macos-control.log" >/dev/null ||
 if grep -F 'arm64-macos-self-syntax.h' "$tmp/runtime-cgf.log" >/dev/null; then
     fail "retired macOS compatibility header was still forced"
 fi
-[ "$(grep -Fxc "$repo/tests/bench/compat/arm64-macos-self-overlay" \
-    "$tmp/runtime-cgf.log")" -eq 1 ] ||
-    fail "macOS SDK overlay was not scoped to the cgf runtime compile"
+if grep -F 'arm64-macos-self-overlay' "$tmp/runtime-cgf.log" >/dev/null; then
+    fail "retired macOS SDK overlay was still injected"
+fi
+[ ! -e "$repo/tests/bench/compat/arm64-macos-self-overlay/sys/_types/_va_list.h" ] ||
+    fail "retired va_list overlay was restored"
 [ ! -e "$repo/tests/bench/compat/arm64-macos-self-overlay/mach/port.h" ] ||
     fail "retired XNU assertion-bypass overlay was restored"
 [ ! -e "$tmp/work-runtime/static.txt" ] ||
@@ -374,4 +376,4 @@ grep -F 'WARNING: capacity/idle controls are provenance-only; forced recording e
     "$tmp/linux-uncontrolled.err" >/dev/null ||
     fail "uncontrolled intel_pstate mode warning is incomplete"
 
-echo "kernel_compare_test: static comparison, runtime provenance, Darwin compatibility, and Linux power-control classification passed"
+echo "kernel_compare_test: static comparison, runtime provenance, native Darwin SDK routing, and Linux power-control classification passed"
