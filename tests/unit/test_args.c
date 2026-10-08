@@ -46,6 +46,35 @@ void test_args_joined_vs_separate(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_args_macos_arch_constraint(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-arch", (char *)"arm64", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.apple_arch, "arm64");
+    T_ASSERT(t, !a.conflicting_apple_arch && !a.unknown_opt && !a.missing_arg);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-arch", (char *)"arm64", (char *)"-arch",
+          (char *)"arm64", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.apple_arch, "arm64");
+    T_ASSERT(t, !a.conflicting_apple_arch);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-arch", (char *)"arm64", (char *)"-arch",
+          (char *)"x86_64", (char *)"t.c");
+    T_ASSERT_EQ_STR(t, a.apple_arch, "arm64");
+    T_ASSERT_EQ_STR(t, a.conflicting_apple_arch, "x86_64");
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-arch");
+    T_ASSERT_EQ_STR(t, a.missing_arg, "-arch");
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_args_optimization_controls(TestCtx *t)
 {
     Arena ar;
