@@ -13,6 +13,7 @@
  * purpose: the implicit-bit bookkeeping that fractional forms need is
  * where most softfloat bugs live. */
 
+const SfFormat SF_BINARY16 = {5, 10, false, 2};
 const SfFormat SF_BINARY32 = {8, 23, false, 4};
 const SfFormat SF_BINARY64 = {11, 52, false, 8};
 /* x87 80-bit stores the leading one EXPLICITLY, which is why it needs its

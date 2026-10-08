@@ -60,6 +60,8 @@ const char *ast_base_type_name(AstBaseType b)
         return "int"; /* implicit int */
     case ABT_VA_LIST:
         return "__builtin_va_list";
+    case ABT_FLOAT16:
+        return "_Float16";
     case ABT_FLOAT32:
         return "_Float32";
     case ABT_FLOAT64:

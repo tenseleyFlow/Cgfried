@@ -13,6 +13,7 @@ campaign-expected-meta: $(BUILD)/cgfried
 	ci/campaigns/test-expected.sh
 	ci/campaigns/test-arm64-native-ti.sh "$(BUILD)/cgfried"
 	ci/campaigns/test-arm64-macos-stdarg.sh "$(BUILD)/cgfried"
+	ci/campaigns/test-float16-hosted-boundary.sh "$(BUILD)/cgfried"
 	ci/campaigns/test-curl.sh
 	ci/campaigns/test-musl-toolchain.sh
 	ci/campaigns/test-lua.sh

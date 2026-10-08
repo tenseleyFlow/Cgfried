@@ -107,6 +107,7 @@ predefine.
 | `returns_twice` | `tests/programs/gnu/attr_returns_twice.c` | setjmp-like runtime entry points whose callers must keep locals in memory and preserve the resumed control-flow boundary |
 | `__builtin_va_arg_pack()` / `__builtin_va_arg_pack_len()` | `tests/corpus/x86_64/int/gnu_va_arg_pack.c` | glibc's `<error.h>` and forwarding wrappers that preserve the caller's anonymous arguments |
 | ellipsis-only variadic functions and one-argument `va_start` | `tests/programs/gnu/ellipsis_only_varargs.c` | C23-style GNU sources whose variadic function has no last named parameter |
+| `_Float16` hosted declaration/layout boundary | `tests/campaigns/float16_hosted_declarations.c` | current Apple `<math.h>` prototypes; distinct two-byte type identity, declarations, pointers, `sizeof`, `_Alignof`, and compatibility queries are accepted, while evaluated half-precision values fail closed pending ABI/code generation |
 | GNU/TS 18661 floating types — `_Float32`, `_Float64`, `_Float32x`, `_Float64x`, `_Float128` / `__float128` | `tests/corpus/x86_64/fp/gnu_float128.c` | glibc's `<bits/floatn*.h>` and `<math.h>`, activated by the GCC 8 identity |
 | `__builtin_bswap16/32/64` | `tests/corpus/x86_64/int/gnu_bswap.c` | glibc's `<bits/byteswap.h>`, so every `htonl`/`be32toh`; Linux, musl |
 | binary integer constants (`0b...`) | `tests/programs/gnu/binary_integer_constants.c` | chibicc's UTF-8 codec; bit-mask-heavy systems code |
@@ -749,8 +750,16 @@ its address, composing pack wrappers, or putting static/TLS locals, variably
 modified declarations, labels, `goto`, or `va_start` in its body is refused
 rather than cloned with the wrong identity, lifetime, or variadic state.
 
-The GNU/TS 18661 floating spellings are real, distinct C types rather than
-header-acceptance typedefs. `_Float32` uses binary32, `_Float64` and
+The `_Float16` spelling has a deliberately narrower hosted-header contract.
+It is a distinct two-byte, two-alignment type for declarations, pointers,
+layout, compatibility, and unevaluated type queries. Current Apple SDK
+`<math.h>` therefore parses unchanged. Defining an object or function whose
+value ABI contains `_Float16`, or evaluating a half-precision expression,
+produces an explicit error until half-precision IR and target ABI lowering are
+implemented; Cgfried never substitutes `float` and silently changes the ABI.
+
+The other GNU/TS 18661 floating spellings are real, distinct C types rather
+than header-acceptance typedefs. `_Float32` uses binary32, `_Float64` and
 `_Float32x` use binary64, `_Float128` is target-independent binary128, and
 `_Float64x` follows the target's extended `long double` representation. The
 usual arithmetic conversions preserve those type identities with TS 18661's

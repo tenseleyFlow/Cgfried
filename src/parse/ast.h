@@ -156,6 +156,7 @@ typedef enum AstBaseType {
     ABT_FLOAT,
     ABT_DOUBLE,
     ABT_LDOUBLE,
+    ABT_FLOAT16,
     ABT_FLOAT32,
     ABT_FLOAT64,
     ABT_FLOAT32X,

@@ -409,10 +409,13 @@ preserving its independently required `va_list` guard. PR #180's
 compatibility definition with a native, side-effect-free `__has_include`
 operator. PR #181's `s56.86-pragma-pack-layout` tranche merged green-only as
 `1bd96330a0c7db7ad9ebdd66823f0a4c663a9ff3`; its tested head is
-`8bdfb0005a687e8c78853d72dba774b5463b26dc`. The active
-`s56.87-arm64-macos-va-list-header` branch starts from that exact merge and
-retires the final Apple self-build SDK overlay through native stdarg/header
-interoperation, as described in the detailed ledger below.
+`8bdfb0005a687e8c78853d72dba774b5463b26dc`. PR #182's
+`s56.87-arm64-macos-va-list-header` tranche merged green-only as
+`f02debe878e8d3f3fb49fd515dac5748d881c93c`; its tested head is
+`d7383fd3d610764f16f2bf1bf08a6e4d33d263b6`, and the merge tree is
+byte-identical. The active `s56.88-libpng-sole-c` branch starts from that exact
+merge and owns the libpng/Apple `_Float16` hosted-header boundary described in
+the detailed ledger below.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -1011,7 +1014,7 @@ Integrated worktree and branch:
   non-entry-block `alloc8` in `dynalloc.ssa`, and two vararg tests whose emitter
   violates AAPCS64 stack alignment. The exact gate requires zero Cgfried-only
   failures; QEMU is not used because it masks the two hardware SIGBUS faults.
-- `ci/campaigns/FINDINGS.md` records 37 fixed compiler defects and eleven fixed
+- `ci/campaigns/FINDINGS.md` records 38 fixed compiler defects and eleven fixed
   campaign-integrity defects, each with a minimized regression or exact gate.
   Notable repairs include distinct `__func__` objects, aggregate override
   semantics, global definition emission after forward relocations, undefined
@@ -9762,7 +9765,7 @@ and green post-publication CI.
   require GNU `readelf`; substituting LLVM `readelf` changes the harness's
   expected symbol-table text. Hosted CI remains the intended evidence for that
   host-tool-dependent test.
-- PR #182's `s56.87-arm64-macos-va-list-header` tranche starts from exact
+- PR #182's `s56.87-arm64-macos-va-list-header` tranche started from exact
   merged PR #181 `1bd96330a0c7db7ad9ebdd66823f0a4c663a9ff3`. Baseline strict-C17
   reproducers pin both failures behind the former workarounds: when Cgfried's
   `<stdarg.h>` arrived first it did not publish Apple's `_VA_LIST_T` ownership
@@ -9807,7 +9810,46 @@ and green post-publication CI.
   passed both applicable x86 O0/O2 jobs. The initial implementation head's
   only red check was pinned-format drift in the new ABI test; mechanical
   clang-format 22 commit `27ba21e0` corrected it before this complete green
-  run.
+  run. PR #182 merged green-only as
+  `f02debe878e8d3f3fb49fd515dac5748d881c93c`; its exact parents are merged
+  #181 and tested head `d7383fd3d610764f16f2bf1bf08a6e4d33d263b6`, and the merge/head trees are
+  byte-identical.
+- The active `s56.88-libpng-sole-c` tranche starts from exact merged PR #182.
+  Pinned libpng 1.6.59 (tag commit
+  `cd952f49f722c8ef3d2097b7fd0078399e2c4b2e`, release SHA-256
+  `d80dd2a38a37f803cb9b6ac7b14bd6e74ddc3b654780a8380bdf93523fdb4389`)
+  exposed one real native Apple SDK gap before any project source compiled:
+  current `<math.h>` publishes unconditional `_Float16` declarations.
+  Cgfried now represents that spelling as a distinct two-byte type for
+  declarations, layout, compatibility, pointers, and unevaluated type queries,
+  while definitions and evaluated values fail closed until half-precision IR
+  and target ABI lowering exist. The target-complete meta-test exercises the
+  declaration/refusal boundary at O0/O2 and reaches the unmodified SDK on a
+  native Mac.
+
+  The clean native Apple-silicon campaign is green. It builds pinned zlib
+  1.3.1 and libpng as static libraries with Cgfried as the sole C compiler,
+  disables optional hardware acceleration, and passes all 36 upstream tests
+  with zero skips. The exact closure contains 40 retained project objects, 30
+  byte-checked archive members, and ten final programs. Each final link names
+  the pinned `libz.a` explicitly; a host-compiler lane repeats the build/tests,
+  and strict `pngtest` output plus the generated PNG are byte-identical. The
+  committed 12-row expected gate, checksum/cache contract, and native
+  x86-64/ARM64 Linux CI matrix make that local result reproducible offline.
+  The complete local unit runner adds one test and retains the exact eight
+  inherited Apple-host failures: 1,015 tests / 4,331,572 assertions. The new
+  boundary test is green under ASan+UBSan; campaign meta, target-seam, bans,
+  POSIX-shell parsing, pinned clang-format 22, and whitespace checks are green.
+  The first hosted x86-64/ARM64 campaign pair found two harness-only
+  portability errors around the same generated assignment: Linux adds `-lm`
+  and platform-dependent whitespace to `LIBS`, while the initial preflight
+  expected macOS's literal spelling and the first repair then replaced the
+  complete assignment with only pinned zlib. The repaired preflight parses
+  the assignment and requires the exact `-lz` token. Product/test links replace
+  only that token with the absolute pinned archive, preserve the recognized
+  system `-lm`, and reject any unexpected library token; sole-C receipts still
+  prove the pinned project closure. The complete clean native ARM64 macOS
+  campaign remains green after that correction.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

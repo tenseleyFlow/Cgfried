@@ -36,6 +36,10 @@ typedef enum {
      * `__int128_t` / `__uint128_t` names reach these canonical types. */
     TY_INT128,
     TY_UINT128,
+    /* C23 / TS 18661 binary16. The frontend keeps it distinct for hosted
+     * declarations, layout, and type queries; evaluated values are rejected
+     * until the target backends implement the half-precision ABI. */
+    TY_FLOAT16,
     TY_FLOAT,
     TY_DOUBLE,
     TY_LDOUBLE,

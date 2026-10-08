@@ -107,6 +107,7 @@ CGF_KEYWORD(KW_ALT_BUILTIN_VA_LIST, "__builtin_va_list", KWG_ALT)
  * aarch64-linux-gnu-gcc has _Float128 and REJECTS __float128. We accept both
  * everywhere, which is the accepting direction of that divergence and is
  * recorded in docs/gnu-extensions.md. */
+CGF_KEYWORD(KW_FLOAT16, "_Float16", KWG_C89)
 CGF_KEYWORD(KW_FLOAT32, "_Float32", KWG_C89)
 CGF_KEYWORD(KW_FLOAT64, "_Float64", KWG_C89)
 CGF_KEYWORD(KW_FLOAT32X, "_Float32x", KWG_C89)

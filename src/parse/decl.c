@@ -247,12 +247,13 @@ typedef struct {
 } SpecSoup;
 
 enum {
-    FLOATN_SPEC_FLOAT32 = 1u << 0,
-    FLOATN_SPEC_FLOAT64 = 1u << 1,
-    FLOATN_SPEC_FLOAT32X = 1u << 2,
-    FLOATN_SPEC_FLOAT64X = 1u << 3,
-    FLOATN_SPEC_FLOAT128 = 1u << 4,
-    FLOATN_SPEC_ALT_FLOAT128 = 1u << 5
+    FLOATN_SPEC_FLOAT16 = 1u << 0,
+    FLOATN_SPEC_FLOAT32 = 1u << 1,
+    FLOATN_SPEC_FLOAT64 = 1u << 2,
+    FLOATN_SPEC_FLOAT32X = 1u << 3,
+    FLOATN_SPEC_FLOAT64X = 1u << 4,
+    FLOATN_SPEC_FLOAT128 = 1u << 5,
+    FLOATN_SPEC_ALT_FLOAT128 = 1u << 6
 };
 
 /* THE SOUP'S TYPE-IDENTITY FIELDS, IN ONE PLACE. Six different sites build
@@ -746,6 +747,10 @@ static bool parse_decl_specs(Parser *p, SpecSoup *s)
                                                   : FLOATN_SPEC_ALT_FLOAT128,
                                 kw == KW_FLOAT128);
                 goto consumed;
+            case KW_FLOAT16:
+                add_floatn_spec(p, s, t, ABT_FLOAT16, FLOATN_SPEC_FLOAT16,
+                                true);
+                goto consumed;
             case KW_FLOAT32:
                 add_floatn_spec(p, s, t, ABT_FLOAT32, FLOATN_SPEC_FLOAT32,
                                 true);
@@ -979,6 +984,7 @@ bool parse_at_decl_specs(Parser *p)
     case KW_LONG:
     case KW_FLOAT:
     case KW_DOUBLE:
+    case KW_FLOAT16:
     case KW_FLOAT32:
     case KW_FLOAT64:
     case KW_FLOAT32X:
