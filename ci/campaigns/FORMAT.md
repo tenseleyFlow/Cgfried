@@ -60,7 +60,12 @@ byte-checked archive members, and three linked test products. Mbed TLS 3.6.7 is
 the third: 142 project objects, 113 byte-checked members across three static
 libraries, one explicitly linked upstream self-test product, and 140 generated
 suite products. Its 282 retained translations execute 13,266 generated-harness
-tests in addition to the 25-suite self-test.
+tests in addition to the 25-suite self-test. Libpng 1.6.59 is the fourth, with
+40 retained project objects, 30 byte-checked archive members across libpng and
+its pinned zlib dependency, ten linked products, and 36 upstream tests.
+Libjpeg-turbo 3.2.0 is the fifth certified closure and the fourth
+post-v0.1.0 large-FOSS rung: 297 project objects, 230 byte-checked members
+across two static libraries, 12 linked products, and 332 upstream tests.
 
 Run `scripts/campaign-lint.sh` to validate every installed descriptor and
 expected file plus `ladder.yml`.  Paths may be passed to lint a bounded
@@ -139,7 +144,10 @@ on native x86-64 and ARM64 Linux. Mbed TLS 3.6.7 is the second; its
 strict-C17 portable-default three-library closure and 30-suite self-test run
 independently from its symmetric-only configuration, 25-suite self-test, 140
 generated suite runners, 57 normal C sample/test programs, and ten standalone
-one-file fuzz programs on the same two native Linux architectures. Curl's
+one-file fuzz programs on the same two native Linux architectures. Libpng
+1.6.59 is the third such large-FOSS rung; libjpeg-turbo 3.2.0 is the fourth.
+Both run complete static, sole-C closures plus pristine host-oracle builds and
+their upstream test suites on the same native architectures. Curl's
 network-dependent full suite and larger campaigns
 such as OpenSSL, PostgreSQL, and GCC remain post-v0.1.0; required bars must not
 silently depend on them.

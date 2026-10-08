@@ -1082,3 +1082,4 @@ include ci/campaigns/curl.mk
 include ci/campaigns/pcre2.mk
 include ci/campaigns/mbedtls.mk
 include ci/campaigns/libpng.mk
+include ci/campaigns/libjpeg.mk

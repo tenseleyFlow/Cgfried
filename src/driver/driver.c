@@ -86,6 +86,8 @@ static const char *const help_text[] = {
     "                    and the gnu twins; the LAST -std= wins.\n"
     "                    Default c17 (gcc defaults to gnu17 — divergence\n"
     "                    is deliberate and documented here)\n"
+    "  -arch arm64       require the arm64-macos target (Darwin build-system\n"
+    "                    compatibility; other architectures are rejected)\n"
     "  -W<name>/-Wno-<name>  enable/disable a warning; exact options\n"
     "                    outrank groups regardless of argv order\n"
     "  -Wmem/-Wno-mem   enable/disable default-on intraprocedural memory\n"
@@ -2040,6 +2042,24 @@ int driver_main(int argc, char **argv)
         for (ti = 0; ti < CGF_TARGET_COUNT; ti++)
             diag_emit(dc, DIAG_NOTE, no_span, "known target: %s",
                       cgf_target_names[ti]);
+        status = CGF_EXIT_COMPILE;
+    } else if (a.conflicting_apple_arch) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "multiple -arch values are not supported ('%s' and '%s')",
+                  a.apple_arch, a.conflicting_apple_arch);
+        status = CGF_EXIT_COMPILE;
+    } else if (a.apple_arch && strcmp(a.apple_arch, "arm64") != 0) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "architecture '%s' is not supported for target '%s'",
+                  a.apple_arch, cgf_target_name(cgf_target_selected()));
+        diag_emit(dc, DIAG_NOTE, no_span,
+                  "supported architecture for arm64-macos: arm64");
+        status = CGF_EXIT_COMPILE;
+    } else if (a.apple_arch &&
+               cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "option '-arch %s' requires target 'arm64-macos'",
+                  a.apple_arch);
         status = CGF_EXIT_COMPILE;
     } else if (a.missing_arg) {
         diag_emit(dc, DIAG_ERROR, no_span, "option '%s' requires an argument",
