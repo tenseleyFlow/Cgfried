@@ -9850,6 +9850,40 @@ and green post-publication CI.
   system `-lm`, and reject any unexpected library token; sole-C receipts still
   prove the pinned project closure. The complete clean native ARM64 macOS
   campaign remains green after that correction.
+- PR #183 merged the libpng tranche green-only as
+  `927fb10fe3cd8afd9a98df3c7ab2216dd81f84ce`; its tested head was
+  `9c034533c4e0278ebabaecd08ba76e2a1cf62398`, and the merge/head trees are
+  byte-identical.
+- The active `s56.89-libjpeg-turbo-sole-c` tranche starts from exact merged PR
+  #183. It pins libjpeg-turbo 3.2.0 (tag commit
+  `c85e6b905bf237038faa936dab160ebfc5da0344`, release SHA-256
+  `6f30092cef9fb839779646608f4ee14ae3cbac989c47fa05e841b0841f09878e`)
+  and builds its complete static, non-SIMD C configuration, TurboJPEG API,
+  command-line tools, and tests in separate Cgfried and host-compiler trees.
+  The intended exact closure is 297 project objects, 230 byte-checked members
+  across `libjpeg.a` and `libturbojpeg.a`, and 12 linked products. Both lanes
+  must pass all 332 upstream tests, including the explicitly enabled 8- and
+  12-bit floating-IDCT checksum cases, and four floating-IDCT artifacts must
+  be byte-identical.
+
+  The native Apple-silicon bring-up exposed two compiler gaps. CMake passes
+  `-arch arm64` to a Darwin compiler; the driver now accepts that spelling but
+  requires it to agree with an `arm64-macos` target, including conflict and
+  non-Apple diagnostics. More importantly, ARM64 instruction selection used
+  `SCVTF`/`UCVTF` directly on i8/i16 values without extending them to i32.
+  Negative DCT coefficients therefore became large positive floats. Narrow
+  signed and unsigned inputs are now explicitly extended before conversion,
+  with minimized unit and executed regressions. The repaired local builds pass
+  332/332 tests in each lane and produce matching float-IDCT checksums. The
+  complete local sole-C verifier accepts 297 translations, 230 archive
+  members, and 12 linked products; the ten-row expected-results gate passes.
+  The full local unit runner retains exactly the eight inherited Apple-host
+  failures: 1,017 tests / 4,331,591 assertions. Focused ASan+UBSan tests,
+  pinned clang-format 22, campaign meta, target-seam, bans, POSIX-shell, and
+  verification-coverage checks are green. The four added program fixtures
+  intentionally advance the 5,000-iteration frontend-fuzz corpus digest to
+  `a63b2801ab090c93`; the 2,000-iteration smoke has zero findings. Native
+  x86-64/ARM64 Linux CI remains to be made green before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
