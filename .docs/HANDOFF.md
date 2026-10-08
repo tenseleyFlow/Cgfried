@@ -9883,7 +9883,13 @@ and green post-publication CI.
   verification-coverage checks are green. The four added program fixtures
   intentionally advance the 5,000-iteration frontend-fuzz corpus digest to
   `a63b2801ab090c93`; the 2,000-iteration smoke has zero findings. Native
-  x86-64/ARM64 Linux CI remains to be made green before merge.
+  x86-64/ARM64 Linux CI initially reached final program links but exposed one
+  campaign-only portability gap: vendored libspng calls `fpclassify(float)`
+  while claiming to eliminate libm. Glibc's non-GNU header path declares
+  `__fpclassifyf`; GCC silently treats that implementation symbol as a builtin,
+  whereas Cgfried emits the declared call. Both pristine Linux lanes now link
+  `-lm` explicitly and validate that choice; macOS retains libSystem. The
+  repaired CI head remains to be made green before merge.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

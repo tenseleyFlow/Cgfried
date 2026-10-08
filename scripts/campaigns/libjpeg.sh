@@ -70,7 +70,14 @@ command -v "$hostcc" >/dev/null 2>&1 || fail "host compiler is unavailable: $hos
 
 compiler_target=$("$cgf" -dumpmachine) || fail "cannot query Cgfried's target"
 case $compiler_target in
-    x86_64-linux-gnu | arm64-linux | arm64-macos) ;;
+    x86_64-linux-gnu | arm64-linux)
+        system_libraries=-lm
+        system_library_label=libm
+        ;;
+    arm64-macos)
+        system_libraries=
+        system_library_label=libSystem
+        ;;
     *) fail "unsupported native campaign target: $compiler_target" ;;
 esac
 
@@ -166,6 +173,7 @@ configure_tree() {
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_C_FLAGS="$flags" \
                 -DCMAKE_C_FLAGS_RELEASE=-O2 \
+                -DCMAKE_C_STANDARD_LIBRARIES:STRING="$system_libraries" \
                 -DBUILD=20260630 \
                 -DENABLE_SHARED=OFF -DENABLE_STATIC=ON \
                 -DREQUIRE_SIMD=OFF -DWITH_SIMD=OFF \
@@ -182,6 +190,7 @@ configure_tree() {
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_FLAGS="$flags" \
             -DCMAKE_C_FLAGS_RELEASE=-O2 \
+            -DCMAKE_C_STANDARD_LIBRARIES:STRING="$system_libraries" \
             -DBUILD=20260630 \
             -DENABLE_SHARED=OFF -DENABLE_STATIC=ON \
             -DREQUIRE_SIMD=OFF -DWITH_SIMD=OFF \
@@ -236,6 +245,8 @@ validate_configuration() {
         fail "$label compiler flags changed"
     grep -Fqx 'CMAKE_C_FLAGS_RELEASE:STRING=-O2' "$cache" ||
         fail "$label release optimization changed"
+    grep -Fqx "CMAKE_C_STANDARD_LIBRARIES:STRING=$system_libraries" "$cache" ||
+        fail "$label standard system libraries changed"
     case $expected_tls in
         yes)
             grep -Fqx 'HAVE_THREAD_LOCAL:INTERNAL=1' "$cache" ||
@@ -269,6 +280,7 @@ configure_stage() {
         printf 'build_type=Release\n'
         printf 'optimization=O2\n'
         printf 'linkage=static-only\n'
+        printf 'system_libraries=%s\n' "$system_library_label"
         printf 'simd=off\n'
         printf 'vendored_spng_optimization=off\n'
         printf 'float_contract=off\n'
