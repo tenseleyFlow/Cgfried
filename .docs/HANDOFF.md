@@ -9888,8 +9888,13 @@ and green post-publication CI.
   while claiming to eliminate libm. Glibc's non-GNU header path declares
   `__fpclassifyf`; GCC silently treats that implementation symbol as a builtin,
   whereas Cgfried emits the declared call. Both pristine Linux lanes now link
-  `-lm` explicitly and validate that choice; macOS retains libSystem. The
-  repaired CI head remains to be made green before merge.
+  `-lm` explicitly and validate that choice; macOS retains libSystem. Repaired
+  implementation head `60e2f0021697d76392dcc879411f17c50d6a303d` completed
+  standard CI run 37800700571 with all 28 executed jobs green and one
+  intentional tag-only skip. Both native libjpeg jobs passed their 332-test
+  suites and exact closure gates. Pull-request bootstrap run 37800700519 and
+  exact-head push bootstrap run 37800694789 passed both applicable x86 O0/O2
+  jobs; their architecture/cross-mode jobs skipped by policy.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
