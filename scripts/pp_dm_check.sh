@@ -1,9 +1,10 @@
 #!/bin/sh
 # -dM differential: every shared macro cgf predefines must exist in gcc's
-# -dM output with an IDENTICAL value (allowlist: our honest scope answers and
-# frozen date/time).  The one implementation marker, __CGFRIED__, must be 1,
-# and compiler identity is checked in both dialect directions: absent in c17,
-# exactly GCC 8.3.0 in gnu17.
+# -dM output with an IDENTICAL value (allowlist: our honest scope answers,
+# frozen date/time, and the exact Apple-compatible endian spelling). The one
+# implementation marker, __CGFRIED__, must be 1, and compiler identity is
+# checked in both dialect directions: absent in c17, exactly GCC 8.3.0 in
+# gnu17.
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -26,6 +27,12 @@ while read -r _ name rest; do
     case "$name" in
     __CGFRIED__)
         continue ;; # implementation identity, consumed by shipped headers
+    __LITTLE_ENDIAN__)
+        if [ "$rest" != "1" ]; then
+            echo "pp_dm_check: __LITTLE_ENDIAN__ must be exactly 1" >&2
+            fails=$((fails + 1))
+        fi
+        continue ;; # Apple hosted headers consume this legacy spelling
     __STDC_NO_* | __DATE__ | __TIME__ | __STDC_HOSTED__ | __STDC__ | __STDC_VERSION__)
         continue ;; # honest scope answers / frozen / std-dependent
     esac
