@@ -33,6 +33,7 @@ enum {
     F_PRINT_PROG,
     F_PRINT_FILE,
     F_TARGET,
+    F_APPLE_ARCH,
     F_SYSROOT,
     F_VERBOSE,
     F_DRY_RUN,
@@ -234,6 +235,14 @@ static bool h_info(DriverArgs *da, const FlagSpec *fs, const char *val)
          * prevent: it would cross-compile silently for the wrong machine. */
         if (!cgf_target_select(val) && !da->bad_target)
             da->bad_target = val;
+        break;
+    case F_APPLE_ARCH:
+        if (da->apple_arch && strcmp(da->apple_arch, val) != 0) {
+            if (!da->conflicting_apple_arch)
+                da->conflicting_apple_arch = val;
+        } else {
+            da->apple_arch = val;
+        }
         break;
     case F_SYSROOT:
         da->sysroot = val;
@@ -834,6 +843,7 @@ static const FlagSpec args_flag_table[] = {
     {"-print-prog-name=", ARG_JOINED, h_info, F_PRINT_PROG},
     {"-print-file-name=", ARG_JOINED, h_info, F_PRINT_FILE},
     {"--target=", ARG_JOINED, h_info, F_TARGET},
+    {"-arch", ARG_SEPARATE, h_info, F_APPLE_ARCH},
     {"--sysroot=", ARG_JOINED, h_info, F_SYSROOT},
     {"-v", ARG_NONE, h_info, F_VERBOSE},
     {"-###", ARG_NONE, h_info, F_DRY_RUN},

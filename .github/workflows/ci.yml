@@ -397,6 +397,60 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Fourth post-v0.1.0 large-FOSS rung. The complete static, non-SIMD
+  # libjpeg-turbo release is sole-C certified on both native Linux
+  # architectures. All 332 upstream tests and four floating-IDCT artifacts
+  # must agree with a separate pristine host-compiler build.
+  campaign-libjpeg:
+    name: campaign-libjpeg (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: cache the pinned libjpeg-turbo archive
+        uses: actions/cache@v5
+        with:
+          path: build/campaigns/dl
+          key: campaign-libjpeg-3.2.0-6f30092cef9fb839779646608f4ee14ae3cbac989c47fa05e841b0841f09878e
+      - name: build the compiler and verify the campaign contract
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          scripts/campaign-lint.sh
+          tests/scripts/campaign_contract_test.sh
+      - name: populate the verified cache and run the offline campaign
+        run: |
+          make campaign-libjpeg-fetch
+          CGF_CAMPAIGN_OFFLINE=1 make libjpeg-expected
+      - name: retain libjpeg-turbo campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-foss-libjpeg-${{ matrix.arch }}
+          path: |
+            build/campaigns/libjpeg/results.txt
+            build/campaigns/libjpeg/provenance.txt
+            build/campaigns/libjpeg/sole-c/**
+            build/campaigns/libjpeg/sole-c-closure.tsv
+            build/campaigns/libjpeg/sole-c-report.txt
+            build/campaigns/libjpeg/object-closure.tsv
+            build/campaigns/libjpeg/link-closure.tsv
+            build/campaigns/libjpeg/archive-closure.tsv
+            build/campaigns/libjpeg/logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS

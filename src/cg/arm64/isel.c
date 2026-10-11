@@ -1108,6 +1108,42 @@ static void select_fcmp(Isel *is, const IrInst *ir)
     bind_result(is, ir, result);
 }
 
+static A64Reg extend_narrow_int_for_fp(Isel *is, A64Reg src, IrType type,
+                                       bool sign)
+{
+    unsigned bits = ir_type_size(type) * 8;
+    A64Reg dest;
+    A64Inst *inst;
+
+    if (bits >= 32)
+        return src;
+
+    dest = a64_newv_width(is->func, A64RC_GP, A64_SF32);
+    if (!sign) {
+        u64 mask = ((u64)1 << bits) - 1;
+
+        inst = emit(is, A64_OP_AND, A64_SF32);
+        add_operand(inst, reg_op(dest));
+        add_operand(inst, reg_op(src));
+        add_operand(inst, imm_op((i64)mask));
+        return dest;
+    }
+
+    {
+        A64Reg shifted = a64_newv_width(is->func, A64RC_GP, A64_SF32);
+
+        inst = emit(is, A64_OP_LSL, A64_SF32);
+        add_operand(inst, reg_op(shifted));
+        add_operand(inst, reg_op(src));
+        add_operand(inst, imm_op(32 - bits));
+        inst = emit(is, A64_OP_ASR, A64_SF32);
+        add_operand(inst, reg_op(dest));
+        add_operand(inst, reg_op(shifted));
+        add_operand(inst, imm_op(32 - bits));
+    }
+    return dest;
+}
+
 static void select_conversion(Isel *is, const IrInst *ir)
 {
     IrType dst_type = (IrType)ir->type;
@@ -1166,13 +1202,17 @@ static void select_conversion(Isel *is, const IrInst *ir)
         add_operand(inst, reg_op(src));
         break;
     case IR_SITOFP:
-    case IR_UITOFP:
+    case IR_UITOFP: {
+        bool sign = ir->op == IR_SITOFP;
+        A64Reg extended = extend_narrow_int_for_fp(is, src, src_type, sign);
+
         inst = emit(is, ir->op == IR_SITOFP ? A64_OP_SCVTF : A64_OP_UCVTF,
                     sf_of(dst_type));
         inst->src_sf = sf_of(src_type);
         add_operand(inst, reg_op(dest));
-        add_operand(inst, reg_op(src));
+        add_operand(inst, reg_op(extended));
         break;
+    }
     case IR_BITCAST:
         inst = emit(is,
                     fp_type(src_type) == fp_type(dst_type) ? A64_OP_MOV

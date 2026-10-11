@@ -169,6 +169,11 @@ typedef struct {
      * bad_value so the diagnostic can list what IS known: a cross build that
      * picked the wrong machine is the expensive mistake here. */
     const char *bad_target;
+    /* Darwin build systems pass `-arch arm64` even for a native build.  Keep
+     * it as an explicit constraint: the driver validates it against the final
+     * --target selection instead of silently ignoring a wrong architecture. */
+    const char *apple_arch;
+    const char *conflicting_apple_arch;
     /* --sysroot=<dir>: the root the TARGET's headers, libraries and crt
      * objects live under. Cross-compiling is only half the job without it --
      * the other half is not accidentally linking against the host's. */

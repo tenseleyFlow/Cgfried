@@ -549,6 +549,75 @@ void test_a64_isel_scalar_fabs_widths(TestCtx *t)
     arena_free_all(&arena);
 }
 
+void test_a64_isel_extends_narrow_integers_before_fp_conversion(TestCtx *t)
+{
+    static const char source[] =
+        "func f32 @narrow_to_fp(i8 %sc, i16 %ss, i8 %uc, i16 %us) {\n"
+        "entry():\n"
+        "    %a = sitofp i8 %sc to f32\n"
+        "    %b = sitofp i16 %ss to f32\n"
+        "    %c = uitofp i8 %uc to f32\n"
+        "    %d = uitofp i16 %us to f32\n"
+        "    %ab = fadd f32 %a, %b\n"
+        "    %cd = fadd f32 %c, %d\n"
+        "    %result = fadd f32 %ab, %cd\n"
+        "    ret f32 %result\n"
+        "}\n";
+    Arena arena;
+    DiagCtx *dc;
+    IrModule *module;
+    A64Func *func;
+    u32 bi, ii;
+    u32 lsl = 0, asr = 0, and = 0, scvtf = 0, ucvtf = 0;
+
+    arena_init(&arena);
+    dc = diag_ctx_new(&arena);
+    module = ir_parse_module(&arena, dc, source, "<a64-narrow-to-fp>");
+    T_ASSERT(t, module != NULL && !diag_had_error(dc));
+    T_ASSERT(t, module && ir_verify(dc, module));
+    if (!module || diag_had_error(dc)) {
+        arena_free_all(&arena);
+        return;
+    }
+    func = a64_isel_function(module, &module->funcs[0], &arena);
+    T_ASSERT_EQ_INT(t, a64_mir_verify(func, dc), 0);
+    for (bi = 0; bi < func->nblocks; bi++) {
+        const A64Block *block = &func->blocks[bi];
+
+        for (ii = 0; ii < block->n; ii++) {
+            const A64Inst *inst = &block->insts[ii];
+
+            switch (inst->op) {
+            case A64_OP_LSL:
+                lsl++;
+                break;
+            case A64_OP_ASR:
+                asr++;
+                break;
+            case A64_OP_AND:
+                and++;
+                break;
+            case A64_OP_SCVTF:
+                T_ASSERT_EQ_INT(t, inst->src_sf, A64_SF32);
+                scvtf++;
+                break;
+            case A64_OP_UCVTF:
+                T_ASSERT_EQ_INT(t, inst->src_sf, A64_SF32);
+                ucvtf++;
+                break;
+            default:
+                break;
+            }
+        }
+    }
+    T_ASSERT_EQ_INT(t, lsl, 2);
+    T_ASSERT_EQ_INT(t, asr, 2);
+    T_ASSERT_EQ_INT(t, and, 2);
+    T_ASSERT_EQ_INT(t, scvtf, 2);
+    T_ASSERT_EQ_INT(t, ucvtf, 2);
+    arena_free_all(&arena);
+}
+
 /* Callee-side mirror of the Linux scalar-stack rule: after v0-v7 are full,
  * the ninth double arrives at incoming+0 and the following binary128 scalar
  * is rounded past the incoming+8 hole to incoming+16. */
