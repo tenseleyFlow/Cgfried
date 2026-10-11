@@ -9940,11 +9940,23 @@ and green post-publication CI.
   simultaneous outputs including callee-saved `rbx`; allocator-chosen extra
   outputs remain explicitly refused.
 
+  The complete x86-64 campaign then exposed a fourth gap in zstd's giant
+  `fuzzer.c` and `zstreamtest.c` functions. Pre-color repair stored only 64
+  conflict entries per iteration, so these 18,000-vreg translations made
+  steady progress in small batches but reached the 16-iteration tripwire.
+  Conflict discovery now uses a deterministic color/start interval sweep,
+  marks every fixed interval that crosses a call, and repairs the complete
+  marked set in one MIR rebuild. A 600-precolor unit permanently proves that
+  convergence no longer depends on function size. The new executable CPUID
+  fixture also advances the x86 ISA inventory ratchet from 132 to 133 sources;
+  it uses system gas explicitly because bundled `afs-as` does not yet encode
+  that mnemonic.
+
   The complete native ARM64 macOS campaign is green: the Cgfried-built suite
   passes in 402 seconds, the host suite in about 150 seconds, parity is exact,
   the sole-C verifier passes, and the committed ten-row expected gate matches.
   The full local unit runner retains exactly the eight inherited Apple-host
-  failures: 1,019 tests / 4,331,637 assertions. Focused normal and
+  failures: 1,020 tests / 4,331,639 assertions. Focused normal and
   ASan+UBSan tests, pinned clang-format 22, campaign meta, sole-C meta,
   target-seam, sema-target, bans, GNU-tier, verification-coverage,
   POSIX-shell, workflow-YAML, and whitespace checks are green. The zstd

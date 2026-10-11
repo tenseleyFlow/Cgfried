@@ -6,6 +6,7 @@
 
 #include "cg/shared.h"
 #include "driver/toolchain.h"
+#include "util/sort.h"
 
 /* Sprint 22: backward liveness, the SIMPLE linear scan (one interval per
  * vreg, [first_point, last_point], NO holes — hole-aware allocation buys
@@ -377,10 +378,13 @@ static void collect_no_spill(Ra *ra)
 
 /* --- pre-color conflict repair ---------------------------------------------
  *
- * Localize every fixed site of `v` through a fresh tiny vreg bridged by
- * a copy, leaving v itself unconstrained. Fixed use: `mov t, v` just
- * before, operand retargeted to t. Fixed def: the inst defines t, then
- * `mov v, t` just after. Copies are full-width — safe for any value. */
+ * Localize every fixed site of each marked vreg through a fresh tiny vreg
+ * bridged by a copy, leaving the original vreg unconstrained. Fixed use:
+ * `mov t, v` just before, operand retargeted to t. Fixed def: the inst defines
+ * t, then `mov v, t` just after. Repairing the complete marked set in one MIR
+ * rebuild keeps the work proportional to function size rather than rescanning
+ * a giant function once per conflicting vreg. Copies are full-width — safe
+ * for any value. */
 
 static X64Inst mk_mov(X64VReg def, X64VReg src)
 {
@@ -408,10 +412,8 @@ static X64Inst mk_copy(const X64Func *f, X64VReg def, X64VReg src, u8 rc)
     return mv;
 }
 
-static void repair_vreg(X64Func *f, u32 v)
+static void repair_vregs(X64Func *f, const u8 *repair, u32 limit)
 {
-    u8 rc = x64_vclass(f, v);
-    X64Width width = (X64Width)x64_vwidth(f, v);
     u32 bi, i, k;
 
     for (bi = 0; bi < f->nblocks; bi++) {
@@ -421,17 +423,26 @@ static void repair_vreg(X64Func *f, u32 v)
         rb_init(&rb, f->arena, b->n);
         for (i = 0; i < b->n; i++) {
             X64Inst in = b->insts[i];
+            X64XUse *nx = NULL;
 
             rb.source_loc = in.loc;
 
-            if (in.a.kind == X64O_VREG && in.a.fixed && in.a.r.v == v) {
+            if (in.a.kind == X64O_VREG && in.a.fixed && in.a.r.v <= limit &&
+                repair[in.a.r.v]) {
+                u32 v = in.a.r.v;
+                u8 rc = x64_vclass(f, v);
+                X64Width width = (X64Width)x64_vwidth(f, v);
                 X64VReg t = x64_newv_width(f, rc, width);
                 X64Inst mv = mk_copy(f, t, in.a.r, rc);
 
                 rb_put(&rb, &mv);
                 in.a.r = t;
             }
-            if (in.b.kind == X64O_VREG && in.b.fixed && in.b.r.v == v) {
+            if (in.b.kind == X64O_VREG && in.b.fixed && in.b.r.v <= limit &&
+                repair[in.b.r.v]) {
+                u32 v = in.b.r.v;
+                u8 rc = x64_vclass(f, v);
+                X64Width width = (X64Width)x64_vwidth(f, v);
                 X64VReg t = x64_newv_width(f, rc, width);
                 X64Inst mv = mk_copy(f, t, in.b.r, rc);
 
@@ -439,22 +450,31 @@ static void repair_vreg(X64Func *f, u32 v)
                 in.b.r = t;
             }
             for (k = 0; k < in.nxuses; k++) {
-                if (in.xuses[k].r.v == v && in.xuses[k].fixed) {
+                u32 v = in.xuses[k].r.v;
+
+                if (v <= limit && repair[v] && in.xuses[k].fixed) {
+                    u8 rc = x64_vclass(f, v);
+                    X64Width width = (X64Width)x64_vwidth(f, v);
                     X64VReg t = x64_newv_width(f, rc, width);
                     X64Inst mv = mk_copy(f, t, in.xuses[k].r, rc);
-                    X64XUse *nx =
-                        arena_alloc(f->arena, in.nxuses * sizeof(X64XUse),
-                                    _Alignof(X64XUse));
 
                     rb_put(&rb, &mv);
-                    /* xuses is shared with the original inst; copy
-                     * before retargeting. */
-                    memcpy(nx, in.xuses, in.nxuses * sizeof(X64XUse));
+                    if (!nx) {
+                        /* xuses is shared with the original inst; copy
+                         * before retargeting the first repaired use. */
+                        nx = arena_alloc(f->arena, in.nxuses * sizeof(X64XUse),
+                                         _Alignof(X64XUse));
+                        memcpy(nx, in.xuses, in.nxuses * sizeof(X64XUse));
+                    }
                     nx[k].r = t;
-                    in.xuses = nx;
                 }
             }
-            if (in.def.v == v && in.def_fixed) {
+            if (nx)
+                in.xuses = nx;
+            if (in.def.v <= limit && repair[in.def.v] && in.def_fixed) {
+                u32 v = in.def.v;
+                u8 rc = x64_vclass(f, v);
+                X64Width width = (X64Width)x64_vwidth(f, v);
                 X64VReg t = x64_newv_width(f, rc, width);
                 X64VReg vv = {v};
                 X64Inst mv = mk_copy(f, vv, t, rc);
@@ -472,32 +492,105 @@ static void repair_vreg(X64Func *f, u32 v)
     }
 }
 
-/* Two same-color fixed intervals overlapping = repair both. Sharing one
- * endpoint is legal (a value dying exactly where the next is defined —
- * the idiv handoff), so the test is strict interior overlap. */
-static u32 find_conflicts(Ra *ra, u32 *out, u32 cap)
+static int fixed_interval_cmp(const void *ap, const void *bp, void *ctx)
 {
-    const X64Func *f = ra->f;
-    u32 n = 0;
-    u32 v, v2;
+    const Ra *ra = ctx;
+    u32 a = *(const u32 *)ap;
+    u32 b = *(const u32 *)bp;
+    const Interval *ia = &ra->iv[a];
+    const Interval *ib = &ra->iv[b];
 
-    for (v = 1; v <= f->nvregs && n < cap; v++) {
-        const Interval *a = &ra->iv[v];
+    if (ia->fixed != ib->fixed)
+        return ia->fixed < ib->fixed ? -1 : 1;
+    if (ia->start != ib->start)
+        return ia->start < ib->start ? -1 : 1;
+    if (ia->end != ib->end)
+        return ia->end < ib->end ? -1 : 1;
+    return a < b ? -1 : a != b;
+}
 
-        if (!a->live || !a->fixed)
-            continue;
-        for (v2 = v + 1; v2 <= f->nvregs && n + 1 < cap; v2++) {
-            const Interval *b = &ra->iv[v2];
-
-            if (!b->live || b->fixed != a->fixed)
-                continue;
-            if (a->start < b->end && b->start < a->end) {
-                out[n++] = v;
-                out[n++] = v2;
-            }
-        }
+static void mark_repair(u8 *repair, u32 v, u32 *count)
+{
+    if (!repair[v]) {
+        repair[v] = 1;
+        (*count)++;
     }
-    return n;
+}
+
+/* Mark a repair set for every same-color fixed overlap in O(n log n), plus
+ * every fixed interval that crosses a call. Sorting by color and start lets a
+ * single farthest-reaching prior interval witness every overlap with an
+ * earlier start. Equal-start non-point intervals overlap one another; point
+ * intervals do not. The unmarked intervals left by this sweep are therefore
+ * pairwise disjoint, so repairing the marked set covers every conflict edge.
+ * Sharing one endpoint remains legal (the idiv handoff), hence strict `>` at
+ * the sweep boundary. */
+static u32 mark_conflicts(Ra *ra, u8 *repair, u32 limit)
+{
+    u32 *order = arena_alloc(ra->arena, (limit ? limit : 1) * sizeof(u32),
+                             _Alignof(u32));
+    u32 n = 0, count = 0;
+    u32 v, group;
+
+    for (v = 1; v <= limit; v++) {
+        const Interval *it = &ra->iv[v];
+
+        if (!it->live || !it->fixed)
+            continue;
+        order[n++] = v;
+        /* A caller-saved precolor cannot survive a call. Localize every
+         * call-crossing fixed interval (conservatively including rare
+         * callee-saved asm constraints), leaving the unconstrained home to
+         * use an ordinary callee-saved register or spill slot. */
+        if (it->live_across_call)
+            mark_repair(repair, v, &count);
+    }
+    cgf_sort_stable(order, n, sizeof(u32), fixed_interval_cmp, ra);
+
+    for (group = 0; group < n;) {
+        u32 group_end = group + 1;
+        u32 active = 0;
+        u32 at;
+
+        while (group_end < n &&
+               ra->iv[order[group_end]].fixed == ra->iv[order[group]].fixed)
+            group_end++;
+        for (at = group; at < group_end;) {
+            u32 same_end = at + 1;
+            u32 first_nonpoint = 0;
+            u32 j;
+
+            while (same_end < group_end &&
+                   ra->iv[order[same_end]].start == ra->iv[order[at]].start)
+                same_end++;
+
+            for (j = at; j < same_end; j++) {
+                u32 cur = order[j];
+
+                if (active && ra->iv[active].end > ra->iv[cur].start) {
+                    mark_repair(repair, active, &count);
+                    mark_repair(repair, cur, &count);
+                }
+                if (ra->iv[cur].end > ra->iv[cur].start) {
+                    if (first_nonpoint) {
+                        mark_repair(repair, first_nonpoint, &count);
+                        mark_repair(repair, cur, &count);
+                    } else {
+                        first_nonpoint = cur;
+                    }
+                }
+            }
+            for (j = at; j < same_end; j++) {
+                u32 cur = order[j];
+
+                if (!active || ra->iv[cur].end > ra->iv[active].end)
+                    active = cur;
+            }
+            at = same_end;
+        }
+        group = group_end;
+    }
+    return count;
 }
 
 /* --- shared linear scan policy --------------------------------------------
@@ -1626,40 +1719,20 @@ void x64_regalloc(X64Func *f)
      * localizes constraints to per-site tiny intervals, so this
      * converges; the cap is a tripwire, not a tuning knob. */
     for (iter = 0;; iter++) {
-        u32 conflicts[64], nc, j;
+        u32 limit = f->nvregs;
+        u8 *repair;
+        u32 nrepair;
 
         if (iter > 16)
             CGF_ICE("regalloc: precolor repair did not converge");
         build_intervals(&ra);
         collect_fixed(&ra);
-        nc = find_conflicts(&ra, conflicts, 64);
-        /* A FIXED interval crossing a call is a conflict with the call
-         * itself: every fixed color is an ABI register and every ABI
-         * register is caller-saved, so the value cannot survive there.
-         * Localize it exactly like a color collision — the home vreg
-         * then goes through the ordinary call-crossing rule (callee-
-         * saved or spill). Found by the FIRST e2e run: a call result
-         * READ from rax stayed in rax across the next call. */
-        {
-            u32 v;
-
-            for (v = 1; v <= f->nvregs && nc < 63; v++)
-                if (ra.iv[v].live && ra.iv[v].fixed &&
-                    ra.iv[v].live_across_call)
-                    conflicts[nc++] = v;
-        }
-        if (!nc)
+        repair = arena_alloc(ra.arena, limit + 1, 1);
+        memset(repair, 0, limit + 1);
+        nrepair = mark_conflicts(&ra, repair, limit);
+        if (!nrepair)
             break;
-        for (j = 0; j < nc; j++) {
-            bool dup = false;
-            u32 j2;
-
-            for (j2 = 0; j2 < j; j2++)
-                if (conflicts[j2] == conflicts[j])
-                    dup = true;
-            if (!dup)
-                repair_vreg(f, conflicts[j]);
-        }
+        repair_vregs(f, repair, limit);
     }
 
     /* After the repair loop settles: the intervals allocation sees are the
