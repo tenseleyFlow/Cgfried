@@ -1,9 +1,12 @@
+// ENV: CGF_AS=0
 // OPT_EQ: all
 // EXIT_CODE: 0
 /* CPUID leaf zero gives four write-only fixed-register outputs and no tied
  * inputs. Besides exercising three post-asm captures, the `=b` output proves
  * the pre-asm reservation remains visible to frame finalization: rbx is
- * callee-saved and must be preserved for this function's caller. */
+ * callee-saved and must be preserved for this function's caller. The bundled
+ * assembler does not yet encode cpuid, so this executable fixture explicitly
+ * uses the system assembler while the unit test inspects the backend MIR. */
 static int cpuid_leaf_zero(void)
 {
 #if defined(__x86_64__)
