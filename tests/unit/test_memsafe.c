@@ -979,9 +979,23 @@ void test_memsafe_instrument_discharges_proven_heap_access(TestCtx *t)
                         strcmp(module->syms[setter->callee],
                                "cgf_safe_set_next_site") == 0);
         T_ASSERT(t, setter && setter->nops == 1 && setter->ops[0].a == 1);
-        T_ASSERT(t,
-                 setter && setter->next && setter->next->op == IR_CALL &&
-                     strcmp(module->syms[setter->next->callee], "malloc") == 0);
+        T_ASSERT(t, setter && setter->next && setter->next->op == IR_CALL &&
+                        strcmp(module->syms[setter->next->callee],
+                               "__wrap_malloc") == 0);
+        {
+            bool found_free = false;
+            u32 bi;
+
+            for (bi = 0; bi < module->funcs[0].nblocks; bi++) {
+                const IrInst *in;
+
+                for (in = module->funcs[0].blocks[bi].first; in; in = in->next)
+                    if (in->op == IR_CALL && in->callee < module->nsyms &&
+                        strcmp(module->syms[in->callee], "__wrap_free") == 0)
+                        found_free = true;
+            }
+            T_ASSERT(t, found_free);
+        }
     }
     T_ASSERT(t, ir_verify(fix.dc, module));
     arena_free_all(&fix.arena);

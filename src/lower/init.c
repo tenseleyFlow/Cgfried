@@ -579,7 +579,7 @@ static bool plan_expr_initializes_whole(Type *target, const AstNode *init)
     if (!target || !init)
         return false;
     if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
-        return true;
+        return type_string_initializer_compatible(target, init->sem_type);
     return init->sem_type && type_compatible(target, init->sem_type);
 }
 

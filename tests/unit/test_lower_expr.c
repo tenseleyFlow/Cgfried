@@ -992,6 +992,40 @@ void test_lower_builtin_bcopy_call_and_roundtrip(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_builtin_bzero_call_and_roundtrip(TestCtx *t)
+{
+    LowFix f;
+    IrModule *round;
+
+    T_ASSERT(t, run_lower(&f, "void *destination(void); "
+                              "unsigned long count(void); "
+                              "void use(void) { __builtin_bzero("
+                              "destination(), count()); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @destination()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i64 @count()"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @memset(ptr"), 1);
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "@bzero"), 0);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<bzero-external>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+
+    T_ASSERT(t,
+             run_lower(&f, "static void *memset(void *d, int c, "
+                           "unsigned long n) { unsigned long i; "
+                           "for (i = 0; i < n; i++) "
+                           "((unsigned char *)d)[i] = (unsigned char)c; "
+                           "return d; } "
+                           "void use(void *d) { __builtin_bzero(d, 3); }\n"));
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    T_ASSERT_EQ_INT(t, count_of(txt(&f), "call ptr @memset(ptr"), 1);
+    round = ir_parse_module(&f.arena, f.dc, txt(&f), "<bzero-defined>");
+    T_ASSERT(t, round != NULL && ir_module_struct_eq(f.m, round));
+    low_free(&f);
+}
+
 void test_lower_builtin_strchr_call_and_roundtrip(TestCtx *t)
 {
     LowFix f;

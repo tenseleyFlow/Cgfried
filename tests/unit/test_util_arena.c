@@ -42,7 +42,10 @@ void test_arena_stats(TestCtx *t)
     before = arena_stats(&a);
     T_ASSERT_EQ_INT(t, before.peak_bytes, 0);
     T_ASSERT_EQ_INT(t, before.block_count, 0);
-    (void)arena_alloc(&a, 17, 1);
+    /* The block only promises the alignment requested by its first
+     * allocation. Request 16 here so this remains a one-block accounting
+     * test even on hosts whose malloc alignment is only 8 bytes. */
+    (void)arena_alloc(&a, 17, 16);
     (void)arena_alloc(&a, 33, 16);
     after = arena_stats(&a);
     T_ASSERT(t, after.peak_bytes >= 64u * 1024u);

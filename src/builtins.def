@@ -75,6 +75,9 @@ B(memcpy, MEMCPY, 3, BK_VOIDP)
 B(mempcpy, MEMPCPY, 3, BK_VOIDP)
 B(memmove, MEMMOVE, 3, BK_VOIDP)
 B(bcopy, BCOPY, 3, BK_VOID)
+/* Darwin's FD_ZERO macro uses this GCC/Clang spelling. Lowering maps it to
+ * portable memset rather than requiring a nonstandard bzero libc symbol. */
+B(bzero, BZERO, 2, BK_VOID)
 B(memset, MEMSET, 3, BK_VOIDP)
 /* Fortified memset: the fourth size_t argument is the known destination
  * extent. libcgf_rt owns the target-independent checking entry point. */

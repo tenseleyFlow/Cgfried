@@ -54,15 +54,16 @@ bits. A standalone pointer-to-integer conversion, variable offset, narrower
 integer temporary, multiplication, shift, or XOR is rejected. A null pointer
 constant keeps its ISO C meaning and does not need this grammar.
 
-## Mixed programs and ELF notes
+## Mixed programs and object markers
 
 Every object emitted under `-fsafe` carries a versioned
-`.note.cgf.safe` ELF note. A final `cgf -fsafe` link validates every explicit
-user object. An object without the note is a link error (exit 2) unless its
-exact path appears in `-fsafe-allow-unsafe=<path>`. `-l` system libraries and
+`.note.cgf.safe` ELF note or an equivalent `__DATA,__cgf_safe` Mach-O section.
+A final `cgf -fsafe` link validates every explicit user object. An object
+without the target-format marker is a link error (exit 2) unless its exact path
+appears in `-fsafe-allow-unsafe=<path>`. `-l` system libraries and
 driver-injected CRT objects are toolchain boundaries and are exempt. Explicit
-archives are user inputs and therefore require a supported note or an explicit
-allowance.
+archives are user inputs and therefore require a supported marker or an
+explicit allowance.
 
 User-supplied raw linker controls (`-Xlinker` and `-Wl,`) are rejected during
 a safe link because they can hide objects, archives, response files, or linker

@@ -1944,6 +1944,24 @@ static AstNode *expr_call(Sema *s, AstNode *e)
                             return poison(s, e);
                     }
                 }
+                if (b == SEMA_BUILTIN_BZERO) {
+                    Type *params[] = {
+                        type_ptr(s->arena, type_basic(TY_VOID)),
+                        type_basic(TY_ULONG),
+                    };
+                    bool valid = true;
+
+                    /* GCC and Clang expose void (void *, size_t), including
+                     * the ordinary qualifier and conversion diagnostics. */
+                    for (i = 0; i < CGF_ARRAY_LEN(params); i++) {
+                        bctx.arg_index = i + 1;
+                        if (!conv_assignable(s, params[i], &e->args[i], bctx) ||
+                            quiet(e->args[i], NULL))
+                            valid = false;
+                    }
+                    if (!valid)
+                        return poison(s, e);
+                }
                 if (b == SEMA_BUILTIN_MEMPCPY || b == SEMA_BUILTIN_BCOPY) {
                     Type *const_void = type_qualify(
                         s->arena, type_basic(TY_VOID), CGF_QUAL_CONST);

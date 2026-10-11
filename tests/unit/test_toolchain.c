@@ -174,9 +174,10 @@ void test_toolchain_exit_mapping(TestCtx *t)
     T_ASSERT(t, strstr(cgf_tool_missing_hint(TOOL_LD), "CGF_LD_PATH") != NULL);
 }
 
-/* Sprint 25: the crt probe. The pure resolver carries CGF_CRT_DIR; the
- * live probe must find crt1.o on any host that can link (CI has gcc),
- * and the directory it names must actually contain crt1.o.
+/* Sprint 25: the crt probe. The pure resolver carries CGF_CRT_DIR; on an
+ * ELF host the live probe must find crt1.o (CI has gcc), and the directory
+ * it names must actually contain crt1.o. Mach-O has no ELF crt search: it
+ * links against SDK text stubs instead.
  *
  * HOST-SENSITIVE, deliberately so. On a multiarch host (Debian, Ubuntu, and
  * therefore every CI job) the matching row is the one built at runtime, so
@@ -188,6 +189,11 @@ void test_toolchain_crt_probe(TestCtx *t)
     char diag[256];
     const char *dir = cgf_probe_crt_dir(diag, sizeof(diag));
 
+    if (cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS) {
+        T_ASSERT(t, dir == NULL);
+        T_ASSERT_EQ_STR(t, diag, "");
+        return;
+    }
     T_ASSERT(t, dir != NULL);
     if (dir) {
         char path[512];
@@ -256,6 +262,12 @@ void test_target_predefines_use_canonical_long_double_size(TestCtx *t)
          * new target cannot silently inherit an unsupported promise. */
         T_ASSERT(t, strstr((const char *)predefs.data,
                            "#define __SIZEOF_INT128__ 16\n") != NULL);
+        /* Apple OSByteOrder.h selects its complete host conversion surface
+         * with this legacy spelling, while modern portable code consumes
+         * __BYTE_ORDER__. Every closed target is little-endian and Clang
+         * publishes both contracts on each of them. */
+        T_ASSERT(t, strstr((const char *)predefs.data,
+                           "#define __LITTLE_ENDIAN__ 1\n") != NULL);
         buf_free(&predefs);
     }
 }

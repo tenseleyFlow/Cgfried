@@ -413,9 +413,17 @@ operator. PR #181's `s56.86-pragma-pack-layout` tranche merged green-only as
 `s56.87-arm64-macos-va-list-header` tranche merged green-only as
 `f02debe878e8d3f3fb49fd515dac5748d881c93c`; its tested head is
 `d7383fd3d610764f16f2bf1bf08a6e4d33d263b6`, and the merge tree is
-byte-identical. The active `s56.88-libpng-sole-c` branch starts from that exact
+byte-identical. The `s56.88-libpng-sole-c` branch starts from that exact
 merge and owns the libpng/Apple `_Float16` hosted-header boundary described in
-the detailed ledger below.
+the detailed ledger below. It merged green-only through PR #183 as
+`927fb10fe3cd8afd9a98df3c7ab2216dd81f84ce`. PR #184's libjpeg-turbo sole-C
+campaign merged green-only as `92b91e791900cfec18e71eba501be3e9de32c10a`,
+PR #185's zstd sole-C campaign merged green-only as
+`01269429886e2ae457549018a5f3219ec9687bff`, and PR #186's libxml2 sole-C
+campaign merged green-only as `bc923ac33beff33a1bc797503e835afd5e5bff0c`.
+The active `s56.92-openssl-sole-c` branch starts from that exact merge and owns
+the OpenSSL 3.5.9 Apple-native compiler and runtime gaps recorded in the
+campaign findings ledger.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -10044,6 +10052,45 @@ and green post-publication CI.
   complete x86-64 Linux campaign locally: 22/22 tests, 52 certified
   translations, 37 byte-checked archive members, 13 linked products, and all
   ten expected-result rows. Exact-head Linux CI publication remains pending.
+- The active `s56.92-openssl-sole-c` prerequisite tranche starts from exact
+  merged PR #186 (`bc923ac33beff33a1bc797503e835afd5e5bff0c`). Its pinned
+  OpenSSL 3.5.9 Apple-silicon scout compiled 1,681 project objects into eight
+  archives with Cgfried, then passed the complete upstream suite: 347 test
+  files, 4,009 tests, result PASS. The focused HTTP suite passes 35/35,
+  including the redirect path that first exposed the initializer wrong-code
+  bug.
+
+  The sole source exclusion is `test/rsa_complex.c`, an upstream compile-time
+  coexistence probe for `_Complex` and RSA headers that explicitly contains no
+  runtime checks. `_Complex` remains outside v0.1.0. The publication campaign
+  must replace only that named source in both exported trees with the same
+  checksum-pinned no-op and report the substitution as `CAMP-OPENSSL-001`;
+  every upstream runtime recipe remains mandatory.
+
+  The scout closed four compiler gaps: GNU `__builtin_bzero`, optimizer
+  provenance during strength reduction, Apple's legacy `__LITTLE_ENDIAN__`
+  hosted-header spelling, and string-literal initialization of nested pointer
+  arrays. It also completed deterministic Apple-native runtime packaging and
+  native `-fsafe`: Mach-O objects carry a versioned `__DATA,__cgf_safe`
+  section, the validator accepts the equivalent ELF note or Mach-O section,
+  and instrumented allocator calls reach the safety wrappers without relying
+  on GNU ld's unavailable `--wrap` option.
+
+  Native evidence is green for 1,026 unit tests / 4,331,713 assertions, all
+  55 audit regressions, the complete safe-mode gate, bootstrap and fleet meta
+  gates, performance gates, and `test-bench`. `make all` builds the compiler,
+  runner, tools, and `arm64-macos/libcgf_rt.a`. The monolithic native
+  `make test` reaches the deliberately Linux-only `linux-x86_64` executable
+  profile only after those native phases pass; that profile is not redefined
+  as a macOS suite. Linux CI remains the full-profile publication gate, while
+  macOS CI now pins the runtime archive and safe-mode object/runtime contracts.
+
+  Publish this prerequisite tranche green-only. The next tranche is the full
+  checksum-pinned, offline-capable OpenSSL 3.5.9 sole-C campaign: reproduce the
+  scout configuration in both Cgfried and host lanes, certify every retained
+  object/archive/link input, install the one audited no-op symmetrically, run
+  all upstream recipes, and commit an exact bidirectional expected-results
+  gate.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
@@ -12876,8 +12923,11 @@ rsync -a --delete --exclude '/build' --exclude '/build-*' --exclude '/.git' \
 ssh nomad-1 'sh -lc "cd /tmp/cgfried-s51 && make -j8 build/cgfried build/abigen"'
 ```
 
-`make all` FAILS on macOS — `src/rt/fp128.c` needs `mode(TF)`, which Apple
-clang lacks on arm64. Build the specific targets you need.
+`make all` works natively on arm64 macOS. The runtime archive excludes the
+AAPCS64-Linux binary128 implementation (Apple ARM64 uses binary64 `long
+double`) plus the ELF-only DSO token and libSystem-provided cache helper. It
+retains the integer-128, fortify, and safety helpers, and its objects pin the
+compiler's macOS 11 deployment target rather than inheriting the build SDK.
 
 ## 8. Deferrals you will trip over
 

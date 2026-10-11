@@ -3717,6 +3717,64 @@ static void splice_allocation_site(MsFunctionResult *result,
             function->name);
 }
 
+static const char *safe_wrapper_name(const char *name)
+{
+    static const struct {
+        const char *plain;
+        const char *wrapped;
+    } wrappers[] = {
+        {"malloc", "__wrap_malloc"},
+        {"calloc", "__wrap_calloc"},
+        {"realloc", "__wrap_realloc"},
+        {"free", "__wrap_free"},
+        {"reallocarray", "__wrap_reallocarray"},
+        {"strdup", "__wrap_strdup"},
+        {"strndup", "__wrap_strndup"},
+        {"aligned_alloc", "__wrap_aligned_alloc"},
+        {"posix_memalign", "__wrap_posix_memalign"},
+    };
+    u32 i;
+
+    if (!name)
+        return NULL;
+    for (i = 0; i < CGF_ARRAY_LEN(wrappers); i++)
+        if (strcmp(name, wrappers[i].plain) == 0)
+            return wrappers[i].wrapped;
+    return NULL;
+}
+
+/* Safe translation units call the runtime entry points directly. GNU ld's
+ * --wrap remains useful for allocations originating in an unsafe ELF object,
+ * but it cannot be the safe-TU mechanism: ld64 has no equivalent option.
+ * Retarget only direct external calls after every analysis is complete so the
+ * source-level allocator summaries and alias sites keep their ordinary names.
+ */
+static bool retarget_safe_runtime_calls(MsFunctionResult *result)
+{
+    IrModule *module = result->module;
+    IrFunc *function = result->function;
+    bool changed = false;
+    u32 bi;
+
+    for (bi = 0; bi < function->nblocks; bi++) {
+        IrInst *in;
+
+        for (in = function->blocks[bi].first; in; in = in->next) {
+            const char *wrapped;
+
+            if (in->op != IR_CALL || in->subop != FUNCREF_EXTERNAL ||
+                in->callee >= module->nsyms)
+                continue;
+            wrapped = safe_wrapper_name(module->syms[in->callee]);
+            if (!wrapped)
+                continue;
+            in->callee = ir_sym(module, wrapped);
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 static void instrument_result(MsFunctionResult *result, MsCheckStats *stats)
 {
     u32 callee = UINT32_MAX;
@@ -3788,6 +3846,8 @@ static void instrument_result(MsFunctionResult *result, MsCheckStats *stats)
             }
         }
     }
+    if (retarget_safe_runtime_calls(result))
+        changed = true;
     if (changed)
         ir_func_renumber(result->module->arena, result->function);
 }

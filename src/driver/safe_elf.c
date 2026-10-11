@@ -4,9 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Tiny, bounds-checked ELF64LE reader. The safe-link rule is a compiler
- * contract, so it must not depend on readelf being installed and must not
- * accept a coincidental byte substring outside a real SHT_NOTE section. */
+/* Tiny, bounds-checked ELF64LE and Mach-O 64LE reader. The safe-link rule is a
+ * compiler contract, so it must not depend on readelf/otool being installed
+ * and must not accept a coincidental byte substring outside the designated
+ * object-format section. */
 
 static u16 get16(const u8 *p)
 {
@@ -101,6 +102,78 @@ static SafeElfResult inspect_elf(const u8 *data, size_t size)
     return SAFE_ELF_NOTE_MISSING;
 }
 
+static bool macho_name_is(const u8 *field, const char *name)
+{
+    u8 expected[16] = {0};
+    size_t n = strlen(name);
+
+    if (n > sizeof(expected))
+        return false;
+    memcpy(expected, name, n);
+    /* Both operands are fixed arrays; expected is zero-filled, no padding. */
+    /* determinism-audit allow memcmp-object: fixed byte arrays, no padding */
+    return memcmp(field, expected, sizeof(expected)) == 0;
+}
+
+/* MH_MAGIC_64 with LC_SEGMENT_64 commands and section_64 entries. Cgfried's
+ * only Mach-O target is little-endian arm64, so accepting swapped/fat files
+ * here would claim a format contract the compiler cannot produce. */
+static SafeElfResult inspect_macho(const u8 *data, size_t size)
+{
+    const u32 lc_segment_64 = 0x19;
+    u64 commands_end, off;
+    u32 ncmds, sizeofcmds, i;
+
+    if (size < 32 || get32(data) != 0xfeedfacf)
+        return SAFE_ELF_INVALID;
+    ncmds = get32(data + 16);
+    sizeofcmds = get32(data + 20);
+    if (!range_ok(size, 32, sizeofcmds))
+        return SAFE_ELF_INVALID;
+    commands_end = 32u + sizeofcmds;
+    off = 32;
+    for (i = 0; i < ncmds; i++) {
+        u32 cmd, cmdsize;
+
+        if (!range_ok(size, off, 8) || off + 8 > commands_end)
+            return SAFE_ELF_INVALID;
+        cmd = get32(data + off);
+        cmdsize = get32(data + off + 4);
+        if (cmdsize < 8 || !range_ok(size, off, cmdsize) ||
+            off + cmdsize > commands_end)
+            return SAFE_ELF_INVALID;
+        if (cmd == lc_segment_64) {
+            u32 nsects, j;
+            u64 section_off;
+
+            if (cmdsize < 72)
+                return SAFE_ELF_INVALID;
+            nsects = get32(data + off + 64);
+            if ((u64)nsects > ((u64)cmdsize - 72u) / 80u)
+                return SAFE_ELF_INVALID;
+            section_off = off + 72;
+            for (j = 0; j < nsects; j++, section_off += 80) {
+                u64 section_size;
+                u32 file_off;
+
+                if (!macho_name_is(data + section_off, "__cgf_safe") ||
+                    !macho_name_is(data + section_off + 16, "__DATA"))
+                    continue;
+                section_size = get64(data + section_off + 40);
+                file_off = get32(data + section_off + 48);
+                if (!range_ok(size, file_off, section_size) ||
+                    !note_payload_ok(data, size, file_off, section_size))
+                    return SAFE_ELF_INVALID;
+                return SAFE_ELF_NOTE_PRESENT;
+            }
+        }
+        off += cmdsize;
+    }
+    if (off != commands_end)
+        return SAFE_ELF_INVALID;
+    return SAFE_ELF_NOTE_MISSING;
+}
+
 SafeElfResult safe_elf_note_status(const char *path)
 {
     FILE *f;
@@ -127,7 +200,12 @@ SafeElfResult safe_elf_note_status(const char *path)
         free(data);
         return SAFE_ELF_IO_ERROR;
     }
-    result = inspect_elf(data, got);
+    if (got >= 4 && memcmp(data, "\177ELF", 4) == 0)
+        result = inspect_elf(data, got);
+    else if (got >= 4 && get32(data) == 0xfeedfacf)
+        result = inspect_macho(data, got);
+    else
+        result = SAFE_ELF_INVALID;
     free(data);
     return result;
 }
@@ -173,14 +251,15 @@ bool safe_link_inputs_ok(const DriverArgs *args)
         if (result == SAFE_ELF_NOTE_MISSING)
             fprintf(stderr,
                     "cgfried: error: -fsafe link input '%s' has no "
-                    ".note.cgf.safe; rebuild it with -fsafe or pass "
+                    ".note.cgf.safe/__DATA,__cgf_safe marker; rebuild it "
+                    "with -fsafe or pass "
                     "-fsafe-allow-unsafe=%s\n",
                     input->val, input->val);
         else if (result == SAFE_ELF_INVALID)
             fprintf(stderr,
                     "cgfried: error: -fsafe link input '%s' is not a "
-                    "supported safe ELF object; rebuild it with -fsafe or "
-                    "allow it explicitly\n",
+                    "supported safe ELF/Mach-O object; rebuild it with "
+                    "-fsafe or allow it explicitly\n",
                     input->val);
         else
             fprintf(stderr,

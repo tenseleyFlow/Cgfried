@@ -156,6 +156,46 @@ void test_opt_strength_constant_math_wraps_at_original_width(TestCtx *t)
     arena_free_all(&fix.arena);
 }
 
+void test_opt_strength_preserves_variadic_argument_provenance(TestCtx *t)
+{
+    StrengthFix fix;
+    IrModule *m;
+    OptConfig cfg;
+    Buf text;
+    char *printed;
+
+    strength_fix_init(&fix);
+    m = strength_parse(&fix, "sym @sink\n"
+                             "func i32 @f(i32 %n) {\n"
+                             "entry():\n"
+                             "    br loop(i32 0)\n"
+                             "loop(i32 %i):\n"
+                             "    %more = icmp slt i32 %i, %n\n"
+                             "    condbr %more, body(), exit()\n"
+                             "body():\n"
+                             "    %scaled = imul i32 %i, 3\n"
+                             "    %used = call i32 @sink(i32 11 anon, "
+                             "i32 %scaled anon) va\n"
+                             "    %next = iadd i32 %i, 1\n"
+                             "    br loop(i32 %next)\n"
+                             "exit():\n"
+                             "    ret i32 0\n"
+                             "}\n");
+    T_ASSERT(t, m != NULL && ir_verify(fix.dc, m));
+    opt_config_init(&cfg, OPT_O2);
+    cfg.verify_after_each = true;
+    T_ASSERT(t, m && opt_strength(m, &cfg));
+    if (m) {
+        T_ASSERT(t, ir_verify(fix.dc, m));
+        printed = strength_print(m, &text);
+        T_ASSERT(t,
+                 strstr(printed, "call i32 @sink(i32 11 anon, i32 %") != NULL);
+        T_ASSERT(t, strstr(printed, " anon) va") != NULL);
+        buf_free(&text);
+    }
+    arena_free_all(&fix.arena);
+}
+
 void test_opt_strength_exhausts_sites_across_functions(TestCtx *t)
 {
     StrengthFix fix;

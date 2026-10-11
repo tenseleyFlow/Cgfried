@@ -1010,6 +1010,16 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
         "\t.p2align 2\n"
         "\t.long 1\n"
         "\t.p2align 2\n";
+    static const char safe_marker_macho_asm[] =
+        "\n\t.section __DATA,__cgf_safe,regular,no_dead_strip\n"
+        "\t.p2align 2\n"
+        "\t.long 4\n"
+        "\t.long 4\n"
+        "\t.long 1\n"
+        "\t.asciz \"CGF\"\n"
+        "\t.p2align 2\n"
+        "\t.long 1\n"
+        "\t.p2align 2\n";
     static const char noexec_stack_asm[] =
         "\n\t.section .note.GNU-stack,\"\",@progbits\n";
     Buf b;
@@ -1169,8 +1179,13 @@ emit_tail:
         buf_free(&b);
         return CGF_EXIT_OK;
     }
-    if (a->fsafe)
-        buf_append(&b, safe_note_asm, sizeof(safe_note_asm) - 1);
+    if (a->fsafe) {
+        if (cgf_target_selected().kind == CGF_TARGET_ARM64_MACOS)
+            buf_append(&b, safe_marker_macho_asm,
+                       sizeof(safe_marker_macho_asm) - 1);
+        else
+            buf_append(&b, safe_note_asm, sizeof(safe_note_asm) - 1);
+    }
     /* Every target except arm64-macos emits ELF.  An absent GNU-stack note
      * makes GNU ld conservatively mark the output stack executable (and newer
      * linkers warn for every link).  Cgfried has no nested-function trampoline

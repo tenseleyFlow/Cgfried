@@ -673,6 +673,9 @@ static size_t crt_default_dirs_for(TargetSpec t, const char *sysroot,
     const char *multiarch = cgf_target_multiarch(t);
     size_t n = 0, i;
 
+    /* Mach-O links against SDK text stubs and has no ELF crt1.o search. */
+    if (t.kind == CGF_TARGET_ARM64_MACOS)
+        return 0;
     if (multiarch) {
         snprintf(crt_multiarch_dir, sizeof(crt_multiarch_dir), "/usr/lib/%s",
                  multiarch);
