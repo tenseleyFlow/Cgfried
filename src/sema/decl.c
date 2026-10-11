@@ -886,6 +886,44 @@ static Type *enum_underlying(Sema *s, const AstNode *rec, bool any_negative)
     return type_basic(any_negative ? TY_INT128 : TY_UINT128);
 }
 
+/* Current Apple SDK headers use C23's fixed-underlying enum definition even
+ * when included from a C17 translation unit. Resolve the written type through
+ * the ordinary typedef/type-name machinery, then retain only its integer
+ * representation: qualifiers on an underlying type do not qualify the enum.
+ *
+ * Opaque fixed-underlying declarations (`enum E : int;`) need a distinct tag
+ * completion state so a later body is not diagnosed as a redefinition. Keep
+ * that wider C23 surface fail-closed until the tag model can represent it; the
+ * definition form used by the SDK has complete semantics here. */
+static Type *enum_fixed_underlying(Sema *s, const AstNode *rec)
+{
+    Type *written;
+
+    if (!rec || !rec->enum_fixed_type)
+        return NULL;
+    if (!rec->is_definition) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, rec->span,
+                  "opaque fixed-underlying enum declarations are not "
+                  "supported; provide the enum definition");
+        return type_basic(TY_INT);
+    }
+    written = type_from_ast(s, rec->enum_fixed_type, rec->span);
+    if (!type_is_integer(written) || written->kind == TY_ENUM) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, rec->span,
+                  "fixed underlying type of an enum must be an integer type, "
+                  "not '%s'",
+                  type_to_str(s->arena, written));
+        return type_basic(TY_INT);
+    }
+    if (written->quals)
+        warn_at(s->lang->warnings, WARN_IGNORED_QUALIFIERS, rec->span,
+                "type qualifiers are ignored on an enum's fixed underlying "
+                "type");
+    return type_basic(written->kind);
+}
+
 static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
 {
     IntWidths w = cgf_target_int_widths(s->target);
@@ -895,6 +933,7 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
     bool next_negative = false;
     bool any_negative = false;
     bool any_out_of_int = false;
+    Type *fixed_underlying = enum_fixed_underlying(s, rec);
     Symbol *before = s->scope->ordinary;
     Symbol *sym_it;
     u32 i;
@@ -978,7 +1017,18 @@ static void complete_enum(Sema *s, TagDecl *tag, const AstNode *rec)
         }
     }
 
-    tag->enum_underlying = enum_underlying(s, rec, any_negative);
+    if (fixed_underlying &&
+        !enum_values_fit(rec, conv_int_bits(s, fixed_underlying),
+                         conv_is_signed(s, fixed_underlying))) {
+        s->nerrors++;
+        diag_emit(s->dc, DIAG_ERROR, rec->span,
+                  "enumerator value is not representable in fixed underlying "
+                  "type '%s'",
+                  type_to_str(s->arena, fixed_underlying));
+    }
+    tag->enum_underlying = fixed_underlying
+                               ? fixed_underlying
+                               : enum_underlying(s, rec, any_negative);
     tag->enum_has_negative = any_negative;
     tag->complete = true;
 

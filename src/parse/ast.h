@@ -325,8 +325,12 @@ struct AstNode {
      * brace or between `enum` and its tag changes the tag's representation;
      * a leading or declarator-suffix attribute changes only that declaration.
      * The parser is the last layer that can preserve this GCC distinction. */
-    u8 record_mode;    /* GnuMode; AST_ENUM_DECL only */
-    const char *tag;   /* NULL when anonymous */
+    u8 record_mode; /* GnuMode; AST_ENUM_DECL only */
+    /* C23 fixed-underlying enum definition: `enum E : unsigned long {...}`.
+     * Cgfried accepts this definition form as a pre-C23 extension because
+     * current Apple SDK headers publish it unconditionally. */
+    AstType *enum_fixed_type; /* AST_ENUM_DECL only */
+    const char *tag;          /* NULL when anonymous */
     AstNode **members; /* AST_DECL / AST_STATIC_ASSERT / nested records */
     u32 nmembers;
     AstNode *bitfield_width; /* on a member AST_DECL: the width EXPRESSION */

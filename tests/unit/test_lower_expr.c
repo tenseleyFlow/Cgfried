@@ -3407,6 +3407,60 @@ void test_lower_asm_symbolic_constant_classes(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_asm_arm64_q_is_base_memory_constraint(TestCtx *t)
+{
+    static const TargetKind targets[] = {CGF_TARGET_ARM64_LINUX,
+                                         CGF_TARGET_ARM64_MACOS};
+    u32 i;
+
+    /* GNU AArch64 `Q` requires memory addressed by one GP register. The
+     * ordinary memory class already carries precisely that address through
+     * IR; treating Q as x86's register constraint rejects zstd's prefetch
+     * macro before instruction selection. */
+    for (i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
+        LowFix f;
+        const IrAsm *a;
+
+        T_ASSERT(t, run_lower_target_opts(
+                        &f,
+                        "void prefetch(const char *p) {\n"
+                        "  __asm__ volatile(\"prfm pldl1keep, %0\" :: "
+                        "\"Q\"(*p));\n"
+                        "}\n",
+                        STD_GNU17, false, targets[i]));
+        T_ASSERT_EQ_INT(t, f.m->nasms, 1);
+        a = &f.m->asms[0];
+        T_ASSERT_EQ_INT(t, a->nops, 1);
+        T_ASSERT_EQ_INT(t, a->ops[0].cls, ASM_CLS_MEM);
+        T_ASSERT(t, !a->ops[0].is_output);
+        T_ASSERT(t, strstr(txt(&f), "in \"Q\" ptr") != NULL);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        low_free(&f);
+    }
+
+    /* Target vocabulary follows the translation, never the compiler host.
+     * The same Q spelling remains x86's byte-addressable register class even
+     * when this unit test runs inside an ARM64 compiler process. */
+    {
+        LowFix f;
+        const IrAsm *a;
+
+        T_ASSERT(t, run_lower_target_opts(
+                        &f,
+                        "void consume(unsigned char *p) {\n"
+                        "  __asm__ volatile(\"\" :: \"Q\"(*p));\n"
+                        "}\n",
+                        STD_GNU17, false, CGF_TARGET_X86_64_LINUX_GNU));
+        T_ASSERT_EQ_INT(t, f.m->nasms, 1);
+        a = &f.m->asms[0];
+        T_ASSERT_EQ_INT(t, a->nops, 1);
+        T_ASSERT_EQ_INT(t, a->ops[0].cls, ASM_CLS_REG);
+        T_ASSERT(t, !a->ops[0].is_output);
+        T_ASSERT(t, ir_verify(f.dc, f.m));
+        low_free(&f);
+    }
+}
+
 void test_lower_runtime_offsetof_uses_vla_stride(TestCtx *t)
 {
     LowFix f;

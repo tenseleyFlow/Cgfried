@@ -9895,6 +9895,86 @@ and green post-publication CI.
   suites and exact closure gates. Pull-request bootstrap run 37800700519 and
   exact-head push bootstrap run 37800694789 passed both applicable x86 O0/O2
   jobs; their architecture/cross-mode jobs skipped by policy.
+- PR #184 merged the libjpeg-turbo tranche green-only as
+  `92b91e791900cfec18e71eba501be3e9de32c10a`; its tested head was
+  `d73124c16e65b8defbe19e4d7880ef7b966e0dc9`, and the merge/head trees are
+  byte-identical.
+- The active `s56.90-zstd-sole-c` tranche starts from exact merged PR #184. It
+  pins zstd 1.5.7 (tag commit
+  `f8745da6ff1ad1e7bab384bd1f9d742439278e99`, official release SHA-256
+  `eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3`)
+  and builds the complete static portable-C configuration with legacy level 5
+  and multithreading enabled. Assembly/SIMD, shared libraries, contrib, and
+  optional external-codec integrations are off. Separate Cgfried and host
+  trees, with an identical build-graph-only portable-C patch, each build 81
+  project objects, the 37-member `libzstd.a`, the two CLI programs, and five
+  test programs. Both lanes run all four CTest entries;
+  `fuzzer` and `zstreamtest` use fixed 10,000-case seeds, fullbench uses one
+  deterministic iteration, and datagen/compression/cross-decompression
+  artifacts must be byte-identical. The normalized exact closure contains 81
+  sole-C translations, 37 byte-checked archive members, 51 final-link inputs,
+  and seven linked products.
+
+  Native Apple-silicon bring-up exposed two compiler gaps. AArch64 extended
+  asm constraint `Q` is now decoded as the base-register memory operand zstd's
+  prefetch macro requires, while x86-64 retains its register-class meaning.
+  Every asm constraint/clobber decision uses the translation unit's target,
+  not the compiler process's host/default target, so cross-target lowering
+  preserves that distinction.
+  Current Apple `<malloc/malloc.h>` also publishes a C23 fixed-underlying enum
+  definition unconditionally. Cgfried now accepts the definition form as a
+  pre-C23 extension, resolves typedef-written integer representations,
+  enforces enumerator range, and preserves `_Bool` conversion semantics;
+  non-integer, out-of-range, and not-yet-modeled opaque forward forms fail
+  closed. The campaign uses the SDK-documented `TARGET_CPU_ARM64` fallback
+  rather than claiming Apple-Clang identity.
+
+  The first native x86-64 CI build exposed a third compiler gap in zstd's
+  `cpuid` feature probe: its `eax`, `ecx`, and `edx` outputs are fixed, but
+  only `eax` also carries an input in the first query. Cgfried now reserves
+  each otherwise-unreserved write-only fixed extra output with a pre-asm
+  fixed-register sentinel, then captures it immediately afterward. A numeric
+  tie or separate input fixed to the same physical register already supplies
+  the reservation; recognizing the latter
+  is required by zstd's later `=c` output plus `c` input and prevents
+  non-convergent pre-color repair. The executable regression covers four
+  simultaneous outputs including callee-saved `rbx`; allocator-chosen extra
+  outputs remain explicitly refused.
+
+  The complete x86-64 campaign then exposed a fourth gap in zstd's giant
+  `fuzzer.c` and `zstreamtest.c` functions. Pre-color repair stored only 64
+  conflict entries per iteration, so these 18,000-vreg translations made
+  steady progress in small batches but reached the 16-iteration tripwire.
+  Conflict discovery now uses a deterministic color/start interval sweep,
+  marks every fixed interval that crosses a call, and repairs the complete
+  marked set in one MIR rebuild. A 600-precolor unit permanently proves that
+  convergence no longer depends on function size. The new executable CPUID
+  fixture also advances the x86 ISA inventory ratchet from 132 to 133 sources;
+  it uses system gas explicitly because bundled `afs-as` does not yet encode
+  that mnemonic, while the ISA gate now recognizes architecturally mandatory
+  `cpuid` as part of the closed x86-64 baseline.
+
+  The first exact x86 CI build also exposed an integrity asymmetry in the
+  campaign rather than a compiler failure: zstd 1.5.7 has no CMake-level ASM
+  opt-out, and its successful GCC no-exec-stack probes admitted
+  `huf_decompress_amd64.S` only to the host lane. Both exported trees now take
+  the same exact, version-pinned CMake patch, whose hash and absence of retained
+  assembly objects are gated, preserving the promised 37-member C-only archive
+  on x86-64 as well as ARM64 (`CAMP-ZSTD-005`).
+
+  The complete native ARM64 macOS campaign is green: the Cgfried-built suite
+  passes in 402 seconds, the host suite in about 150 seconds, parity is exact,
+  the sole-C verifier passes, and the committed ten-row expected gate matches.
+  The full local unit runner retains exactly the eight inherited Apple-host
+  failures: 1,020 tests / 4,331,639 assertions. Focused normal and
+  ASan+UBSan tests, pinned clang-format 22, campaign meta, sole-C meta,
+  target-seam, sema-target, bans, GNU-tier, verification-coverage,
+  POSIX-shell, workflow-YAML, and whitespace checks are green. The zstd
+  program-fixture additions and the x86 `cpuid` repair intentionally advance
+  the 5,000-iteration frontend-fuzz corpus digest to `55c224cbc8518ca3`; the
+  2,000-iteration smoke has zero findings. PR #185 is open; native
+  x86-64/ARM64 Linux CI is the remaining publication step. Merge only after
+  every applicable check is green.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

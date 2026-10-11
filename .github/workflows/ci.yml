@@ -451,6 +451,61 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Fifth post-v0.1.0 large-FOSS rung. The complete static portable-C zstd
+  # release is sole-C certified on both native Linux architectures with
+  # legacy decoding and multithreading enabled. Deterministically bounded
+  # stress tests and CLI output must agree with a pristine host build.
+  campaign-zstd:
+    name: campaign-zstd (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: cache the pinned zstd archive
+        uses: actions/cache@v5
+        with:
+          path: build/campaigns/dl
+          key: campaign-zstd-1.5.7-eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
+      - name: build the compiler and verify the campaign contract
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          scripts/campaign-lint.sh
+          tests/scripts/campaign_contract_test.sh
+      - name: populate the verified cache and run the offline campaign
+        run: |
+          make campaign-zstd-fetch
+          CGF_CAMPAIGN_OFFLINE=1 make zstd-expected
+      - name: retain zstd campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-foss-zstd-${{ matrix.arch }}
+          path: |
+            build/campaigns/zstd/results.txt
+            build/campaigns/zstd/provenance.txt
+            build/campaigns/zstd/sole-c/**
+            build/campaigns/zstd/sole-c-closure.tsv
+            build/campaigns/zstd/sole-c-report.txt
+            build/campaigns/zstd/object-closure.tsv
+            build/campaigns/zstd/link-closure.tsv
+            build/campaigns/zstd/archive-closure.tsv
+            build/campaigns/zstd/parity/**
+            build/campaigns/zstd/logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS

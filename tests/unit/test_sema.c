@@ -3966,6 +3966,33 @@ void test_sema_enums(TestCtx *t)
     run_sema(&f, "enum A8 { same, same };\n", STD_C17);
     T_ASSERT(t, f.errors >= 1);
     sfix_free(&f);
+
+    /* C23 fixed-underlying enum definitions are accepted as an extension in
+     * older modes because current Apple SDK headers expose them there. */
+    run_sema(&f,
+             "typedef unsigned long u64; "
+             "enum Fixed : u64 { F0, F1 = 1UL << 40 }; "
+             "enum Flag : _Bool { OFF, ON };\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "Fixed")), NS_TAG);
+    T_ASSERT(t, sym && sym->tag->enum_underlying == type_basic(TY_ULONG));
+    sym = scope_lookup(f.sema.file_scope,
+                       intern_str(&f.in, intern_cstr(&f.in, "Flag")), NS_TAG);
+    T_ASSERT(t, sym && sym->tag->enum_underlying == type_basic(TY_BOOL));
+    sfix_free(&f);
+
+    run_sema(&f,
+             "enum NotInteger : double { BAD_TYPE }; "
+             "enum TooSmall : unsigned char { TOO_BIG = 256 };\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 2);
+    sfix_free(&f);
+
+    run_sema(&f, "enum Opaque : unsigned int;\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
+    sfix_free(&f);
 }
 
 void test_sema_enum_mode_attributes(TestCtx *t)

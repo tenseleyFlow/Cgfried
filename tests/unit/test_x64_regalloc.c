@@ -214,6 +214,45 @@ void test_x64_linear_scan_at_every_opt_level(TestCtx *t)
     T_ASSERT(t, f0 == &x64_regalloc);
 }
 
+void test_x64_regalloc_repairs_large_precolor_sets_in_one_batch(TestCtx *t)
+{
+    enum { NVALUES = 600 };
+    Arena a;
+    X64Func *f;
+    X64VReg *values;
+    u32 i;
+
+    arena_init(&a);
+    f = mkf(&a, 1);
+    values = arena_alloc(&a, NVALUES * sizeof(*values), _Alignof(X64VReg));
+
+    /* Every value starts in rax and remains live until the second half of the
+     * block. This creates far more than the old 64-entry conflict buffer could
+     * represent. Its small repair batches needed over 16 iterations and hit
+     * the convergence tripwire even though each iteration made progress. */
+    for (i = 0; i < NVALUES; i++) {
+        X64Inst *in;
+
+        values[i] = x64_newv(f, X64RC_GP);
+        in = put(f, 0, X64_OP_READREG, X64_Q);
+        in->def = values[i];
+        in->def_fixed = X64_RAX + 1;
+    }
+    for (i = 0; i < NVALUES; i++) {
+        X64VReg sink = x64_newv(f, X64RC_GP);
+        X64Inst *in = put(f, 0, X64_OP_MOV, X64_Q);
+
+        in->def = sink;
+        in->a = ov(values[i].v);
+    }
+    put(f, 0, X64_OP_RET, X64_L);
+
+    x64_regalloc(f);
+    T_ASSERT(t, f->allocated);
+    T_ASSERT(t, f->spill_slots > 0);
+    arena_free_all(&a);
+}
+
 /* --- the alignment law ------------------------------------------------------
  */
 

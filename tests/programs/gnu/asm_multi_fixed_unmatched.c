@@ -1,12 +1,18 @@
-// FLAGS: -fsyntax-only -std=gnu17
-// ERROR_EXPECTED: every extra output names one fixed x86 register and has
-// exactly one matching input
-/* A fixed register alone is insufficient: without a tied input nothing keeps
- * that physical register reserved at the atomic asm point. */
-void f(void)
+// FLAGS: --target=x86_64-linux-gnu -S -std=gnu17
+// ASM_CHECK: cpuid
+// ASM_CHECK: movl %ecx
+// ASM_CHECK: movl %edx
+/* Write-only fixed extra outputs are reserved at the asm point even though
+ * no input interval names their physical registers. This is zstd's leaf-one
+ * CPU-feature probe. */
+void cpuid_leaf_one(unsigned *pa, unsigned *pc, unsigned *pd)
 {
-    int a;
-    int b;
+    unsigned a;
+    unsigned c;
+    unsigned d;
 
-    __asm__("" : "=a"(a), "=c"(b));
+    __asm__("cpuid" : "=a"(a), "=c"(c), "=d"(d) : "a"(1) : "ebx");
+    *pa = a;
+    *pc = c;
+    *pd = d;
 }

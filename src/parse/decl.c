@@ -1761,9 +1761,22 @@ static AstNode *parse_enum_specifier(Parser *p)
         scope_declare_tag(p, en->tag);
         p->pos++;
     }
+    if (parse_at_punct(p, PUNCT_COLON)) {
+        const Token *colon = parse_peek(p);
+
+        p->pos++;
+        warn_at(p->lang->warnings, WARN_C23_EXTENSIONS, colon->span,
+                "enumeration types with a fixed underlying type are a C23 "
+                "feature");
+        en->enum_fixed_type = parse_type_name(p);
+    }
     if (!parse_eat_punct(p, PUNCT_LBRACE)) {
         if (!en->tag)
             parse_error(p, parse_peek(p), "expected a tag or '{' after 'enum'");
+        else if (en->enum_fixed_type)
+            parse_error(p, parse_peek(p),
+                        "opaque fixed-underlying enum declarations are not "
+                        "supported; provide the enum definition");
         return en;
     }
     en->is_definition = true;
