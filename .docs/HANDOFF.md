@@ -9935,8 +9935,8 @@ and green post-publication CI.
   POSIX-shell, workflow-YAML, and whitespace checks are green. The two added
   program fixtures intentionally advance the 5,000-iteration frontend-fuzz
   corpus digest to `1968649d72df48b1`; the 2,000-iteration smoke has zero
-  findings. Native x86-64/ARM64 Linux CI and the PR number are the remaining
-  publication steps; merge only after every applicable check is green.
+  findings. PR #185 is open; native x86-64/ARM64 Linux CI is the remaining
+  publication step. Merge only after every applicable check is green.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
