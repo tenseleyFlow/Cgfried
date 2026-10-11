@@ -66,6 +66,11 @@ its pinned zlib dependency, ten linked products, and 36 upstream tests.
 Libjpeg-turbo 3.2.0 is the fifth certified closure and the fourth
 post-v0.1.0 large-FOSS rung: 297 project objects, 230 byte-checked members
 across two static libraries, 12 linked products, and 332 upstream tests.
+Zstd 1.5.7 is the sixth certified closure and fifth large-FOSS rung: 81
+project objects, 37 byte-checked archive members, seven linked products, and
+four deterministically bounded upstream tests. Libxml2 2.15.4 is the seventh
+certified closure and sixth large-FOSS rung: 52 project objects, 37
+byte-checked archive members, 13 linked products, and all 22 CTest cases.
 
 Run `scripts/campaign-lint.sh` to validate every installed descriptor and
 expected file plus `ladder.yml`.  Paths may be passed to lint a bounded
@@ -146,9 +151,12 @@ independently from its symmetric-only configuration, 25-suite self-test, 140
 generated suite runners, 57 normal C sample/test programs, and ten standalone
 one-file fuzz programs on the same two native Linux architectures. Libpng
 1.6.59 is the third such large-FOSS rung; libjpeg-turbo 3.2.0 is the fourth,
-and zstd 1.5.7 is the fifth.
-Both run complete static, sole-C closures plus pristine host-oracle builds and
-their upstream test suites on the same native architectures. Curl's
+zstd 1.5.7 is the fifth, and libxml2 2.15.4 is the sixth. These campaigns run
+complete static, sole-C closures plus pristine host-oracle builds and their
+upstream test suites on the same native architectures. Libxml2's official
+release archive omits two CMake test drivers present at its pinned tag; their
+exact contents are committed and hash-verified into both exported trees so all
+22 registered tests execute. Curl's
 network-dependent full suite and larger campaigns
 such as OpenSSL, PostgreSQL, and GCC remain post-v0.1.0; required bars must not
 silently depend on them.

@@ -506,6 +506,62 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Sixth post-v0.1.0 large-FOSS rung. The complete static libxml2 release is
+  # sole-C certified on both native Linux architectures with threads, TLS,
+  # schemas, Schematron, XPath, and the other internal features enabled. All
+  # 22 upstream CTest cases and three xmllint outputs must match a pristine
+  # host build of the identically supplemented exported tree.
+  campaign-libxml2:
+    name: campaign-libxml2 (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: cache the pinned libxml2 archive
+        uses: actions/cache@v5
+        with:
+          path: build/campaigns/dl
+          key: campaign-libxml2-2.15.4-98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821
+      - name: build the compiler and verify the campaign contract
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          scripts/campaign-lint.sh
+          tests/scripts/campaign_contract_test.sh
+      - name: populate the verified cache and run the offline campaign
+        run: |
+          make campaign-libxml2-fetch
+          CGF_CAMPAIGN_OFFLINE=1 make libxml2-expected
+      - name: retain libxml2 campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-foss-libxml2-${{ matrix.arch }}
+          path: |
+            build/campaigns/libxml2/results.txt
+            build/campaigns/libxml2/provenance.txt
+            build/campaigns/libxml2/sole-c/**
+            build/campaigns/libxml2/sole-c-closure.tsv
+            build/campaigns/libxml2/sole-c-report.txt
+            build/campaigns/libxml2/object-closure.tsv
+            build/campaigns/libxml2/link-closure.tsv
+            build/campaigns/libxml2/archive-closure.tsv
+            build/campaigns/libxml2/parity/**
+            build/campaigns/libxml2/logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS

@@ -284,6 +284,65 @@ void test_x64_isel_accepts_more_than_sixty_four_call_arguments(TestCtx *t)
     arena_free_all(&a);
 }
 
+void test_x64_isel_captures_pair_return_before_storing_halves(TestCtx *t)
+{
+    Arena a;
+    EmitFix fx = {0};
+    DiagCtx *dc;
+    DiagSink sink;
+    IrModule *m;
+    IrFunc *f;
+    IrBuilder b;
+    IrOperand hidden;
+    ValueId slot;
+    X64Func *xf;
+    const X64Block *entry;
+    u32 i;
+    bool found = false;
+
+    arena_init(&a);
+    dc = diag_ctx_new(&a);
+    sink.handle = e_sink;
+    sink.user = &fx;
+    diag_set_sink(dc, sink);
+    m = ir_module_new(&a, dc);
+    (void)ir_sym(m, "pair_result");
+    f = ir_func_new(m, "caller", IRT_VOID, NULL, 0);
+    ir_builder_at(&b, m, f, ir_block_new(m, f, "entry"));
+    slot = ir_build_alloca(&b, ir_op_iconst(IRT_I64, 16), 8);
+    hidden = ir_op_value(f, slot);
+    hidden.b = ir_arg_annot(IR_ARG_PAIR_II, 16);
+    (void)ir_build_call(&b, IRT_VOID, FUNCREF_EXTERNAL, 0, &hidden, 1);
+    ir_build_ret(&b, NULL);
+
+    xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+    entry = &xf->blocks[0];
+    for (i = 0; i + 4 < entry->n; i++) {
+        const X64Inst *call = &entry->insts[i];
+        const X64Inst *lo = &entry->insts[i + 1];
+        const X64Inst *hi = &entry->insts[i + 2];
+        const X64Inst *store_lo = &entry->insts[i + 3];
+        const X64Inst *store_hi = &entry->insts[i + 4];
+
+        if (call->op != X64_OP_CALL)
+            continue;
+        found = true;
+        T_ASSERT_EQ_INT(t, lo->op, X64_OP_READREG);
+        T_ASSERT_EQ_INT(t, lo->def_fixed, X64_RAX + 1);
+        T_ASSERT_EQ_INT(t, hi->op, X64_OP_READREG);
+        T_ASSERT_EQ_INT(t, hi->def_fixed, X64_RDX + 1);
+        T_ASSERT_EQ_INT(t, store_lo->op, X64_OP_STORE);
+        T_ASSERT_EQ_INT(t, store_hi->op, X64_OP_STORE);
+        T_ASSERT_EQ_INT(t, store_lo->a.r.v, lo->def.v);
+        T_ASSERT_EQ_INT(t, store_hi->a.r.v, hi->def.v);
+        break;
+    }
+    T_ASSERT(t, found);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    T_ASSERT_EQ_INT(t, fx.errors, 0);
+    arena_free_all(&a);
+}
+
 static X64Func *isel_i64_switch(Arena *a, DiagCtx *dc, const char *name,
                                 const i64 *case_vals, u32 n)
 {

@@ -1318,6 +1318,7 @@ static bool is_builtin_fp_classification(u16 builtin)
     switch (builtin) {
     case SEMA_BUILTIN_ISNAN:
     case SEMA_BUILTIN_ISINF:
+    case SEMA_BUILTIN_ISINF_SIGN:
     case SEMA_BUILTIN_ISFINITE:
     case SEMA_BUILTIN_SIGNBIT:
         return true;

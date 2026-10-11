@@ -9972,9 +9972,78 @@ and green post-publication CI.
   POSIX-shell, workflow-YAML, and whitespace checks are green. The zstd
   program-fixture additions and the x86 `cpuid` repair intentionally advance
   the 5,000-iteration frontend-fuzz corpus digest to `55c224cbc8518ca3`; the
-  2,000-iteration smoke has zero findings. PR #185 is open; native
-  x86-64/ARM64 Linux CI is the remaining publication step. Merge only after
-  every applicable check is green.
+  2,000-iteration smoke has zero findings. Exact tested head
+  `2f137f0aea2821ded6b954a4e45f3d66af4329be` completed standard CI run
+  38170106919 with every applicable job green and only the intentional
+  tag-only skip. Pull-request bootstrap run 38170106913 and exact-head push
+  bootstrap run 38170104069 are green. PR #185 merged green-only as
+  `01269429886e2ae457549018a5f3219ec9687bff`; tested-head and merge trees are
+  byte-identical at `88afc78f54d18c4479d8e119885dfb562c7b75dd`.
+- The active `s56.91-libxml2-sole-c` tranche starts from exact merged PR #185.
+  It pins libxml2 2.15.4 (tag commit
+  `9fac185ccc0b719eb647db902d5c13c3aaa96263`, official GNOME release SHA-256
+  `98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821`)
+  and builds its complete static C library, `xmllint`, `xmlcatalog`, and all
+  eleven compiled test programs at O2. Threads, TLS, Schematron, schemas,
+  XPath, XPointer, Relax NG, reader/writer, push parsing, validation, catalogs,
+  C14N, HTML, and the other internal facilities are enabled; iconv, ICU,
+  zlib, readline, Python, modules, shared libraries, and documentation are
+  disabled so no optional external C library enters the closure.
+
+  The official release archive exposes 22 CTest entries but omits two CMake
+  drivers present at the pinned tag, causing 14 wrapper tests to fail before
+  any libxml2 binary runs. `CAMP-LIBXML2-001` treats this as campaign-integrity
+  debt: the exact tag files are committed as separately SHA-256-pinned
+  fixtures, must be absent from the archive, and are installed byte-identically
+  into both exported trees. With that audited supplement, Cgfried and
+  AppleClang each pass 22/22 tests.
+
+  The first complete native Apple-silicon campaign found no new compiler gap.
+  Libxml2's destructor-attribute probe records the established target boundary:
+  Cgfried deliberately refuses that attribute on Mach-O, where it cannot use
+  ELF `.fini_array`, while AppleClang supplies a platform-specific lowering;
+  both ELF CI lanes require Cgfried and the host compiler to accept the probe.
+  The sole-C verifier accepts all 52 retained C translations, all 37 byte-checked
+  `libxml2.a` members, 28 final-link inputs, and all 13 linked products.
+  Cgfried and the host build produce byte-identical formatted XML, canonical
+  XML, and XPath output. The ten-row expected-results gate passes. Native
+  x86-64 and ARM64 Linux CI remain the publication step; merge only after every
+  applicable check is green.
+
+  The first native Linux CI run then exposed `CAMP-LIBXML2-002` in `xpath.c`:
+  glibc implements `isinf(x)` with GCC's internal
+  `__builtin_isinf_sign(x)`, which was the one floating-classification spelling
+  Cgfried did not implement. Both x86-64 and ARM64 failed at the same hosted
+  header expansion. The repair adds the full three-state GCC contract rather
+  than treating it as a Boolean alias: target-softfloat constant evaluation
+  and single-evaluation runtime lowering return -1 for negative infinity, +1
+  for positive infinity, and zero for finite values and NaNs. Direct semantic,
+  lowering, and executed regressions cover float, double, and every target's
+  `long double`. The intentional builtin/fixture surface change advances the
+  5,000-iteration frontend-fuzz digest to `9d471456735b8b36`; the 2,000-case
+  smoke run has zero findings. Repaired Linux campaign publication is pending.
+  The first repaired CI run (`38173536402`) proved the full campaign on native
+  ARM64 (22/22 tests) but exposed an x86-only runtime issue: `runtest`,
+  `runsuite`, and `testparser` segfaulted after compiling and linking cleanly.
+  The original lowering used two nested select diamonds to assemble the
+  three-state result. It now subtracts the mutually exclusive `(x == -inf)`
+  predicate from `(x == +inf)`, preserving single evaluation and all NaN/
+  finite behavior without injecting control flow into its surrounding x86
+  expression. A second x86 run reproduced the same three crashes and disproved
+  that control-flow hypothesis.
+
+  GDB then isolated `CAMP-LIBXML2-003`: `xmlDictLookupHashed` returns a
+  two-eightbyte `xmlHashedString` in `RAX:RDX`, but parser-scale register
+  pressure made precolor repair emit `rdx = rax` before capturing the original
+  `RDX`. The caller consequently stored the hash into both structure halves
+  and later passed that 32-bit hash as `name.name` to `xmlHashValue`. Pair-call
+  selection now emits both `READREG`s before either store, keeping each result
+  live across both fixed-register captures so allocation cannot select an
+  unread return register as the other result's home. Direct selector and
+  allocator regressions pin that contract. The repaired compiler passes the
+  complete x86-64 Linux campaign locally: 22/22 tests, 52 certified
+  translations, 37 byte-checked archive members, 13 linked products, and all
+  ten expected-result rows. Exact-head Linux CI publication remains pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

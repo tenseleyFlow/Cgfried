@@ -1642,13 +1642,13 @@ void test_lower_builtin_fp_classification_family(TestCtx *t)
         "long double source_l(void); "
         "int cf(void) { return __builtin_isnan(source_f()) + "
         "__builtin_isinf(source_f()) + __builtin_isfinite(source_f()) + "
-        "__builtin_signbit(source_f()); } "
+        "__builtin_isinf_sign(source_f()) + __builtin_signbit(source_f()); } "
         "int cd(void) { return __builtin_isnan(source_d()) + "
         "__builtin_isinf(source_d()) + __builtin_isfinite(source_d()) + "
-        "__builtin_signbit(source_d()); } "
+        "__builtin_isinf_sign(source_d()) + __builtin_signbit(source_d()); } "
         "int cl(void) { return __builtin_isnan(source_l()) + "
         "__builtin_isinf(source_l()) + __builtin_isfinite(source_l()) + "
-        "__builtin_signbit(source_l()); }\n";
+        "__builtin_isinf_sign(source_l()) + __builtin_signbit(source_l()); }\n";
     static const struct {
         TargetKind target;
         int f64_ops;
@@ -1672,14 +1672,14 @@ void test_lower_builtin_fp_classification_family(TestCtx *t)
                                           cases[i].target));
         T_ASSERT_EQ_INT(t, f.errors, 0);
         T_ASSERT(t, ir_verify(f.dc, f.m));
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @source_f()"), 4);
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @source_d()"), 4);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f32 @source_f()"), 5);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "call f64 @source_d()"), 5);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f32"), 2);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f64"), cases[i].f64_ops);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f80"), cases[i].f80_ops);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "fabs f128"), cases[i].f128_ops);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp uno f32"), 1);
-        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp oeq f32"), 1);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp oeq f32"), 3);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "fcmp one f32"), 1);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "bitcast f32"), 1);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "bitcast f64"),
@@ -1688,6 +1688,8 @@ void test_lower_builtin_fp_classification_family(TestCtx *t)
                         cases[i].xf_helpers);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "call i32 @__cgf_signbittf("),
                         cases[i].tf_helpers);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "isub i32"), 3);
+        T_ASSERT_EQ_INT(t, count_of(txt(&f), "select i32"), 0);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_is"), 0);
         T_ASSERT_EQ_INT(t, count_of(txt(&f), "@__builtin_signbit"), 0);
         round = ir_parse_module(&f.arena, f.dc, txt(&f), "<fp-classification>");

@@ -2528,6 +2528,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 bool sse1 = kind == IR_ARG_PAIR_IS || kind == IR_ARG_PAIR_SS;
                 u32 psz = ir_arg_size(pair_ann);
                 X64VReg pv = to_vreg(is, pairp);
+                X64VReg part[2];
+                bool part_sse[2];
+                u32 npart = 0;
                 u8 gp_next = X64_RAX;
 
                 for (k = 0; k < 2 && 8 * k < psz; k++) {
@@ -2542,12 +2545,20 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                         x->def_fixed = (u8)(gp_next + 1);
                         gp_next = X64_RDX;
                     }
-                    if (sse) {
+                    part[npart] = r;
+                    part_sse[npart++] = sse;
+                }
+                /* Keep the complete ABI register-pair capture contiguous.
+                 * Both values then remain live across both fixed reads, so
+                 * allocation cannot give the first half the unread second
+                 * register as its home. */
+                for (k = 0; k < npart; k++) {
+                    if (part_sse[k]) {
                         x = emit(is, X64_OP_FSTORE, X64_Q);
-                        x->a = ovreg(r);
+                        x->a = ovreg(part[k]);
                     } else {
                         x = emit(is, X64_OP_STORE, X64_Q);
-                        x->a = ovreg(r);
+                        x->a = ovreg(part[k]);
                     }
                     x->b.kind = X64O_MEM;
                     x->b.mem.base = pv;

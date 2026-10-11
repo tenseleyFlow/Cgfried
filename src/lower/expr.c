@@ -4854,13 +4854,37 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     }
     case SEMA_BUILTIN_ISNAN:
     case SEMA_BUILTIN_ISINF:
+    case SEMA_BUILTIN_ISINF_SIGN:
     case SEMA_BUILTIN_ISFINITE: {
         IrOperand value = lower_rvalue(lo, e->args[0]);
         IrOperand compared = value;
         IrFcmp predicate = FCMP_UNO;
         ValueId absolute;
+        ValueId classified;
 
-        /* isnan(x) is unordered(x,x). For the other two predicates, compare
+        if (e->op == SEMA_BUILTIN_ISINF_SIGN) {
+            IrOperand positive =
+                lower_special_float_constant(lo, e->args[0]->sem_type, SF_INF);
+            ValueId negated =
+                ir_build1(&lo->b, IR_FNEG, (IrType)value.type, positive);
+            ValueId is_positive =
+                ir_build_fcmp(&lo->b, FCMP_OEQ, value, positive);
+            ValueId is_negative = ir_build_fcmp(&lo->b, FCMP_OEQ, value,
+                                                ir_op_value(lo->fn, negated));
+
+            /* The difference of the two mutually exclusive predicates is
+             * exactly GCC's three-state result: +1 for positive infinity,
+             * -1 for negative infinity, and zero for finite values and NaNs.
+             * This branch-free form also composes safely inside surrounding
+             * x86 expressions; the operand remains a single SSA evaluation. */
+            *out = ir_op_value(lo->fn,
+                               ir_build2(&lo->b, IR_ISUB, IRT_I32,
+                                         ir_op_value(lo->fn, is_positive),
+                                         ir_op_value(lo->fn, is_negative)));
+            return true;
+        }
+
+        /* isnan(x) is unordered(x,x). For the other predicates, compare
          * abs(x) with target-format infinity: ordered equality recognizes
          * either infinity sign, while ordered inequality recognizes exactly
          * the finite values and stays false for NaNs. The SSA operand is
@@ -4872,8 +4896,8 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
             value =
                 lower_special_float_constant(lo, e->args[0]->sem_type, SF_INF);
         }
-        *out = ir_op_value(lo->fn,
-                           ir_build_fcmp(&lo->b, predicate, compared, value));
+        classified = ir_build_fcmp(&lo->b, predicate, compared, value);
+        *out = ir_op_value(lo->fn, classified);
         return true;
     }
     case SEMA_BUILTIN_SIGNBIT:

@@ -807,6 +807,75 @@ void test_x64_twoaddr_unary(TestCtx *t)
 
 #include "x64sim.h"
 
+void test_x64_regalloc_preserves_contiguous_fixed_register_captures(TestCtx *t)
+{
+    static const u64 rax_value = UINT64_C(0x1111111111111111);
+    static const u64 rdx_value = UINT64_C(0x2222222222222222);
+    Arena a;
+    X64Func *f;
+    X64Inst *in;
+    X64VReg held_rax, held_rdx, lo, hi, held_sum, pair_xor, result;
+    Sim s;
+    u8 *mem = cgf_xmalloc(SIM_MEM);
+
+    arena_init(&a);
+    f = mkf(&a, 1);
+
+    /* Keep older RAX/RDX precolors live across a new RAX:RDX capture.  Both
+     * READREG defs must consequently be localized by precolor repair.  With
+     * the reads adjacent, neither result may be homed in the other unread
+     * physical register. */
+    held_rax = x64_newv(f, X64RC_GP);
+    in = put(f, 0, X64_OP_MOV, X64_Q);
+    in->def = held_rax;
+    in->def_fixed = X64_RAX + 1;
+    in->a = oi((i64)rax_value);
+    held_rdx = x64_newv(f, X64RC_GP);
+    in = put(f, 0, X64_OP_MOV, X64_Q);
+    in->def = held_rdx;
+    in->def_fixed = X64_RDX + 1;
+    in->a = oi((i64)rdx_value);
+
+    lo = x64_newv(f, X64RC_GP);
+    in = put(f, 0, X64_OP_READREG, X64_Q);
+    in->def = lo;
+    in->def_fixed = X64_RAX + 1;
+    hi = x64_newv(f, X64RC_GP);
+    in = put(f, 0, X64_OP_READREG, X64_Q);
+    in->def = hi;
+    in->def_fixed = X64_RDX + 1;
+
+    held_sum = x64_newv(f, X64RC_GP);
+    in = put(f, 0, X64_OP_ADD, X64_Q);
+    in->flags = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
+    in->def = held_sum;
+    in->a = ov(held_rax.v);
+    in->b = ov(held_rdx.v);
+    pair_xor = x64_newv(f, X64RC_GP);
+    in = put(f, 0, X64_OP_XOR, X64_Q);
+    in->flags = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
+    in->def = pair_xor;
+    in->a = ov(lo.v);
+    in->b = ov(hi.v);
+    result = x64_newv(f, X64RC_GP);
+    in = put(f, 0, X64_OP_ADD, X64_Q);
+    in->flags = X64IF_TWO_ADDR | X64IF_DEFS_FLAGS;
+    in->def = result;
+    in->def_fixed = X64_RAX + 1;
+    in->a = ov(held_sum.v);
+    in->b = ov(pair_xor.v);
+    put(f, 0, X64_OP_RET, X64_Q);
+
+    x64_regalloc(f);
+    sim_init(&s, mem, f);
+    T_ASSERT(t, sim_run(t, f, &s));
+    T_ASSERT(t, s.val[X64_RAX + 1] ==
+                    rax_value + rdx_value + (rax_value ^ rdx_value));
+
+    free(mem);
+    arena_free_all(&a);
+}
+
 /* splitmix64: the repo's fixed-seed PRNG shape (no libc rand). */
 static u64 sm64(u64 *st)
 {
