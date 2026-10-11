@@ -9905,9 +9905,10 @@ and green post-publication CI.
   `eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3`)
   and builds the complete static portable-C configuration with legacy level 5
   and multithreading enabled. Assembly/SIMD, shared libraries, contrib, and
-  optional external-codec integrations are off. Separate pristine Cgfried and
-  host trees each build 81 project objects, the 37-member `libzstd.a`, the two
-  CLI programs, and five test programs. Both lanes run all four CTest entries;
+  optional external-codec integrations are off. Separate Cgfried and host
+  trees, with an identical build-graph-only portable-C patch, each build 81
+  project objects, the 37-member `libzstd.a`, the two CLI programs, and five
+  test programs. Both lanes run all four CTest entries;
   `fuzzer` and `zstreamtest` use fixed 10,000-case seeds, fullbench uses one
   deterministic iteration, and datagen/compression/cross-decompression
   artifacts must be byte-identical. The normalized exact closure contains 81
@@ -9950,7 +9951,16 @@ and green post-publication CI.
   convergence no longer depends on function size. The new executable CPUID
   fixture also advances the x86 ISA inventory ratchet from 132 to 133 sources;
   it uses system gas explicitly because bundled `afs-as` does not yet encode
-  that mnemonic.
+  that mnemonic, while the ISA gate now recognizes architecturally mandatory
+  `cpuid` as part of the closed x86-64 baseline.
+
+  The first exact x86 CI build also exposed an integrity asymmetry in the
+  campaign rather than a compiler failure: zstd 1.5.7 has no CMake-level ASM
+  opt-out, and its successful GCC no-exec-stack probes admitted
+  `huf_decompress_amd64.S` only to the host lane. Both exported trees now take
+  the same exact, version-pinned CMake patch, whose hash and absence of retained
+  assembly objects are gated, preserving the promised 37-member C-only archive
+  on x86-64 as well as ARM64 (`CAMP-ZSTD-005`).
 
   The complete native ARM64 macOS campaign is green: the Cgfried-built suite
   passes in 402 seconds, the host suite in about 150 seconds, parity is exact,

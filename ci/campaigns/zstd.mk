@@ -1,6 +1,6 @@
 # Fifth post-v0.1.0 large-FOSS campaign: checksum-pinned zstd is built as a
 # complete static portable-C closure and runs its upstream CTest suite against
-# a separate pristine host-compiler build.
+# a separate host-compiler build of the identically patched exported tree.
 
 include ci/campaigns/common.mk
 

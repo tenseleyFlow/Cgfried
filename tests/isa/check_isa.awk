@@ -1,7 +1,7 @@
 BEGIN {
     # Closed audited backend baseline. The spellings are GNU objdump output,
     # not assembler source aliases. Unknown instructions fail by default.
-    split("add addb addw addl addq and andb andw andl andq call cltd cmp cmpb cmpw cmpl cmpq cqto div divb divw divl divq idiv idivb idivw idivl idivq imul imulb imulw imull imulq ja jae jb jbe je jg jge jl jle jmp jne jnp jp lea leal leaq mov movb movw movl movq movabs movsbl movsbq movsbw movslq movswl movswq movzbl movzbq movzbw movzwl movzwq neg negb negw negl negq nop nopl nopw not notb notw notl notq or orb orw orl orq pop push ret sar sarb sarw sarl sarq seta setae setb setbe sete setg setge setl setle setne setnp setp shl shlb shlw shll shlq shr shrb shrw shrl shrq sub subb subw subl subq test testb testw testl testq ud2 xchg xor xorb xorw xorl xorq", a)
+    split("add addb addw addl addq and andb andw andl andq call cltd cmp cmpb cmpw cmpl cmpq cpuid cqto div divb divw divl divq idiv idivb idivw idivl idivq imul imulb imulw imull imulq ja jae jb jbe je jg jge jl jle jmp jne jnp jp lea leal leaq mov movb movw movl movq movabs movsbl movsbq movsbw movslq movswl movswq movzbl movzbq movzbw movzwl movzwq neg negb negw negl negq nop nopl nopw not notb notw notl notq or orb orw orl orq pop push ret sar sarb sarw sarl sarq seta setae setb setbe sete setg setge setl setle setne setnp setp shl shlb shlw shll shlq shr shrb shrw shrl shrq sub subb subw subl subq test testb testw testl testq ud2 xchg xor xorb xorw xorl xorq", a)
     for (i in a) baseline[a[i]] = 1
 
     # Scalar and packed SSE/SSE2 emitted by the backend, plus PEXTRW's

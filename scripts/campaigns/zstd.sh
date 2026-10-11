@@ -7,6 +7,7 @@ export LC_ALL
 ZSTD_VERSION=1.5.7
 ZSTD_COMMIT=f8745da6ff1ad1e7bab384bd1f9d742439278e99
 ZSTD_SHA256=eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
+ZSTD_PORTABLE_PATCH_SHA256=9657ed798b9967f757689b4daf8533d78e010d9bc7175687c5fa9484c0952827
 OBJECT_CLOSURE_SHA256=ddba231965267408d1166348687f6f920a55270e95e245c656c29c33ace736fe
 LINK_CLOSURE_SHA256=ae3a53e066772312b456c6236759289771aad19a0d638570e6af8489391245b9
 ARCHIVE_CLOSURE_SHA256=1618bc40ef98e87063e1afc01622a44decf7d5f7e492da236648a14740b77880
@@ -27,12 +28,17 @@ cgf=${CGF_CAMPAIGN_ZSTD_CGF:-$root/build/cgfried}
 hostcc=${CGF_CAMPAIGN_ZSTD_HOSTCC:-gcc}
 sole=${CGF_CAMPAIGN_ZSTD_SOLE_C:-$root/scripts/campaigns/sole-c.sh}
 cc_wrapper=${CGF_CAMPAIGN_ZSTD_CC_WRAPPER:-$root/scripts/campaigns/zstd-cc.sh}
+portable_patch=$root/ci/campaigns/patches/zstd-1.5.7-portable-c.patch
 jobs=${CGF_CAMPAIGN_JOBS:-}
 portable_flags='-std=gnu17 -DZSTD_DISABLE_ASM'
 
 [ -x "$cgf" ] || fail "Cgfried compiler is missing or not executable: $cgf"
 [ -x "$sole" ] || fail "sole-C wrapper is missing or not executable: $sole"
 [ -x "$cc_wrapper" ] || fail "compiler adapter is missing or not executable: $cc_wrapper"
+[ -f "$portable_patch" ] || fail "portable-C patch is missing: $portable_patch"
+patch_got=$(sha256sum "$portable_patch" | awk '{print $1}')
+[ "$patch_got" = "$ZSTD_PORTABLE_PATCH_SHA256" ] ||
+    fail "portable-C patch checksum mismatch: expected $ZSTD_PORTABLE_PATCH_SHA256, got $patch_got"
 [ -f "$archive" ] || fail "verified source archive is missing: $archive"
 got=$(sha256sum "$archive" | awk '{print $1}')
 [ "$got" = "$ZSTD_SHA256" ] ||
@@ -58,7 +64,7 @@ if [ -z "$jobs" ]; then
 fi
 case $jobs in '' | *[!0-9]* | 0) fail "CGF_CAMPAIGN_JOBS must be positive: $jobs" ;; esac
 
-for tool in cmake ctest ar tar sha256sum cmp; do
+for tool in cmake ctest ar tar sha256sum cmp patch; do
     command -v "$tool" >/dev/null 2>&1 || fail "required tool is unavailable: $tool"
 done
 command -v "$hostcc" >/dev/null 2>&1 || fail "host compiler is unavailable: $hostcc"
@@ -162,6 +168,18 @@ extract_tree() {
     mkdir -p "$destination"
     tar --no-same-owner --no-same-permissions -xzf "$archive" \
         -C "$destination" --strip-components=1
+}
+
+apply_portable_patch() {
+    destination=$1
+    patch -d "$destination" -p1 -F 0 <"$portable_patch" >/dev/null ||
+        fail "portable-C patch does not apply exactly to pinned zstd $ZSTD_VERSION"
+    cmake_file=$destination/build/cmake/lib/CMakeLists.txt
+    [ "$(grep -Fxc 'add_compile_options(-DZSTD_DISABLE_ASM)' "$cmake_file")" -eq 1 ] ||
+        fail "portable-C patch did not leave exactly one assembly-disable directive"
+    if grep -F 'huf_decompress_amd64.S' "$cmake_file" >/dev/null; then
+        fail "portable-C patch left the x86 assembly source in CMake's source graph"
+    fi
 }
 
 configure_tree() {
@@ -274,6 +292,8 @@ configure_stage() {
     audit_archive
     extract_tree "$tree"
     extract_tree "$host_tree"
+    apply_portable_patch "$tree"
+    apply_portable_patch "$host_tree"
     grep -Fqx '#define ZSTD_VERSION_MAJOR    1' "$tree/lib/zstd.h" ||
         fail "source tree has the wrong zstd major version"
     grep -Fqx '#define ZSTD_VERSION_MINOR    5' "$tree/lib/zstd.h" ||
@@ -291,6 +311,7 @@ configure_stage() {
         printf 'optimization=O2\n'
         printf 'linkage=static-only\n'
         printf 'asm=off\n'
+        printf 'portable_patch_sha256=%s\n' "$ZSTD_PORTABLE_PATCH_SHA256"
         printf 'legacy=5\n'
         printf 'multithread=on\n'
         printf 'sdk_target_selector=%s\n' "$sdk_selector"
@@ -330,6 +351,8 @@ verify_products() {
     [ -f "$destination/lib/libzstd.a" ] || fail "$label omitted libzstd.a"
     [ "$(archive_members "$destination/lib/libzstd.a")" -eq 37 ] ||
         fail "$label libzstd.a does not contain exactly 37 members"
+    [ "$(find "$destination" -type f \( -name '*.S.o' -o -name '*.s.o' \) | wc -l | tr -d ' ')" -eq 0 ] ||
+        fail "$label retained an assembly object in the portable-C build"
     for program in programs/zstd programs/zstd-frugal tests/datagen \
         tests/fullbench tests/fuzzer tests/paramgrill tests/zstreamtest; do
         [ -x "$destination/$program" ] || fail "$label omitted executable $program"
