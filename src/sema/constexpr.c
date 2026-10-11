@@ -2784,7 +2784,7 @@ static bool fill_expr_initializes_whole(Type *target, const AstNode *init)
     if (!target || !init)
         return false;
     if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
-        return true;
+        return type_string_initializer_compatible(target, init->sem_type);
     return init->sem_type && type_compatible(target, init->sem_type);
 }
 
@@ -2980,7 +2980,8 @@ static void fill_array(InitCtx *c, Type *t, AstNode *init, u64 off)
 {
     if (!t->base)
         return;
-    if (init->kind == AST_EXPR_STRING) {
+    if (init->kind == AST_EXPR_STRING &&
+        type_string_initializer_compatible(t, init->sem_type)) {
         fill_string(c, t, init, off);
         return;
     }

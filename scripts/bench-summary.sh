@@ -148,9 +148,14 @@ awk -F '	' -v runner_class="$runner_class" '
         return sprintf("%+.1f%%", d)
     }
     function'" "'emit(rank, key, base, cur, threshold, pass,    verdict) {
-        verdict = threshold == "report-only" ? "REPORT (report-only)" :
-                  threshold ~ /^n\/a/ ? "N/A (" threshold ")" :
-                  (pass ? "PASS (" threshold ")" : "FAIL (" threshold ")")
+        if (threshold == "report-only")
+            verdict = "REPORT (report-only)"
+        else if (threshold ~ /^n\/a/)
+            verdict = "N/A (" threshold ")"
+        else if (pass)
+            verdict = "PASS (" threshold ")"
+        else
+            verdict = "FAIL (" threshold ")"
         if (!pass && threshold != "report-only" && threshold !~ /^n\/a/)
             gate_failed = 1
         printf "%03d\t%s\t| %s | %s | %s | %s | %s |\n", \

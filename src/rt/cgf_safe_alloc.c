@@ -54,13 +54,25 @@ _Static_assert(sizeof(uintptr_t) <= sizeof(uint64_t),
 _Static_assert(sizeof(CgfSafeHdr) % _Alignof(max_align_t) == 0,
                "cgf-safe header must preserve malloc alignment");
 
-/* These names are produced by GNU ld's --wrap option. */
+/* ELF uses GNU ld's --wrap option. Safe translation units also name the
+ * __wrap entry points directly so Mach-O needs no linker redirection. The
+ * runtime itself is built by the host compiler, so its ordinary libc calls
+ * are not retargeted and are the non-recursive path to the allocator. */
+#if defined(__APPLE__)
+#define __real_malloc malloc
+#define __real_calloc calloc
+#define __real_realloc realloc
+#define __real_free free
+#define __real_aligned_alloc aligned_alloc
+#define __real_posix_memalign posix_memalign
+#else
 extern void *__real_malloc(size_t);
 extern void *__real_calloc(size_t, size_t);
 extern void *__real_realloc(void *, size_t);
 extern void __real_free(void *);
 extern void *__real_aligned_alloc(size_t, size_t);
 extern int __real_posix_memalign(void **, size_t, size_t);
+#endif
 
 /* Keep the runtime self-hostable: Cgfried supports C11 _Atomic scalar
  * accesses and read-modify-write expressions, but intentionally does not
@@ -820,3 +832,12 @@ int __wrap_posix_memalign(void **memptr, size_t alignment, size_t size)
     *memptr = result;
     return 0;
 }
+
+#if defined(__APPLE__)
+#undef __real_malloc
+#undef __real_calloc
+#undef __real_realloc
+#undef __real_free
+#undef __real_aligned_alloc
+#undef __real_posix_memalign
+#endif

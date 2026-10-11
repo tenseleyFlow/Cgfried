@@ -725,6 +725,30 @@ bool type_array_initializer_compatible(const Type *target, const Type *source)
     return type_compatible(&target_unqual, &source_unqual);
 }
 
+bool type_string_initializer_compatible(const Type *target,
+                                        const Type *source)
+{
+    Type target_elem;
+    Type source_elem;
+
+    if (!target || !source || target->kind != TY_ARRAY ||
+        source->kind != TY_ARRAY || !target->base || !source->base)
+        return false;
+    target_elem = *target->base;
+    source_elem = *source->base;
+    target_elem.quals = 0;
+    source_elem.quals = 0;
+
+    /* 6.7.9p14 calls out arrays of character type, which includes the three
+     * distinct plain/signed/unsigned char types.  The literal itself has
+     * plain-char elements; accepting only exact type compatibility here
+     * would incorrectly reject the other two standard destinations. */
+    if (source_elem.kind == TY_CHAR)
+        return target_elem.kind == TY_CHAR || target_elem.kind == TY_SCHAR ||
+               target_elem.kind == TY_UCHAR;
+    return type_compatible(&target_elem, &source_elem);
+}
+
 Type *type_composite(Arena *ar, Type *a, Type *b)
 {
     Type *c;

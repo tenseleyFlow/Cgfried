@@ -6,6 +6,7 @@ export LC_ALL
 
 repo=$(CDPATH='' cd "$(dirname "$0")/../.." && pwd)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-bootstrap-meta.XXXXXX")
+true_cmd=$tmp/true
 cross_source=build/s58-bootstrap-cross-native.$$
 cross_outputs=build/boot/s58-bootstrap-cross-meta.$$
 repro_outputs=build/boot/s58-bootstrap-repro-meta.$$
@@ -28,6 +29,9 @@ trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+printf '%s\n' '#!/bin/sh' 'exit 0' >"$true_cmd"
+chmod +x "$true_cmd"
 
 fail() {
     echo "bootstrap meta FAIL: $*" >&2
@@ -426,7 +430,7 @@ test_bootstrap_refuses_unowned_nonempty_work_directory() {
     mkdir -p "$unsafe_work"
     printf '%s\n' 'must survive' >"$unsafe_work/sentinel"
     expect_status 2 "$tmp/unowned-work.out" env \
-        CGF_BOOTSTRAP_WORK="$unsafe_work" HOSTCC=/bin/true \
+        CGF_BOOTSTRAP_WORK="$unsafe_work" HOSTCC="$true_cmd" \
         sh "$repo/scripts/bootstrap.sh" O0
     grep -Fx 'must survive' "$unsafe_work/sentinel" >/dev/null ||
         fail "bootstrap modified an unowned work directory"
@@ -657,10 +661,10 @@ test_fleet_timing_wrapper() {
         FIXTURE_SYSTEM=Linux FIXTURE_MACHINE=x86_64 \
         CGF_BOOTSTRAP_TEST_MAKE_LOG=$make_log \
         CGF_FLEET_ROOT=$fleet_root CGF_FLEET_HOST=hasu \
-        CGF_FLEET_STAMP=$fleet_stamp CGF_FLEET_GIT_CMD=/bin/true \
+        CGF_FLEET_STAMP=$fleet_stamp CGF_FLEET_GIT_CMD=$true_cmd \
         CGF_FLEET_MAKE_CMD=$repo/tests/bootstrap/helpers/fake-bootstrap-make.sh \
         CGF_FLEET_UNAME_CMD=$repo/tests/scripts/gates/fixtures/fleet/fake-uname.sh \
-        CGF_FLEET_CC=/bin/true \
+        CGF_FLEET_CC=$true_cmd \
         CGF_FLEET_BOOTSTRAP_GATE=$repo/scripts/bootstrap-time-gate.sh \
         CGF_FLEET_BENCH_CONTROL=$repo/scripts/bench-control.sh \
             "$@" "$repo/scripts/fleet-bootstrap.sh"
@@ -801,7 +805,7 @@ test_full_bootstrap_gate_rejects_seeded_fault() {
 
     expect_status 1 "$output" env \
         MAKE="$repo/tests/bootstrap/helpers/fake-fixed-point-make.sh" \
-        HOSTCC=/bin/true CGF_BOOTSTRAP_JOBS=8 \
+        HOSTCC="$true_cmd" CGF_BOOTSTRAP_JOBS=8 \
         CGF_BOOTSTRAP_HOST_CLASS=bootstrap-meta \
         CGF_BOOTSTRAP_WORK="$work" \
         sh "$repo/scripts/bootstrap.sh" O0

@@ -38,6 +38,24 @@ expect_exit()
     fi
 }
 
+has_safe_marker()
+{
+    object=$1
+    if command -v readelf >/dev/null 2>&1 &&
+       readelf -S "$object" 2>/dev/null | grep -Fq '.note.cgf.safe'; then
+        return 0
+    fi
+    if command -v otool >/dev/null 2>&1 &&
+       otool -l "$object" 2>/dev/null | awk '
+           $1 == "sectname" { safe = $2 == "__cgf_safe" }
+           safe && $1 == "segname" && $2 == "__DATA" { found = 1 }
+           END { exit !found }
+       '; then
+        return 0
+    fi
+    return 1
+}
+
 # Composition is order-independent and visible in the dry-run contract.
 "$CGF" -### -fsafe -c "$ROOT/main.c" -o "$WORK/dry.o" \
     >"$WORK/dry.out" 2>"$WORK/dry.err"
@@ -119,10 +137,10 @@ grep -Fq 'error: dereference of a pointer proven to be null' "$WORK/cmd.err"
 "$CGF" -fsafe -c "$ROOT/helper.c" -o "$WORK/helper.safe.o"
 "$CGF" -c "$ROOT/helper.c" -o "$WORK/helper.unsafe.o"
 
-readelf -S "$WORK/main.safe.o" | grep -Fq '.note.cgf.safe'
-readelf -S "$WORK/helper.safe.o" | grep -Fq '.note.cgf.safe'
-if readelf -S "$WORK/helper.unsafe.o" | grep -Fq '.note.cgf.safe'; then
-    echo 'safe_mode: unsafe object unexpectedly carries the safe note' >&2
+has_safe_marker "$WORK/main.safe.o"
+has_safe_marker "$WORK/helper.safe.o"
+if has_safe_marker "$WORK/helper.unsafe.o"; then
+    echo 'safe_mode: unsafe object unexpectedly carries the safe marker' >&2
     exit 1
 fi
 
@@ -220,4 +238,4 @@ expect_exit 1 sh scripts/check_safe_allowlist.sh "$WORK/grown.txt" \
     ci/safe-mode-allowlist.baseline.txt
 grep -Fq 'safe allowlist grew with unreviewed key' "$WORK/cmd.err"
 
-echo 'safe_mode: composition, uninitialized promotion, ELF notes, raw-link closure, mixed-link policy, docs, and shrink-only ratchet green'
+echo 'safe_mode: composition, uninitialized promotion, object markers, raw-link closure, mixed-link policy, docs, and shrink-only ratchet green'

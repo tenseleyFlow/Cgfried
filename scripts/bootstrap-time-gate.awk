@@ -66,8 +66,10 @@ function exceeds_noise_floor(base_value, result_value, percent,
                              base_mad, result_mad,
                              nominal, noise, allowance) {
     nominal = (base_value + 0) * percent / 100
-    noise = 4 * ((base_mad + 0) > (result_mad + 0) ?
-                 (base_mad + 0) : (result_mad + 0))
+    noise = base_mad + 0
+    if ((result_mad + 0) > noise)
+        noise = result_mad + 0
+    noise *= 4
     allowance = nominal > noise ? nominal : noise
     return (result_value + 0) > (base_value + 0) + allowance
 }

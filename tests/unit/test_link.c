@@ -8,11 +8,22 @@
 #include "unit.h"
 #include "util/arena.h"
 
-/* Sprint 27 link-line units: the canonical argv sequence from
- * toolchain_build_link_argv (live crt probe — any host that can link
- * has one; the existing crt unit already pins that), and the injectable
- * probe core's precedence ladder with temp dirs in the CWD (never under
- * build/ — the F-S26-RSPCWD lesson). */
+/* Sprint 27 link-line units: the canonical ELF argv sequence from
+ * toolchain_build_link_argv with an explicit Linux target and private crt
+ * fixture, plus the injectable probe core's precedence ladder with temp dirs
+ * in the CWD (never under build/ — the F-S26-RSPCWD lesson). */
+
+#define LINK_CRT_DIR "t_link_elf_crt"
+
+static void mk_crt_dir(const char *dir, bool with_crt1);
+static void rm_crt_dir(const char *dir);
+
+static TargetSpec linux_x86_target(void)
+{
+    TargetSpec target = {CGF_TARGET_X86_64_LINUX_GNU};
+
+    return target;
+}
 
 static int argv_index(const VecStr *v, const char *needle)
 {
@@ -67,6 +78,12 @@ static void fill_args(DriverArgs *a)
     push_link(a, LINK_RAW, "--trace");
 }
 
+static void fill_linux_args(DriverArgs *a)
+{
+    fill_args(a);
+    VecStr_push(&a->prefix_dirs, LINK_CRT_DIR);
+}
+
 void test_link_argv_default_sequence(TestCtx *t)
 {
     Arena ar;
@@ -74,9 +91,11 @@ void test_link_argv_default_sequence(TestCtx *t)
     VecStr v = {0};
     int idl, io, i1, ii, ix, im, itr, isg, ilc, ieg, in_;
 
+    mk_crt_dir(LINK_CRT_DIR, true);
     arena_init(&ar);
-    fill_args(&a);
-    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    fill_linux_args(&a);
+    T_ASSERT(t,
+             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     /* Canonical order: -dynamic-linker BEFORE -o; crt1/crti before the
      * stream; the stream in argv order; -lc after it; crtn last. */
     idl = argv_index(&v, "-dynamic-linker");
@@ -102,6 +121,7 @@ void test_link_argv_default_sequence(TestCtx *t)
     VecStr_free(&v);
     args_free(&a);
     arena_free_all(&ar);
+    rm_crt_dir(LINK_CRT_DIR);
 }
 
 /* Mach-O returns before the ELF tail below, so keep its exec contract pinned
@@ -134,10 +154,12 @@ void test_link_argv_static_grouping(TestCtx *t)
     VecStr v = {0};
     int isg, ilc, ieg;
 
+    mk_crt_dir(LINK_CRT_DIR, true);
     arena_init(&ar);
-    fill_args(&a);
+    fill_linux_args(&a);
     a.static_link = true;
-    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    T_ASSERT(t,
+             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     T_ASSERT(t, argv_index(&v, "-static") == 1);
     T_ASSERT(t, argv_index(&v, "-dynamic-linker") < 0);
     isg = argv_index(&v, "--start-group");
@@ -148,6 +170,7 @@ void test_link_argv_static_grouping(TestCtx *t)
     VecStr_free(&v);
     args_free(&a);
     arena_free_all(&ar);
+    rm_crt_dir(LINK_CRT_DIR);
 }
 
 void test_link_argv_atomic16_dependency(TestCtx *t)
@@ -157,24 +180,31 @@ void test_link_argv_atomic16_dependency(TestCtx *t)
     VecStr v = {0};
     int ilg, isg, ila, ilc, ieg;
 
+    mk_crt_dir(LINK_CRT_DIR, true);
     arena_init(&ar);
-    fill_args(&a);
+    fill_linux_args(&a);
     a.needs_libatomic = true;
-    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    T_ASSERT(t,
+             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     ilg = argv_index_prefix(&v, "-L/usr/lib/gcc/");
     isg = argv_index(&v, "--start-group");
     ila = argv_index(&v, "-latomic");
     ilc = argv_index(&v, "-lc");
     ieg = argv_index(&v, "--end-group");
-    T_ASSERT(t, ilg > 0 && isg > ilg && ila > isg && ilc > ila && ieg > ilc);
+    /* Linux hosts with GCC add its private runtime -L; non-Linux hosts do
+     * not have that directory, but the target-required atomic group is the
+     * same either way. */
+    T_ASSERT(t, ilg < 0 || isg > ilg);
+    T_ASSERT(t, isg > 0 && ila > isg && ilc > ila && ieg > ilc);
     VecStr_free(&v);
     args_free(&a);
 
-    fill_args(&a);
+    fill_linux_args(&a);
     memset(&v, 0, sizeof(v));
     a.needs_libatomic = true;
     a.static_link = true;
-    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    T_ASSERT(t,
+             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     isg = argv_index(&v, "--start-group");
     ila = argv_index(&v, "-latomic");
     ilc = argv_index(&v, "-lc");
@@ -183,6 +213,7 @@ void test_link_argv_atomic16_dependency(TestCtx *t)
     VecStr_free(&v);
     args_free(&a);
     arena_free_all(&ar);
+    rm_crt_dir(LINK_CRT_DIR);
 }
 
 void test_link_argv_cgf_safe_wrap_family(TestCtx *t)
@@ -198,10 +229,12 @@ void test_link_argv_cgf_safe_wrap_family(TestCtx *t)
     int previous;
     size_t i;
 
+    mk_crt_dir(LINK_CRT_DIR, true);
     arena_init(&ar);
-    fill_args(&a);
+    fill_linux_args(&a);
     a.fcgf_safe = true;
-    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    T_ASSERT(t,
+             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     previous = argv_index(&v, "--eh-frame-hdr");
     for (i = 0; i < CGF_ARRAY_LEN(wraps); i++) {
         int at = argv_index(&v, wraps[i]);
@@ -213,13 +246,15 @@ void test_link_argv_cgf_safe_wrap_family(TestCtx *t)
     VecStr_free(&v);
     args_free(&a);
 
-    fill_args(&a);
+    fill_linux_args(&a);
     memset(&v, 0, sizeof(v));
-    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    T_ASSERT(t,
+             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     T_ASSERT(t, argv_index(&v, "--wrap=malloc") < 0);
     VecStr_free(&v);
     args_free(&a);
     arena_free_all(&ar);
+    rm_crt_dir(LINK_CRT_DIR);
 }
 
 /* The subtraction table: user -l flags ALWAYS survive. */
@@ -229,12 +264,14 @@ void test_link_argv_subtraction(TestCtx *t)
     DriverArgs a;
     VecStr v;
 
+    mk_crt_dir(LINK_CRT_DIR, true);
     arena_init(&ar);
 
-    fill_args(&a);
+    fill_linux_args(&a);
     a.nostartfiles = true;
     memset(&v, 0, sizeof(v));
-    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    T_ASSERT(t,
+             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     T_ASSERT(t, argv_index_suffix(&v, "/crt1.o") < 0);
     T_ASSERT(t, argv_index_suffix(&v, "/crtn.o") < 0);
     T_ASSERT(t, argv_index(&v, "-lc") > 0);
@@ -242,11 +279,12 @@ void test_link_argv_subtraction(TestCtx *t)
     VecStr_free(&v);
     args_free(&a);
 
-    fill_args(&a);
+    fill_linux_args(&a);
     a.nodefaultlibs = true;
     a.fcgf_safe = true;
     memset(&v, 0, sizeof(v));
-    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    T_ASSERT(t,
+             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     T_ASSERT(t, argv_index_suffix(&v, "/crt1.o") > 0);
     T_ASSERT(t, argv_index_suffix(&v, "/crtn.o") > 0);
     T_ASSERT(t, argv_index(&v, "-lc") < 0);
@@ -255,11 +293,12 @@ void test_link_argv_subtraction(TestCtx *t)
     VecStr_free(&v);
     args_free(&a);
 
-    fill_args(&a);
+    fill_linux_args(&a);
     a.nostdlib = true;
     a.fcgf_safe = true;
     memset(&v, 0, sizeof(v));
-    T_ASSERT(t, toolchain_build_link_argv(&a, cgf_target_host(), &ar, &v));
+    T_ASSERT(t,
+             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     T_ASSERT(t, argv_index_suffix(&v, "/crt1.o") < 0);
     T_ASSERT(t, argv_index(&v, "-lc") < 0);
     T_ASSERT(t, argv_index(&v, "--wrap=malloc") < 0);
@@ -267,6 +306,7 @@ void test_link_argv_subtraction(TestCtx *t)
     VecStr_free(&v);
     args_free(&a);
     arena_free_all(&ar);
+    rm_crt_dir(LINK_CRT_DIR);
 }
 
 static void mk_crt_dir(const char *dir, bool with_crt1)

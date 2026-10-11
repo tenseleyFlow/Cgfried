@@ -535,6 +535,13 @@ bool type_transparent_union_param_compatible(const Type *a, const Type *b);
  * object to another, so qualifiers on each array element layer do not affect
  * compatibility. Bounds still must agree when both are present. */
 bool type_array_initializer_compatible(const Type *target, const Type *source);
+/* A string literal's semantic type is an array of its encoded element type.
+ * It directly initializes only a compatible character array, irrespective of
+ * either bound.  In particular, `char *items[] = { "x" }` initializes one
+ * pointer element; the braces must not be flattened as a string-array
+ * initializer. */
+bool type_string_initializer_compatible(const Type *target,
+                                        const Type *source);
 /* 6.2.7p3. `int a[]` + `int a[10]` -> `int[10]`; `int f()` + a prototype
  * -> the prototype. Requires the two to be compatible. */
 Type *type_composite(Arena *ar, Type *a, Type *b);

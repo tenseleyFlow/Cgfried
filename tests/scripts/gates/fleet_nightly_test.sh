@@ -13,6 +13,9 @@ tmp=${TMPDIR:-/tmp}/cgf-fleet-nightly-test.$$
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 mkdir -p "$tmp/checkout/.git" "$tmp/checkout/.benchmarks/runs" \
     "$tmp/checkout/scripts" "$tmp/home" "$tmp/musl-source"
+true_cmd=$tmp/true
+printf '%s\n' '#!/bin/sh' 'exit 0' >"$true_cmd"
+chmod +x "$true_cmd"
 cp "$nightly" "$tmp/checkout/scripts/fleet-nightly.sh"
 chmod 755 "$tmp/checkout/scripts/fleet-nightly.sh"
 
@@ -23,7 +26,7 @@ fail()
 }
 
 run_nightly()
-{
+(
     run_stamp=$1
     run_bench_status=$2
     run_perf_status=$3
@@ -62,7 +65,7 @@ run_nightly()
     CGF_FLEET_MAKE_CMD=$fixtures/fake-make.sh \
     CGF_FLEET_UNAME_CMD=$fixtures/fake-uname.sh \
     CGF_FLEET_DATE_CMD=$fixtures/fake-date.sh \
-    CGF_FLEET_CC=/bin/true \
+    CGF_FLEET_CC=$true_cmd \
     CGF_FLEET_NIX_INCLUDE_DIR=$run_nix_include \
     CGF_FLEET_NIX_CRT_DIR=$run_nix_crt \
     CGF_FLEET_BENCH=$fixtures/fake-fleet-bench.sh \
@@ -71,7 +74,7 @@ run_nightly()
     CGF_FLEET_MUSL=$fixtures/fake-fleet-musl.sh \
     CGF_FLEET_MUSL_SOURCE=$run_musl_source \
         "$nightly"
-}
+)
 
 : >"$tmp/git.log"
 run_nightly 2026-08-10T120000Z 0 0 1 1 kasumi Linux x86_64 >"$tmp/pass.out" 2>"$tmp/pass.err"
@@ -93,7 +96,7 @@ grep -F 'fleet.nightly_stamp=2026-08-10T120000Z' "$musl" >/dev/null ||
     fail "push did not perform exactly one retry"
 [ "$(grep -c 'pull --rebase --no-gpg-sign origin trunk' "$tmp/git.log")" -eq 2 ] ||
     fail "sync and push retry did not disable interactive rebase signing"
-grep -F 'CC=/bin/true build/cgfried build/timeit' "$tmp/make.log" >/dev/null ||
+grep -F "CC=$true_cmd build/cgfried build/timeit" "$tmp/make.log" >/dev/null ||
     fail "Linux portable build targets are wrong"
 grep -F 'gate-trip=no' "$tmp/git.log" >/dev/null || fail "clean commit did not record gate state"
 grep -F -- '-c commit.gpgsign=false commit' "$tmp/git.log" >/dev/null ||
@@ -174,9 +177,11 @@ grep -F 'commit ' "$tmp/git.log" >/dev/null ||
 musl_cache=$tmp/checkout/build/fleet-refs/musl-b306b16af15c89a04d8e0c55cac2dadbeb39c083
 : >"$tmp/git.log"
 set +e
-FIXTURE_ALLOW_MUSL_CLONE=1 FIXTURE_MUSL_CLONE_STATUS=7 \
-run_nightly 2026-08-10T124710Z 0 0 0 0 kasumi Linux x86_64 no \
-    "" "" 0 0 warmup "" >"$tmp/cache-clone-fail.out" 2>"$tmp/cache-clone-fail.err"
+(
+    FIXTURE_ALLOW_MUSL_CLONE=1 FIXTURE_MUSL_CLONE_STATUS=7 \
+        run_nightly 2026-08-10T124710Z 0 0 0 0 kasumi Linux x86_64 no \
+        "" "" 0 0 warmup ""
+) >"$tmp/cache-clone-fail.out" 2>"$tmp/cache-clone-fail.err"
 cache_clone_fail_status=$?
 set -e
 [ "$cache_clone_fail_status" -eq 3 ] ||
@@ -186,9 +191,11 @@ grep -F 'cannot clone the pinned musl input' "$tmp/cache-clone-fail.err" >/dev/n
 [ ! -e "$musl_cache" ] || fail "failed musl cache clone left partial state"
 
 : >"$tmp/git.log"
-FIXTURE_ALLOW_MUSL_CLONE=1 FIXTURE_MUSL_CACHE_HAS_PIN=0 \
-run_nightly 2026-08-10T124720Z 0 0 0 0 kasumi Linux x86_64 no \
-    "" "" 0 0 warmup "" >"$tmp/cache-first.out" 2>"$tmp/cache-first.err"
+(
+    FIXTURE_ALLOW_MUSL_CLONE=1 FIXTURE_MUSL_CACHE_HAS_PIN=0 \
+        run_nightly 2026-08-10T124720Z 0 0 0 0 kasumi Linux x86_64 no \
+        "" "" 0 0 warmup ""
+) >"$tmp/cache-first.out" 2>"$tmp/cache-first.err"
 [ -d "$musl_cache/.git" ] || fail "default musl cache was not provisioned"
 grep -F "clone --no-checkout https://git.musl-libc.org/git/musl $musl_cache" \
     "$tmp/git.log" >/dev/null || fail "default musl cache clone was not issued"
@@ -208,9 +215,11 @@ run_nightly 2026-08-10T124730Z 0 0 0 0 kasumi Linux x86_64 no \
 
 : >"$tmp/git.log"
 set +e
-FIXTURE_MUSL_CACHE_REVISION=wrong \
-run_nightly 2026-08-10T124740Z 0 0 0 0 kasumi Linux x86_64 no \
-    "" "" 0 0 warmup "" >"$tmp/cache-pin.out" 2>"$tmp/cache-pin.err"
+(
+    FIXTURE_MUSL_CACHE_REVISION=wrong \
+        run_nightly 2026-08-10T124740Z 0 0 0 0 kasumi Linux x86_64 no \
+        "" "" 0 0 warmup ""
+) >"$tmp/cache-pin.out" 2>"$tmp/cache-pin.err"
 cache_pin_status=$?
 set -e
 [ "$cache_pin_status" -eq 3 ] || fail "wrong cached musl revision did not fail closed"
@@ -219,9 +228,11 @@ grep -F 'musl cache did not resolve to the required pin' "$tmp/cache-pin.err" >/
 
 : >"$tmp/git.log"
 set +e
-FIXTURE_MUSL_CACHE_STATUS='?? local-change' \
-run_nightly 2026-08-10T124750Z 0 0 0 0 kasumi Linux x86_64 no \
-    "" "" 0 0 warmup "" >"$tmp/cache-dirty.out" 2>"$tmp/cache-dirty.err"
+(
+    FIXTURE_MUSL_CACHE_STATUS='?? local-change' \
+        run_nightly 2026-08-10T124750Z 0 0 0 0 kasumi Linux x86_64 no \
+        "" "" 0 0 warmup ""
+) >"$tmp/cache-dirty.out" 2>"$tmp/cache-dirty.err"
 cache_dirty_status=$?
 set -e
 [ "$cache_dirty_status" -eq 3 ] || fail "dirty musl cache did not fail closed"
@@ -231,7 +242,7 @@ grep -F 'pinned musl cache is dirty' "$tmp/cache-dirty.err" >/dev/null ||
 : >"$tmp/git.log"
 run_nightly 2026-08-10T130000Z 0 0 0 0 nomad-1 Darwin arm64 \
     >"$tmp/macos.out" 2>"$tmp/macos.err"
-grep -F 'CC=/bin/true build/cgfried build/timeit tools' "$tmp/make.log" >/dev/null ||
+grep -F "CC=$true_cmd build/cgfried build/timeit tools" "$tmp/make.log" >/dev/null ||
     fail "macOS portable build did not include compiler, timer, and bundled tools"
 grep -F 'submodule update --init afs-as afs-ld' "$tmp/git.log" >/dev/null ||
     fail "macOS nightly did not initialize its tool submodules"
@@ -243,9 +254,11 @@ grep -F 'submodule update --init afs-as afs-ld' "$tmp/git.log" >/dev/null ||
 mkdir -p "$tmp/nix/include" "$tmp/nix/lib"
 : >"$tmp/nix/lib/crt1.o"
 : >"$tmp/git.log"
-FIXTURE_BENCH_ENV_LOG=$tmp/nix-env.log \
-run_nightly 2026-08-10T140000Z 0 0 0 0 hasu Linux x86_64 no \
-    "$tmp/nix/include" "$tmp/nix/lib" >"$tmp/nix.out" 2>"$tmp/nix.err"
+(
+    FIXTURE_BENCH_ENV_LOG=$tmp/nix-env.log \
+        run_nightly 2026-08-10T140000Z 0 0 0 0 hasu Linux x86_64 no \
+        "$tmp/nix/include" "$tmp/nix/lib"
+) >"$tmp/nix.out" 2>"$tmp/nix.err"
 grep -F "CGF_BENCH_CGF=$tmp/checkout/scripts/fleet-cgf-sysroot.sh" \
     "$tmp/nix-env.log" >/dev/null || fail "NixOS bench wrapper was not exported"
 grep -F "CGF_KERNEL_CGF=$tmp/checkout/scripts/fleet-cgf-sysroot.sh" \

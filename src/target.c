@@ -161,6 +161,7 @@ void cgf_target_predef_lines(TargetSpec t, bool gnu_mode, Buf *out)
                "#define __SIZEOF_DOUBLE__ 8\n"
                "#define __SIZEOF_LONG_DOUBLE__ %llu\n"
                "#define __SIZEOF_WCHAR_T__ 4\n#define __SIZEOF_WINT_T__ 4\n"
+               "#define __LITTLE_ENDIAN__ 1\n"
                "#define __BYTE_ORDER__ __ORDER_LITTLE_ENDIAN__\n"
                "#define __ORDER_LITTLE_ENDIAN__ 1234\n"
                "#define __ORDER_BIG_ENDIAN__ 4321\n"

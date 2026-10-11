@@ -328,15 +328,26 @@ status) printf '%s' "${FIXTURE_MUSL_TREE_STATUS:-}" ;;
 *) exit 2 ;;
 esac
 EOF
+cat >"$tmp/uname-helper" <<'EOF'
+#!/bin/sh
+case ${1:-} in
+-s) echo Linux ;;
+-m) echo x86_64 ;;
+*) exit 2 ;;
+esac
+EOF
 cat >"$tmp/should-not-run" <<'EOF'
 #!/bin/sh
 exit 99
 EOF
-chmod +x "$tmp/control-helper" "$tmp/bench-helper" "$tmp/git-helper" "$tmp/should-not-run"
+chmod +x "$tmp/control-helper" "$tmp/bench-helper" "$tmp/git-helper" \
+    "$tmp/uname-helper" "$tmp/should-not-run"
 mkdir -p "$tmp/fleet-root/.git" "$tmp/fleet-root/.benchmarks/runs" "$tmp/fleet-root/build"
 CGF_FLEET_MUSL_GIT_CMD=$tmp/git-helper
 CGF_FLEET_MUSL_CLASSIFIER=$root/scripts/bench-control.sh
-export CGF_FLEET_MUSL_GIT_CMD CGF_FLEET_MUSL_CLASSIFIER
+CGF_FLEET_UNAME_CMD=$tmp/uname-helper
+export CGF_FLEET_MUSL_GIT_CMD CGF_FLEET_MUSL_CLASSIFIER \
+    CGF_FLEET_UNAME_CMD
 CGF_FLEET_MUSL_ROOT="$tmp/fleet-root" CGF_FLEET_HOST=kasumi \
 CGF_FLEET_STAMP=2026-08-13T120000Z CGF_FLEET_MUSL_SOURCE="$tmp/source" \
 CGF_FLEET_MUSL_CONTROL="$tmp/control-helper" CGF_FLEET_MUSL_BENCH="$tmp/bench-helper" \

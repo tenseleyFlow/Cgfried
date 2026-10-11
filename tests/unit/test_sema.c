@@ -1121,6 +1121,42 @@ void test_sema_builtin_bcopy_contract(TestCtx *t)
     sfix_free(&f);
 }
 
+void test_sema_builtin_bzero_contract(TestCtx *t)
+{
+    SemaFix f;
+
+    run_sema(&f,
+             "_Static_assert(__builtin_types_compatible_p("
+             "__typeof__(__builtin_bzero((void *)0, 0)), void), "
+             "\"bzero result is void\"); "
+             "void f(void *destination, int length) { "
+             "__builtin_bzero(destination, length); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(void *p) { __builtin_bzero(); __builtin_bzero(p); "
+             "__builtin_bzero(p, 1, 2); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 3);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "struct S { int x; }; void f(struct S value, void *p) { "
+             "__builtin_bzero(value, 1); __builtin_bzero(p, value); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 2);
+    sfix_free(&f);
+
+    run_sema(&f,
+             "void f(const void *p) { __builtin_bzero(p, 1); }\n",
+             STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, f.warnings > 0); /* destination qualifier discard */
+    sfix_free(&f);
+}
+
 void test_sema_builtin_puts_contract(TestCtx *t)
 {
     SemaFix f;
@@ -1621,6 +1657,64 @@ void test_sema_gnu_const_object_static_initializer_folding(TestCtx *t)
              "const int later = 3;\n",
              STD_GNU17);
     T_ASSERT_EQ_INT(t, f.errors, 5);
+    sfix_free(&f);
+}
+
+void test_sema_string_initializer_distinguishes_pointer_arrays(TestCtx *t)
+{
+    SemaFix f;
+    AstNode *rows = NULL;
+    AstNode *items = NULL;
+    u32 i;
+
+    run_sema(
+        &f,
+        "struct R { const char *url; const char *redirects[4]; int ok; };\n"
+        "static const struct R rows[] = {\n"
+        "  { \"u\", { \"a\" }, 0 },\n"
+        "  { \"v\", { \"b\", \"c\" }, 1 },\n"
+        "};\n"
+        "static const char *items[] = { \"x\" };\n"
+        "static signed char signed_text[] = { \"s\" };\n"
+        "static unsigned char unsigned_text[] = { \"u\" };\n",
+        STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT_EQ_INT(t, f.warnings, 0);
+    for (i = 0; i < f.tu->ndecls; i++) {
+        AstNode *d = f.tu->decls[i];
+
+        if (!d || !d->name)
+            continue;
+        if (strcmp(d->name, "rows") == 0)
+            rows = d;
+        else if (strcmp(d->name, "items") == 0)
+            items = d;
+    }
+    T_ASSERT(t, rows != NULL);
+    T_ASSERT(t, items != NULL);
+    if (items) {
+        T_ASSERT(t, items->sem_type && items->sem_type->kind == TY_ARRAY);
+        T_ASSERT(t, items->sem_type->has_size);
+        T_ASSERT_EQ_INT(t, items->sem_type->size, 1);
+    }
+    if (rows) {
+        static const u64 reloc_offsets[] = {0, 8, 48, 56, 64};
+        InitImage image;
+
+        T_ASSERT(t, constexpr_eval_initializer(&f.sema, rows->sem_type,
+                                               rows->init, &image));
+        T_ASSERT_EQ_INT(t, image.size, 96);
+        T_ASSERT_EQ_INT(t, image.nrelocs, 5);
+        for (i = 0; i < image.nrelocs && i < 5; i++)
+            T_ASSERT_EQ_INT(t, image.relocs[i].offset, reloc_offsets[i]);
+        T_ASSERT_EQ_INT(t, image.bytes[40], 0);
+        T_ASSERT_EQ_INT(t, image.bytes[88], 1);
+    }
+    sfix_free(&f);
+
+    /* A bare string is not a whole-array initializer for pointer arrays. */
+    run_sema(&f, "const char *bad[4] = \"abc\";\n", STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 1);
     sfix_free(&f);
 }
 

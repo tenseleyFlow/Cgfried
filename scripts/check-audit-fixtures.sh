@@ -159,6 +159,20 @@ run_cgf_full_backtrace()
         >"$WORK/$run_id.stdout" 2>"$WORK/$run_id.stderr"
 }
 
+assemble_x64_elf()
+{
+    asm=$1
+    object=$2
+    case $(uname -s):$(uname -m) in
+    Darwin:arm64|Darwin:aarch64)
+        "$HOST_CC" -target x86_64-linux-gnu -c "$asm" -o "$object"
+        ;;
+    *)
+        "$HOST_CC" -c "$asm" -o "$object"
+        ;;
+    esac
+}
+
 if [ ! -x "$CGF" ]; then
     echo "audit fixtures: compiler is not executable: $CGF" >&2
     exit 1
@@ -527,7 +541,7 @@ probe()
         ;;
     IR-C-01)
         ir="$WORK/$id.stdout"
-        run_cgf "$id" -O0 -emit-ir "$source"
+        run_cgf "$id" --target=x86_64-linux-gnu -O0 -emit-ir "$source"
         status=$?
         if [ "$status" -ne 0 ]; then
             fail "$id" "valid long-double aggregate fixture was rejected"
@@ -1205,7 +1219,7 @@ probe()
         ;;
     X64-C-01)
         asm="$WORK/$id.s"
-        run_cgf "$id" -O0 -S "$source" -o "$asm"
+        run_cgf "$id" --target=x86_64-linux-gnu -O0 -S "$source" -o "$asm"
         status=$?
         if [ "$status" -ne 0 ]; then
             fail "$id" "valid floating-atomic fixture was rejected"
@@ -1219,7 +1233,7 @@ probe()
         ;;
     X64-C-02)
         asm="$WORK/$id.s"
-        run_cgf "$id" -O0 -S "$source" -o "$asm"
+        run_cgf "$id" --target=x86_64-linux-gnu -O0 -S "$source" -o "$asm"
         status=$?
         if [ "$status" -ne 0 ]; then
             fail "$id" "valid large-frame fixture was rejected"
@@ -1232,11 +1246,12 @@ probe()
         ;;
     X64-M-03)
         asm="$WORK/$id.s"
-        run_cgf "$id" -std=gnu17 -O0 -S "$source" -o "$asm"
+        run_cgf "$id" --target=x86_64-linux-gnu -std=gnu17 -O0 -S "$source" \
+            -o "$asm"
         status=$?
         if [ "$status" -ne 0 ]; then
             fail "$id" "valid extended-assembly fixture was rejected"
-        elif "$HOST_CC" -c "$asm" -o "$WORK/$id.o" \
+        elif assemble_x64_elf "$asm" "$WORK/$id.o" \
              >"$WORK/$id.as.stdout" 2>"$WORK/$id.as.stderr"; then
             xpass "$id" "$title"
         elif grep -Eqi 'bad register|invalid register' "$WORK/$id.as.stderr"; then

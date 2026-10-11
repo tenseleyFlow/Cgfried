@@ -2050,7 +2050,7 @@ static bool init_expr_initializes_whole(Type *target, const AstNode *init)
     if (!target || !init)
         return false;
     if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
-        return true;
+        return type_string_initializer_compatible(target, init->sem_type);
     if (target->kind == TY_ARRAY && init->kind == AST_EXPR_COMPOUND_LIT &&
         init->sem_type && init->sem_type->kind == TY_ARRAY)
         return type_array_initializer_compatible(target, init->sem_type);
@@ -2106,10 +2106,13 @@ static bool array_size_from_init(Sema *s, Type *array, const AstNode *init,
         *out = init->sem_type->size;
         return true;
     }
-    if (init->kind == AST_EXPR_STRING ||
+    if ((init->kind == AST_EXPR_STRING &&
+         type_string_initializer_compatible(array, init->sem_type)) ||
         (init->kind == AST_INIT_LIST && init->nitems == 1 && init->items[0] &&
          init->items[0]->kind == AST_EXPR_STRING &&
-         init->items[0]->ndesignators == 0)) {
+         init->items[0]->ndesignators == 0 &&
+         type_string_initializer_compatible(array,
+                                            init->items[0]->sem_type))) {
         const AstNode *str =
             init->kind == AST_EXPR_STRING ? init : init->items[0];
 
@@ -2411,7 +2414,8 @@ static void sema_init_assign_typed(Sema *s, Type *target, AstNode **slot)
      * Keeping the exception here is load-bearing: conv_assignable would
      * decay the literal to a pointer and both lose the source bound and
      * diagnose an array/pointer mismatch. */
-    if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING)
+    if (target->kind == TY_ARRAY && init->kind == AST_EXPR_STRING &&
+        type_string_initializer_compatible(target, init->sem_type))
         return;
     if (s->static_init_depth &&
         init_is_compatible_array_compound_literal(target, init)) {
@@ -2476,9 +2480,13 @@ static void sema_init_value(Sema *s, Type *target, AstNode **slot)
         init->nitems == 1 && init->items[0] &&
         init->items[0]->kind == AST_EXPR_STRING &&
         init->items[0]->ndesignators == 0) {
-        *slot = init->items[0];
-        sema_init_scalar(s, target, slot);
-        return;
+        init->items[0] = sema_expr(s, init->items[0]);
+        if (type_string_initializer_compatible(target,
+                                               init->items[0]->sem_type)) {
+            *slot = init->items[0];
+            sema_init_assign_typed(s, target, slot);
+            return;
+        }
     }
     if (init->kind != AST_INIT_LIST) {
         sema_init_scalar(s, target, slot);

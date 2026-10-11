@@ -190,8 +190,10 @@ function'" "'check_noise_limit(label, baseline_value, current_value, percent,
                            baseline_mad, current_mad,
                            nominal, noise, allowance, limit) {
     nominal = (baseline_value + 0) * percent / 100
-    noise = 4 * ((baseline_mad + 0) > (current_mad + 0) ?
-                 (baseline_mad + 0) : (current_mad + 0))
+    noise = baseline_mad + 0
+    if ((current_mad + 0) > noise)
+        noise = current_mad + 0
+    noise *= 4
     allowance = nominal > noise ? nominal : noise
     limit = (baseline_value + 0) + allowance
     if ((current_value + 0) > limit) {

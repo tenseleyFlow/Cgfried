@@ -52,7 +52,42 @@ for arg in $new; do set -- "$@" "$arg"; done
 IFS=$old_ifs
 exec gcc "$@"
 EOF
-chmod +x "$tmp/bin/fake-cgf"
+cat >"$tmp/bin/readelf" <<'EOF'
+#!/bin/sh
+set -eu
+case ${1:-} in
+--version)
+    echo 'fixture readelf 1.0'
+    ;;
+-sW)
+    # measure_object consumes only the kernel_run row and its positive size.
+    echo '0: 0 16 FUNC GLOBAL DEFAULT 1 kernel_run'
+    ;;
+-SW)
+    # Keep .text in field three and its hexadecimal size four fields later.
+    echo '[ 1] .text PROGBITS 00000000 00000000 000010'
+    ;;
+*)
+    exit 2
+    ;;
+esac
+EOF
+cat >"$tmp/bin/objdump" <<'EOF'
+#!/bin/sh
+set -eu
+if [ "${1:-}" = --version ]; then
+    echo 'fixture objdump 1.0'
+    exit 0
+fi
+cat <<'DUMP'
+0000000000000000 <kernel_run>:
+   0: mov $42,%eax
+   4: ret
+DUMP
+EOF
+chmod +x "$tmp/bin/fake-cgf" "$tmp/bin/readelf" "$tmp/bin/objdump"
+PATH=$tmp/bin:$PATH
+export PATH
 
 cat >"$tmp/runtime.txt" <<'EOF'
 # cgfried kernel runtime metrics v1

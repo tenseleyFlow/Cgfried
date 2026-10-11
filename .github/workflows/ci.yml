@@ -1011,7 +1011,7 @@ jobs:
             macos-tools-v1-${{ hashFiles('.gitmodules') }}-
             macos-tools-v1-
       - run: make tools
-      - run: make -j3 build/cgfried build/timeit build/timeit-math-test
+      - run: make -j3 build/cgfried build/cgf-test build/timeit build/timeit-math-test rt
       - name: Sprint 52 timer profile
         run: |
           sh tests/bench/timeit_test.sh build/timeit
@@ -1027,6 +1027,16 @@ jobs:
         run: ci/campaigns/test-arm64-macos-stdarg.sh build/cgfried
       - name: Apple math headers with declaration-only _Float16
         run: ci/campaigns/test-float16-hosted-boundary.sh build/cgfried
+      - name: Apple runtime archive with native integer-128 helpers
+        run: |
+          test -f build/arm64-macos/libcgf_rt.a
+          vtool -show-build build/rt/int128.o | grep -q 'minos 11.0'
+          CGF_TEST_CC=build/cgfried build/cgf-test --profile arm64-macos \
+            tests/corpus/x86_64/int/gnu_int128_spelling.c
+      - name: Apple safe-mode object and runtime contract
+        run: |
+          CGF_SAFE_MODE_WORK=build/safe-mode \
+            sh scripts/safe_mode.sh build/cgfried build
       - name: ABI programs, both linkers, signatures checked
         run: |
           sh tests/macos/run.sh build/cgfried > macos-lane.log 2>&1 || s=$?

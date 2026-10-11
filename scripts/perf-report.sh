@@ -341,7 +341,7 @@ EOF
             for (path_index = 1; path_index <= 2; path_index++) {
                 path_key = (path_index == 1 ? "sysroot_include" : "sysroot_crt")
                 if (prov[path_key] != "" &&
-                    prov[path_key] !~ /^\/[A-Za-z0-9_./:@,+-]+$/) {
+                    prov[path_key] !~ /^\/[A-Za-z0-9_.\/:@,+-]+$/) {
                     print "perf-report: " file ": invalid " path_key \
                           " provenance" > "/dev/stderr"
                     bad = 1
@@ -413,16 +413,13 @@ EOF
                     print kind "\t" target "\t" scope "\t" key "\t" values[key] "\t" source >> metrics
             }
             printf "%s\t%s\t%s\t%s", kind, target, scope, source >> provenance
+            split("host host_class date cgf_rev cgf_tree protocol " \
+                  "sysroot_include sysroot_crt load1 governor power_profile " \
+                  "scaling_driver energy_performance_preference " \
+                  "control_protocol logical_cpus cpu_idle_pct", \
+                  provenance_keys, " ")
             for (i = 1; i <= 16; i++) {
-                k = (i == 1 ? "host" : i == 2 ? "host_class" : i == 3 ? "date" :
-                     i == 4 ? "cgf_rev" : i == 5 ? "cgf_tree" :
-                     i == 6 ? "protocol" : i == 7 ? "sysroot_include" :
-                     i == 8 ? "sysroot_crt" : i == 9 ? "load1" :
-                     i == 10 ? "governor" : i == 11 ? "power_profile" :
-                     i == 12 ? "scaling_driver" :
-                     i == 13 ? "energy_performance_preference" :
-                     i == 14 ? "control_protocol" :
-                     i == 15 ? "logical_cpus" : "cpu_idle_pct")
+                k = provenance_keys[i]
                 printf "\t%s", (prov[k] != "" ? prov[k] : "n/a") >> provenance
             }
             print "" >> provenance

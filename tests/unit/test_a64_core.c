@@ -1233,6 +1233,7 @@ void test_a64_emit_tls_initial_exec_uses_alternate_scratch(TestCtx *t)
 
 void test_a64_emit_relaxes_nonlayout_conditional_branches(TestCtx *t)
 {
+    TargetSpec previous = cgf_target_selected();
     Arena arena;
     A64Block blocks[3] = {{0}};
     A64Block far_blocks[3] = {{0}};
@@ -1244,6 +1245,7 @@ void test_a64_emit_relaxes_nonlayout_conditional_branches(TestCtx *t)
     Buf text;
     u32 i;
 
+    T_ASSERT(t, cgf_target_select("arm64-linux"));
     arena_init(&arena);
     func.name = "long_cond";
     func.arena = &arena;
@@ -1317,6 +1319,7 @@ void test_a64_emit_relaxes_nonlayout_conditional_branches(TestCtx *t)
                                                 ".Lbr1_0:\n") != NULL);
     buf_free(&text);
     arena_free_all(&arena);
+    T_ASSERT(t, cgf_target_select(cgf_target_name(previous)));
 }
 
 /* The 16-byte constant pool. Deduping is not a nicety: every fneg in a

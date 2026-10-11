@@ -164,6 +164,7 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
 # timestamps, uids or modes) — two clean builds must be byte-equal.
 RT_CC ?= $(CC)
 RT_CFLAGS ?= -std=c11 -Wall -Wextra -O2 -fno-strict-aliasing -Isrc
+RT_ARFLAGS ?= rcsD
 # RT_TARGET is evaluated when this file is PARSED, which on a fresh tree is
 # before $(BUILD)/cgfried exists -- so the fallback is what a clean checkout
 # actually uses, and it must describe the HOST. A hardcoded x86_64 fallback
@@ -188,6 +189,10 @@ ifeq ($(RT_HOST_SYS),Darwin)
   ifneq (,$(filter aarch64 arm64,$(RT_HOST_MACHINE)))
     RT_HOST_TARGET := arm64-macos
   endif
+  # Apple's BSD ar rejects GNU's explicit D flag. ZERO_AR_DATE is the
+  # cctools contract for zeroed member metadata and therefore preserves the
+  # same deterministic-archive law as GNU ar rcsD.
+  RT_ARFLAGS := rcs
 endif
 ifeq ($(RT_HOST_SYS),FreeBSD)
   RT_HOST_TARGET := x86_64-freebsd
@@ -200,6 +205,23 @@ RT_SRC := $(sort $(wildcard src/rt/*.c))
 # link in here; this is the payoff, and it is why the runtime never grows a
 # second float implementation to drift against the compiler's.
 RT_SHARED_SRC := src/util/softfp.c src/util/bigint.c
+# AAPCS64 Linux owns the IEEE binary128 helper ABI above. Apple ARM64 instead
+# defines long double as binary64 and Apple Clang has no mode(TF) carrier, so
+# that target neither emits nor can build fp128.c. Keep the independently
+# required integer, fortify, and safety runtime in the native archive. The
+# cache helper is supplied by libSystem and the DSO token is ELF-only, so
+# their preprocessed Darwin objects would be empty archive members. Omitting
+# all three target-inapplicable sources makes `make all` and normal Cgfried
+# links honest on macOS instead of failing before the archive exists.
+ifeq ($(RT_TARGET),arm64-macos)
+RT_SRC := $(filter-out src/rt/clear_cache.c src/rt/dso_handle.c \
+                       src/rt/fp128.c,$(RT_SRC))
+RT_SHARED_SRC :=
+# Cgfried's arm64-macos object and link contract starts at macOS 11. Keep
+# host-compiled runtime members on that same deployment target instead of
+# inheriting whichever newer SDK happens to build the compiler.
+RT_CFLAGS += -mmacosx-version-min=11.0
+endif
 RT_OBJ := $(patsubst src/rt/%.c,$(BUILD)/rt/%.o,$(RT_SRC)) \
           $(patsubst src/util/%.c,$(BUILD)/rt/shared_%.o,$(RT_SHARED_SRC))
 RT_LIB := $(BUILD)/$(RT_TARGET)/libcgf_rt.a
@@ -218,7 +240,7 @@ $(BUILD)/rt/shared_%.o: src/util/%.c | $(BUILD)/rt/
 $(RT_LIB): $(RT_OBJ)
 	@mkdir -p $(dir $@)
 	rm -f $@
-	ar rcsD $@ $(RT_OBJ)
+	ZERO_AR_DATE=1 $(AR) $(RT_ARFLAGS) $@ $(RT_OBJ)
 
 $(BUILD)/rt/:
 	mkdir -p $@
