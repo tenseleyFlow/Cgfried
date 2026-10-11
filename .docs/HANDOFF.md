@@ -9930,17 +9930,21 @@ and green post-publication CI.
 
   The first native x86-64 CI build exposed a third compiler gap in zstd's
   `cpuid` feature probe: its `eax`, `ecx`, and `edx` outputs are fixed, but
-  only `eax` also carries an input. Cgfried now reserves each write-only fixed
-  extra output with a pre-asm fixed-register sentinel and captures it
-  immediately afterward. The executable regression covers four simultaneous
-  outputs including callee-saved `rbx`; allocator-chosen extra outputs remain
-  explicitly refused.
+  only `eax` also carries an input in the first query. Cgfried now reserves
+  each otherwise-unreserved write-only fixed extra output with a pre-asm
+  fixed-register sentinel, then captures it immediately afterward. A numeric
+  tie or separate input fixed to the same physical register already supplies
+  the reservation; recognizing the latter
+  is required by zstd's later `=c` output plus `c` input and prevents
+  non-convergent pre-color repair. The executable regression covers four
+  simultaneous outputs including callee-saved `rbx`; allocator-chosen extra
+  outputs remain explicitly refused.
 
   The complete native ARM64 macOS campaign is green: the Cgfried-built suite
   passes in 402 seconds, the host suite in about 150 seconds, parity is exact,
   the sole-C verifier passes, and the committed ten-row expected gate matches.
   The full local unit runner retains exactly the eight inherited Apple-host
-  failures: 1,019 tests / 4,331,634 assertions. Focused normal and
+  failures: 1,019 tests / 4,331,637 assertions. Focused normal and
   ASan+UBSan tests, pinned clang-format 22, campaign meta, sole-C meta,
   target-seam, sema-target, bans, GNU-tier, verification-coverage,
   POSIX-shell, workflow-YAML, and whitespace checks are green. The zstd

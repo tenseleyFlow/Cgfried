@@ -3454,21 +3454,27 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
          * the same exact-register sentinel used for clobbers below; unlike a
          * clobber, the post-asm READREG later captures and stores the value
          * the template produced. Do not add a second reservation when a
-         * numeric matching input already supplies one. */
+         * numeric tie or a separate input fixed to the same physical register
+         * already supplies one. */
         for (k = 0; k < a->noutputs && k < a->nops && k < 64; k++) {
             const IrAsmOp *o = &a->ops[k];
             X64Inst *rr;
             u32 j;
-            bool has_tie = false;
+            bool has_reservation = false;
 
             if (!o->is_output || o->cls != ASM_CLS_FIXED || k == outidx)
                 continue;
-            for (j = 0; j < a->nops; j++)
-                if (!a->ops[j].is_output && a->ops[j].tied_to == (i32)k) {
-                    has_tie = true;
+            for (j = 0; j < a->nops; j++) {
+                const IrAsmOp *input = &a->ops[j];
+
+                if (!input->is_output &&
+                    (input->tied_to == (i32)k ||
+                     (input->cls == ASM_CLS_FIXED && input->reg == o->reg))) {
+                    has_reservation = true;
                     break;
                 }
-            if (has_tie)
+            }
+            if (has_reservation)
                 continue;
             outkeep[k] = newv(is);
             rr = emit(is, X64_OP_READREG, asm_width(o->size));

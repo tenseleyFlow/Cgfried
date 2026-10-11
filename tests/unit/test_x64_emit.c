@@ -689,14 +689,15 @@ void test_x64_isel_reserves_write_only_fixed_asm_outputs(TestCtx *t)
     IrType params[4] = {IRT_PTR, IRT_PTR, IRT_PTR, IRT_PTR};
     IrFunc *f;
     IrBuilder b;
-    IrAsmOp asm_ops[5];
+    IrAsmOp asm_ops[6];
     IrAsm as;
-    IrOperand operands[5];
+    IrOperand operands[6];
     X64Func *xf;
     X64Block *xb;
     u32 asm_i = UINT32_MAX;
     const u8 fixed_regs[3] = {X64_RBX, X64_RCX, X64_RDX};
     u32 pre_fixed[3] = {0};
+    u32 pre_fixed_inputs[3] = {0};
     u32 post_fixed[3] = {0};
     u32 i, j;
     Buf out;
@@ -731,6 +732,13 @@ void test_x64_isel_reserves_write_only_fixed_asm_outputs(TestCtx *t)
     asm_ops[4].constraint = "a";
     asm_ops[4].reg = X64_RAX;
     operands[4] = ir_op_iconst(IRT_I32, 0);
+    /* Zstd's later feature query spells the ecx input separately from its
+     * `=c` output. That input already reserves rcx at the asm point; adding a
+     * write-only-output sentinel for the same register creates overlapping
+     * pre-coloured intervals that repair cannot make disjoint. */
+    asm_ops[5].constraint = "c";
+    asm_ops[5].reg = X64_RCX;
+    operands[5] = ir_op_iconst(IRT_I32, 0);
     memset(&as, 0, sizeof(as));
     as.tmpl = "cpuid";
     as.ops = asm_ops;
@@ -753,23 +761,29 @@ void test_x64_isel_reserves_write_only_fixed_asm_outputs(TestCtx *t)
     for (i = 0; i < xb->n; i++) {
         const X64Inst *x = &xb->insts[i];
 
-        /* Ignore the qword READREGs that materialize pointer parameters;
-         * every cpuid reservation/capture has the output's i32 width. */
-        if (x->op != X64_OP_READREG || x->width != X64_L)
-            continue;
         for (j = 0; j < 3; j++) {
             u8 want = (u8)(fixed_regs[j] + 1);
 
-            if (x->def_fixed == want) {
-                if (i < asm_i)
-                    pre_fixed[j]++;
-                else
-                    post_fixed[j]++;
+            if (i < asm_i && x->op == X64_OP_MOV && x->width == X64_L &&
+                x->def_fixed == want) {
+                u32 xi;
+
+                for (xi = 0; xi < xb->insts[asm_i].nxuses; xi++)
+                    if (xb->insts[asm_i].xuses[xi].r.v == x->def.v &&
+                        xb->insts[asm_i].xuses[xi].fixed == want)
+                        pre_fixed_inputs[j]++;
             }
+            if (i < asm_i && x->op == X64_OP_READREG && x->width == X64_L &&
+                x->def_fixed == want)
+                pre_fixed[j]++;
+            if (i > asm_i && x->op == X64_OP_READREG && x->width == X64_L &&
+                x->def_fixed == want)
+                post_fixed[j]++;
         }
     }
     for (j = 0; j < 3; j++) {
-        T_ASSERT_EQ_INT(t, pre_fixed[j], 1);
+        T_ASSERT_EQ_INT(t, pre_fixed[j], j == 1 ? 0 : 1);
+        T_ASSERT_EQ_INT(t, pre_fixed_inputs[j], j == 1 ? 1 : 0);
         T_ASSERT_EQ_INT(t, post_fixed[j], 1);
     }
     T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
