@@ -2113,6 +2113,7 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m,
             return cv_int(s, e->sem_type, truth ? 1 : 0);
         }
         if ((e->op == SEMA_BUILTIN_ISNAN || e->op == SEMA_BUILTIN_ISINF ||
+             e->op == SEMA_BUILTIN_ISINF_SIGN ||
              e->op == SEMA_BUILTIN_ISFINITE || e->op == SEMA_BUILTIN_SIGNBIT) &&
             e->nargs == 1) {
             CeMode operand_mode = is_required(m) ? CE_ARITH : m;
@@ -2129,6 +2130,10 @@ static ConstValue eval(Sema *s, AstNode *e, CeMode m,
             case SEMA_BUILTIN_ISINF:
                 truth = value.f.cls == SF_INF;
                 break;
+            case SEMA_BUILTIN_ISINF_SIGN:
+                if (value.f.cls != SF_INF)
+                    return cv_int(s, e->sem_type, 0);
+                return cv_int(s, e->sem_type, value.f.sign ? UINT64_MAX : 1);
             case SEMA_BUILTIN_ISFINITE:
                 truth = value.f.cls != SF_INF && value.f.cls != SF_NAN;
                 break;

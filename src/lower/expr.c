@@ -4854,11 +4854,14 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
     }
     case SEMA_BUILTIN_ISNAN:
     case SEMA_BUILTIN_ISINF:
+    case SEMA_BUILTIN_ISINF_SIGN:
     case SEMA_BUILTIN_ISFINITE: {
         IrOperand value = lower_rvalue(lo, e->args[0]);
+        IrOperand original = value;
         IrOperand compared = value;
         IrFcmp predicate = FCMP_UNO;
         ValueId absolute;
+        ValueId classified;
 
         /* isnan(x) is unordered(x,x). For the other two predicates, compare
          * abs(x) with target-format infinity: ordered equality recognizes
@@ -4868,12 +4871,31 @@ static bool lower_simple_builtin(Lower *lo, AstNode *e, IrOperand *out)
         if (e->op != SEMA_BUILTIN_ISNAN) {
             absolute = ir_build1(&lo->b, IR_FABS, (IrType)value.type, value);
             compared = ir_op_value(lo->fn, absolute);
-            predicate = e->op == SEMA_BUILTIN_ISINF ? FCMP_OEQ : FCMP_ONE;
+            predicate =
+                e->op == SEMA_BUILTIN_ISINF || e->op == SEMA_BUILTIN_ISINF_SIGN
+                    ? FCMP_OEQ
+                    : FCMP_ONE;
             value =
                 lower_special_float_constant(lo, e->args[0]->sem_type, SF_INF);
         }
-        *out = ir_op_value(lo->fn,
-                           ir_build_fcmp(&lo->b, predicate, compared, value));
+        classified = ir_build_fcmp(&lo->b, predicate, compared, value);
+        if (e->op == SEMA_BUILTIN_ISINF_SIGN) {
+            IrOperand negative = lower_fp_signbit_value(lo, original);
+            ValueId signed_infinity = ir_build_select(
+                &lo->b, negative, ir_op_iconst(IRT_I32, UINT32_MAX),
+                ir_op_iconst(IRT_I32, 1));
+
+            /* GCC's internal glibc-facing spelling returns -1 for negative
+             * infinity, +1 for positive infinity, and zero otherwise. Keep
+             * the sign selection behind the infinity predicate so NaN sign
+             * bits cannot leak into the result. */
+            *out = ir_op_value(
+                lo->fn, ir_build_select(&lo->b, ir_op_value(lo->fn, classified),
+                                        ir_op_value(lo->fn, signed_infinity),
+                                        ir_op_iconst(IRT_I32, 0)));
+        } else {
+            *out = ir_op_value(lo->fn, classified);
+        }
         return true;
     }
     case SEMA_BUILTIN_SIGNBIT:

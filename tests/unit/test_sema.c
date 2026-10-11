@@ -2305,6 +2305,14 @@ void test_sema_builtin_fp_classification_family(TestCtx *t)
         "_Static_assert(__builtin_isinf(__builtin_inf()), \"infinity\"); "
         "_Static_assert(__builtin_isinf(-__builtin_infl()), "
         "\"negative infinity\"); "
+        "_Static_assert(__builtin_isinf_sign(__builtin_inf()) == 1, "
+        "\"positive infinity sign\"); "
+        "_Static_assert(__builtin_isinf_sign(-__builtin_infl()) == -1, "
+        "\"negative infinity sign\"); "
+        "_Static_assert(__builtin_isinf_sign(__builtin_nan(\"\")) == 0, "
+        "\"nan is not infinity\"); "
+        "_Static_assert(__builtin_isinf_sign(-1.0f) == 0, "
+        "\"finite is not infinity\"); "
         "_Static_assert(__builtin_isfinite(0.0f), \"float zero\"); "
         "_Static_assert(__builtin_isfinite(-3.0L), \"long double finite\"); "
         "_Static_assert(!__builtin_isfinite(__builtin_nan(\"\")), "
@@ -2322,6 +2330,8 @@ void test_sema_builtin_fp_classification_family(TestCtx *t)
         "\"isnan result\"); "
         "_Static_assert(_Generic(__builtin_isinf(0.0), int: 1, default: 0), "
         "\"isinf result\"); "
+        "_Static_assert(_Generic(__builtin_isinf_sign(0.0), int: 1, default: "
+        "0), \"isinf_sign result\"); "
         "_Static_assert(_Generic(__builtin_isfinite(0.0L), int: 1, default: "
         "0), \"isfinite result\"); "
         "_Static_assert(_Generic(__builtin_signbit(0.0L), int: 1, default: "
@@ -2338,10 +2348,11 @@ void test_sema_builtin_fp_classification_family(TestCtx *t)
     run_sema_opts(&f,
                   "int a = __builtin_isnan(1); "
                   "int b = __builtin_isinf((void *)0); "
-                  "int c = __builtin_isfinite(); "
-                  "int d = __builtin_signbit(0.0, 1.0);\n",
+                  "int c = __builtin_isinf_sign(1); "
+                  "int d = __builtin_isfinite(); "
+                  "int e = __builtin_signbit(0.0, 1.0);\n",
                   STD_C17, true);
-    T_ASSERT_EQ_INT(t, f.errors, 4);
+    T_ASSERT_EQ_INT(t, f.errors, 5);
     sfix_free(&f);
 
     /* A classification of a runtime value is not an integer constant

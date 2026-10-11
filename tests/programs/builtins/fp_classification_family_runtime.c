@@ -48,12 +48,20 @@ int main(void)
                    "isnan returns int");
     _Static_assert(_Generic(__builtin_isinf(0.0), int: 1, default: 0),
                    "isinf returns int");
+    _Static_assert(_Generic(__builtin_isinf_sign(0.0), int: 1, default: 0),
+                   "isinf_sign returns int");
     _Static_assert(_Generic(__builtin_isfinite(0.0L), int: 1, default: 0),
                    "isfinite returns int");
     _Static_assert(_Generic(__builtin_signbit(0.0L), int: 1, default: 0),
                    "signbit returns int");
     _Static_assert(__builtin_isnan(__builtin_nan("")), "constant nan");
     _Static_assert(__builtin_isinf(-__builtin_infl()), "constant infinity");
+    _Static_assert(__builtin_isinf_sign(__builtin_inf()) == 1,
+                   "constant positive infinity");
+    _Static_assert(__builtin_isinf_sign(-__builtin_infl()) == -1,
+                   "constant negative infinity");
+    _Static_assert(__builtin_isinf_sign(__builtin_nan("")) == 0,
+                   "constant nan is not infinity");
     _Static_assert(__builtin_isfinite(-1.0f), "constant finite");
     _Static_assert(__builtin_signbit(-0.0L), "constant negative zero");
 
@@ -70,6 +78,12 @@ int main(void)
     CHECK(!__builtin_isinf(fnan));
     CHECK(!__builtin_isinf(dnan));
     CHECK(!__builtin_isinf(lnan));
+
+    CHECK(__builtin_isinf_sign(finf) == 1);
+    CHECK(__builtin_isinf_sign(-dinf) == -1);
+    CHECK(__builtin_isinf_sign(-linf) == -1);
+    CHECK(__builtin_isinf_sign(fnan) == 0);
+    CHECK(__builtin_isinf_sign(-2.0) == 0);
 
     CHECK(__builtin_isfinite(1.0f));
     CHECK(__builtin_isfinite(-2.0));
@@ -91,10 +105,13 @@ int main(void)
     calls = 0;
     CHECK(__builtin_isnan(source_f(fnan)));
     CHECK(__builtin_isinf(source_d(dinf)));
+    CHECK(__builtin_isinf_sign(source_f(finf)) == 1);
+    CHECK(__builtin_isinf_sign(source_d(-dinf)) == -1);
+    CHECK(__builtin_isinf_sign(source_l(lnan)) == 0);
     CHECK(__builtin_isfinite(source_l(4.0L)));
     CHECK(__builtin_signbit(source_f(fzero)));
     CHECK(__builtin_signbit(source_d(dzero)));
     CHECK(__builtin_signbit(source_l(lzero)));
-    CHECK(calls == 6);
+    CHECK(calls == 9);
     return 0;
 }

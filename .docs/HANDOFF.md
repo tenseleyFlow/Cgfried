@@ -10009,6 +10009,19 @@ and green post-publication CI.
   XML, and XPath output. The ten-row expected-results gate passes. Native
   x86-64 and ARM64 Linux CI remain the publication step; merge only after every
   applicable check is green.
+
+  The first native Linux CI run then exposed `CAMP-LIBXML2-002` in `xpath.c`:
+  glibc implements `isinf(x)` with GCC's internal
+  `__builtin_isinf_sign(x)`, which was the one floating-classification spelling
+  Cgfried did not implement. Both x86-64 and ARM64 failed at the same hosted
+  header expansion. The repair adds the full three-state GCC contract rather
+  than treating it as a Boolean alias: target-softfloat constant evaluation
+  and single-evaluation runtime lowering return -1 for negative infinity, +1
+  for positive infinity, and zero for finite values and NaNs. Direct semantic,
+  lowering, and executed regressions cover float, double, and every target's
+  `long double`. The intentional builtin/fixture surface change advances the
+  5,000-iteration frontend-fuzz digest to `9d471456735b8b36`; the 2,000-case
+  smoke run has zero findings. Repaired Linux campaign publication is pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
