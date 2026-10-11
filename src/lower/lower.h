@@ -296,7 +296,7 @@ Lvalue lower_lvalue(Lower *lo, AstNode *e); /* address; no load */
 
 /* src/lower/asm.c */
 void lower_asm(Lower *lo, AstNode *s);
-bool lower_asm_clobber_reg(const char *name, u8 *out);
+bool lower_asm_clobber_reg(TargetKind target, const char *name, u8 *out);
 IrOperand lower_rvalue(Lower *lo, AstNode *e);
 /* Load the two limbs of one address-backed TI value exactly once. */
 void lower_int128_parts(Lower *lo, IrOperand addr, Type *type, u8 access_flags,

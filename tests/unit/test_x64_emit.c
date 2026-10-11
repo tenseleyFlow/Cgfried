@@ -679,6 +679,111 @@ void test_x64_isel_opaque_flag_clobbers_materialize_pending_compare(TestCtx *t)
     }
 }
 
+void test_x64_isel_reserves_write_only_fixed_asm_outputs(TestCtx *t)
+{
+    Arena a;
+    EmitFix fx = {0};
+    DiagCtx *dc;
+    DiagSink sink;
+    IrModule *m;
+    IrType params[4] = {IRT_PTR, IRT_PTR, IRT_PTR, IRT_PTR};
+    IrFunc *f;
+    IrBuilder b;
+    IrAsmOp asm_ops[5];
+    IrAsm as;
+    IrOperand operands[5];
+    X64Func *xf;
+    X64Block *xb;
+    u32 asm_i = UINT32_MAX;
+    const u8 fixed_regs[3] = {X64_RBX, X64_RCX, X64_RDX};
+    u32 pre_fixed[3] = {0};
+    u32 post_fixed[3] = {0};
+    u32 i, j;
+    Buf out;
+
+    arena_init(&a);
+    dc = diag_ctx_new(&a);
+    sink.handle = e_sink;
+    sink.user = &fx;
+    diag_set_sink(dc, sink);
+    m = ir_module_new(&a, dc);
+    f = ir_func_new(m, "cpuid_outputs", IRT_VOID, params, 4);
+    ir_builder_at(&b, m, f, ir_block_new(m, f, "entry"));
+
+    memset(asm_ops, 0, sizeof(asm_ops));
+    for (i = 0; i < CGF_ARRAY_LEN(asm_ops); i++) {
+        asm_ops[i].cls = ASM_CLS_FIXED;
+        asm_ops[i].size = 4;
+        asm_ops[i].tied_to = -1;
+    }
+    for (i = 0; i < 4; i++) {
+        asm_ops[i].is_output = true;
+        operands[i] = ir_op_value(f, f->param_vals[i]);
+    }
+    asm_ops[0].constraint = "=a";
+    asm_ops[0].reg = X64_RAX;
+    asm_ops[1].constraint = "=b";
+    asm_ops[1].reg = X64_RBX;
+    asm_ops[2].constraint = "=c";
+    asm_ops[2].reg = X64_RCX;
+    asm_ops[3].constraint = "=d";
+    asm_ops[3].reg = X64_RDX;
+    asm_ops[4].constraint = "a";
+    asm_ops[4].reg = X64_RAX;
+    operands[4] = ir_op_iconst(IRT_I32, 0);
+    memset(&as, 0, sizeof(as));
+    as.tmpl = "cpuid";
+    as.ops = asm_ops;
+    as.nops = CGF_ARRAY_LEN(asm_ops);
+    as.noutputs = 4;
+    ir_build_asm(&b, ir_asm_new(m, &as), operands, CGF_ARRAY_LEN(operands));
+    ir_build_ret(&b, NULL);
+
+    T_ASSERT(t, ir_verify(dc, m));
+    xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+    xb = &xf->blocks[0];
+    for (i = 0; i < xb->n; i++)
+        if (xb->insts[i].op == X64_OP_ASM) {
+            asm_i = i;
+            break;
+        }
+    T_ASSERT(t, asm_i != UINT32_MAX);
+    T_ASSERT_EQ_INT(t, xb->insts[asm_i].def_fixed, X64_RAX + 1);
+    T_ASSERT_EQ_INT(t, xb->insts[asm_i].nxuses, 4);
+    for (i = 0; i < xb->n; i++) {
+        const X64Inst *x = &xb->insts[i];
+
+        /* Ignore the qword READREGs that materialize pointer parameters;
+         * every cpuid reservation/capture has the output's i32 width. */
+        if (x->op != X64_OP_READREG || x->width != X64_L)
+            continue;
+        for (j = 0; j < 3; j++) {
+            u8 want = (u8)(fixed_regs[j] + 1);
+
+            if (x->def_fixed == want) {
+                if (i < asm_i)
+                    pre_fixed[j]++;
+                else
+                    post_fixed[j]++;
+            }
+        }
+    }
+    for (j = 0; j < 3; j++) {
+        T_ASSERT_EQ_INT(t, pre_fixed[j], 1);
+        T_ASSERT_EQ_INT(t, post_fixed[j], 1);
+    }
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    x64_regalloc(xf);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+    buf_init(&out);
+    x64_emit_function(xf, m, 0, IRLINK_EXTERNAL, &out);
+    T_ASSERT(t, has(&out, "\tpushq\t%rbx\n"));
+    T_ASSERT(t, has(&out, "\tcpuid\n"));
+    buf_free(&out);
+    T_ASSERT_EQ_INT(t, fx.errors, 0);
+    arena_free_all(&a);
+}
+
 void test_x64_isel_retry_loop_preserves_pending_compare_in_origin(TestCtx *t)
 {
     static const IrAtomicRmw cases[] = {RMW_AND, RMW_OR, RMW_XOR};

@@ -3288,13 +3288,15 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
          *
          * A TIED operand reserves its output's location. The primary
          * unfixed output can use the same vreg; fixed outputs use a fresh
-         * pre-coloured input vreg, and extra fixed outputs are captured with
-         * READREG immediately after the asm. */
+         * pre-coloured input vreg. A write-only extra fixed output gets an
+         * otherwise-unused READREG -> ASM reservation, and every extra fixed
+         * output is captured with READREG immediately after the asm. */
         const IrAsm *a = in->callee && in->callee <= is->m->nasms
                              ? &is->m->asms[in->callee - 1]
                              : NULL;
         X64VReg opreg[64];
         X64VReg outval[64];
+        X64VReg outkeep[64];
         X64VReg clobval[64];
         X64Inst *x;
         X64VReg outv = {0};
@@ -3311,6 +3313,7 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         }
         memset(opreg, 0, sizeof(opreg));
         memset(outval, 0, sizeof(outval));
+        memset(outkeep, 0, sizeof(outkeep));
         memset(clobval, 0, sizeof(clobval));
         /* Pass 1: the primary register output, so a tied input can target
          * the instruction's one real def. Lowering permits later register
@@ -3445,6 +3448,34 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             }
         }
 
+        /* A write-only extra fixed output has no input interval to reserve
+         * its register at the ASM point. Read its irrelevant old value into
+         * a fixed vreg and keep that vreg live through an ASM xuse. This is
+         * the same exact-register sentinel used for clobbers below; unlike a
+         * clobber, the post-asm READREG later captures and stores the value
+         * the template produced. Do not add a second reservation when a
+         * numeric matching input already supplies one. */
+        for (k = 0; k < a->noutputs && k < a->nops && k < 64; k++) {
+            const IrAsmOp *o = &a->ops[k];
+            X64Inst *rr;
+            u32 j;
+            bool has_tie = false;
+
+            if (!o->is_output || o->cls != ASM_CLS_FIXED || k == outidx)
+                continue;
+            for (j = 0; j < a->nops; j++)
+                if (!a->ops[j].is_output && a->ops[j].tied_to == (i32)k) {
+                    has_tie = true;
+                    break;
+                }
+            if (has_tie)
+                continue;
+            outkeep[k] = newv(is);
+            rr = emit(is, X64_OP_READREG, asm_width(o->size));
+            rr->def = outkeep[k];
+            rr->def_fixed = (u8)(o->reg + 1);
+        }
+
         /* A named clobber must exclude its EXACT register, including the
          * callee-saved set. The blanket call-point model below excludes all
          * caller-saved registers from live-through values, but by design it
@@ -3483,6 +3514,9 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 fixed = (u8)(a->ops[o->tied_to].reg + 1);
             x64_add_xuse(is->xf, x, opreg[k], fixed);
         }
+        for (k = 0; k < a->noutputs && k < a->nops && k < 64; k++)
+            if (outkeep[k].v)
+                x64_add_xuse(is->xf, x, outkeep[k], (u8)(a->ops[k].reg + 1));
         for (k = 0; k < a->nclobber_regs && k < 64; k++)
             x64_add_xuse(is->xf, x, clobval[k], (u8)(a->clobber_regs[k] + 1));
         /* Keep the conservative CALL-CLOBBER model as well: a live-through

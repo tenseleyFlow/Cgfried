@@ -9917,6 +9917,9 @@ and green post-publication CI.
   Native Apple-silicon bring-up exposed two compiler gaps. AArch64 extended
   asm constraint `Q` is now decoded as the base-register memory operand zstd's
   prefetch macro requires, while x86-64 retains its register-class meaning.
+  Every asm constraint/clobber decision uses the translation unit's target,
+  not the compiler process's host/default target, so cross-target lowering
+  preserves that distinction.
   Current Apple `<malloc/malloc.h>` also publishes a C23 fixed-underlying enum
   definition unconditionally. Cgfried now accepts the definition form as a
   pre-C23 extension, resolves typedef-written integer representations,
@@ -9925,18 +9928,27 @@ and green post-publication CI.
   closed. The campaign uses the SDK-documented `TARGET_CPU_ARM64` fallback
   rather than claiming Apple-Clang identity.
 
+  The first native x86-64 CI build exposed a third compiler gap in zstd's
+  `cpuid` feature probe: its `eax`, `ecx`, and `edx` outputs are fixed, but
+  only `eax` also carries an input. Cgfried now reserves each write-only fixed
+  extra output with a pre-asm fixed-register sentinel and captures it
+  immediately afterward. The executable regression covers four simultaneous
+  outputs including callee-saved `rbx`; allocator-chosen extra outputs remain
+  explicitly refused.
+
   The complete native ARM64 macOS campaign is green: the Cgfried-built suite
   passes in 402 seconds, the host suite in about 150 seconds, parity is exact,
   the sole-C verifier passes, and the committed ten-row expected gate matches.
   The full local unit runner retains exactly the eight inherited Apple-host
-  failures: 1,018 tests / 4,331,613 assertions. Focused normal and
+  failures: 1,019 tests / 4,331,634 assertions. Focused normal and
   ASan+UBSan tests, pinned clang-format 22, campaign meta, sole-C meta,
   target-seam, sema-target, bans, GNU-tier, verification-coverage,
-  POSIX-shell, workflow-YAML, and whitespace checks are green. The two added
-  program fixtures intentionally advance the 5,000-iteration frontend-fuzz
-  corpus digest to `1968649d72df48b1`; the 2,000-iteration smoke has zero
-  findings. PR #185 is open; native x86-64/ARM64 Linux CI is the remaining
-  publication step. Merge only after every applicable check is green.
+  POSIX-shell, workflow-YAML, and whitespace checks are green. The zstd
+  program-fixture additions and the x86 `cpuid` repair intentionally advance
+  the 5,000-iteration frontend-fuzz corpus digest to `55c224cbc8518ca3`; the
+  2,000-iteration smoke has zero findings. PR #185 is open; native
+  x86-64/ARM64 Linux CI is the remaining publication step. Merge only after
+  every applicable check is green.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

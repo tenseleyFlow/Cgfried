@@ -37,9 +37,9 @@ static void asm_error(Lower *lo, Span span, const char *fmt, ...)
     lo->failed = true;
 }
 
-static bool asm_target_is_arm64(void)
+static bool asm_target_is_arm64(const Lower *lo)
 {
-    TargetKind k = cgf_target_selected().kind;
+    TargetKind k = lo->sema->target.kind;
 
     return k == CGF_TARGET_ARM64_LINUX || k == CGF_TARGET_ARM64_MACOS;
 }
@@ -74,7 +74,7 @@ static bool fixed_for(TargetKind target, char c, u8 *out)
  * programmer writes in the template, which are the ASSEMBLER's spellings and
  * not necessarily the backend's -- x86 accepts both `rax` and `eax` for the
  * same register, and gcc treats them as the same clobber. */
-bool lower_asm_clobber_reg(const char *name, u8 *out)
+bool lower_asm_clobber_reg(TargetKind target, const char *name, u8 *out)
 {
     static const struct {
         const char *n;
@@ -89,7 +89,7 @@ bool lower_asm_clobber_reg(const char *name, u8 *out)
     };
     u32 i;
 
-    if (asm_target_is_arm64()) {
+    if (target == CGF_TARGET_ARM64_LINUX || target == CGF_TARGET_ARM64_MACOS) {
         /* x0-x30 / w0-w30 name the same register in two widths. */
         u32 v = 0;
         const char *p = name;
@@ -187,7 +187,7 @@ static bool decode_constraint(Lower *lo, IrAsmOp *op, const char *c,
              * narrow here: a string such as rN is an ALTERNATIVE constraint,
              * and choosing between its classes needs the same expression-
              * aware path as Nd below rather than "last letter wins". */
-            if (asm_target_is_arm64() || strcmp(op->constraint, "N") != 0)
+            if (asm_target_is_arm64(lo) || strcmp(op->constraint, "N") != 0)
                 break;
             op->cls = ASM_CLS_IMM;
             saw_class = true;
@@ -200,19 +200,19 @@ static bool decode_constraint(Lower *lo, IrAsmOp *op, const char *c,
             saw_class = true;
             continue;
         case 'x':
-            if (asm_target_is_arm64())
+            if (asm_target_is_arm64(lo))
                 break; /* not an arm64 letter */
             op->cls = ASM_CLS_FPREG;
             saw_class = true;
             continue;
         case 't':
-            if (asm_target_is_arm64())
+            if (asm_target_is_arm64(lo))
                 break; /* x87 stack top exists only on x86 */
             op->cls = ASM_CLS_X87;
             saw_class = true;
             continue;
         case 'u':
-            if (asm_target_is_arm64())
+            if (asm_target_is_arm64(lo))
                 break; /* x87 second stack slot exists only on x86 */
             op->cls = ASM_CLS_X87UP;
             saw_class = true;
@@ -225,7 +225,7 @@ static bool decode_constraint(Lower *lo, IrAsmOp *op, const char *c,
             saw_class = true;
             continue;
         case 'w':
-            if (!asm_target_is_arm64())
+            if (!asm_target_is_arm64(lo))
                 break; /* not an x86 letter */
             op->cls = ASM_CLS_FPREG;
             saw_class = true;
@@ -236,7 +236,7 @@ static bool decode_constraint(Lower *lo, IrAsmOp *op, const char *c,
              * exactly that contract: lowering passes the lvalue address and
              * the emitter prints it as [xN]. On x86-64 Q retains its
              * byte-addressable-register meaning below. */
-            if (asm_target_is_arm64()) {
+            if (asm_target_is_arm64(lo)) {
                 op->cls = ASM_CLS_MEM;
                 saw_class = true;
                 continue;
@@ -248,7 +248,7 @@ static bool decode_constraint(Lower *lo, IrAsmOp *op, const char *c,
             /* Byte-addressable GP. Every allocatable GP register on x86-64
              * has a byte form, so this is `r` here -- unlike 32-bit x86,
              * where it genuinely excludes esi/edi. */
-            if (asm_target_is_arm64())
+            if (asm_target_is_arm64(lo))
                 break;
             op->cls = ASM_CLS_REG;
             saw_class = true;
@@ -259,7 +259,7 @@ static bool decode_constraint(Lower *lo, IrAsmOp *op, const char *c,
         {
             u8 reg;
 
-            if (fixed_for(cgf_target_selected().kind, *c, &reg)) {
+            if (fixed_for(lo->sema->target.kind, *c, &reg)) {
                 op->cls = ASM_CLS_FIXED;
                 op->reg = reg;
                 saw_class = true;
@@ -293,9 +293,9 @@ static bool constraint_has(const char *c, char want)
     return false;
 }
 
-static bool local_register_supported(u8 reg)
+static bool local_register_supported(const Lower *lo, u8 reg)
 {
-    if (!asm_target_is_arm64())
+    if (!asm_target_is_arm64(lo))
         return true;
 
     /* Keep local-register bindings inside the allocator's ordinary GP
@@ -328,14 +328,15 @@ static bool bind_local_register_operand(Lower *lo, IrAsmOp *op,
         op->tied_to >= 0)
         return true;
     sym = e->sym;
-    if (!lower_asm_clobber_reg(sym->asm_register_name, &reg)) {
+    if (!lower_asm_clobber_reg(lo->sema->target.kind, sym->asm_register_name,
+                               &reg)) {
         asm_error(lo, src->span,
                   "unsupported register name '%s' on local register "
                   "variable '%s' for this target",
                   sym->asm_register_name, sym->name);
         return false;
     }
-    if (!local_register_supported(reg)) {
+    if (!local_register_supported(lo, reg)) {
         asm_error(lo, src->span,
                   "register name '%s' on local register variable '%s' is "
                   "reserved by the target backend",
@@ -422,12 +423,13 @@ unsupported:
 }
 
 /* The shared MIR view still has one def, but x86 can soundly carry a narrow
- * second-output shape without changing it: a FIXED output with exactly one
- * matching input has that input reserve the physical register at the asm,
- * then the backend READREG-captures the new value immediately afterwards.
- * This is glibc <sys/io.h>'s =D/=c + 0/1 shape. An unfixed extra output has
- * nowhere to record the allocator's choice, and an unmatched fixed output
- * has nothing keeping its register occupied while the template runs. */
+ * extra-output shape without changing it: every extra output names a FIXED
+ * physical register, and the backend READREG-captures the new value
+ * immediately afterwards. A matching input reserves that location before
+ * the asm; for a write-only output the backend creates an otherwise-unused
+ * pre-asm reservation itself. This covers both glibc <sys/io.h>'s =D/=c +
+ * 0/1 shape and zstd's =a/=c/=d cpuid shape. An unfixed extra output still
+ * has nowhere to record the allocator's choice. */
 static bool validate_register_outputs(Lower *lo, const AstNode *s,
                                       const IrAsmOp *ops, u32 n)
 {
@@ -454,17 +456,17 @@ static bool validate_register_outputs(Lower *lo, const AstNode *s,
                 }
         if (register_outputs == 1)
             continue;
-        if (asm_target_is_arm64()) {
+        if (asm_target_is_arm64(lo)) {
             asm_error(lo, s->asm_ops[i].span,
                       "an asm with more than one register output is not "
                       "supported on arm64 yet");
             return false;
         }
-        if (op->cls != ASM_CLS_FIXED || tied_input_count(ops, n, i) != 1) {
+        if (op->cls != ASM_CLS_FIXED || tied_input_count(ops, n, i) > 1) {
             asm_error(lo, s->asm_ops[i].span,
                       "an asm with more than one register output is not "
                       "supported yet unless every extra output names one "
-                      "fixed x86 register and has exactly one matching "
+                      "fixed x86 register and has at most one matching "
                       "input; a general extra output would require another "
                       "MIR def (docs/gnu-extensions.md)");
             return false;
@@ -567,7 +569,7 @@ void lower_asm(Lower *lo, AstNode *s)
          * Alternative order does not change the accepted locations. This is
          * not two cumulative class letters. CE_FOLD is deliberately silent:
          * a variable is not an error because the d arm accepts it. */
-        if (!asm_target_is_arm64() && !is_out &&
+        if (!asm_target_is_arm64(lo) && !is_out &&
             (strcmp(op->constraint, "Nd") == 0 ||
              strcmp(op->constraint, "dN") == 0)) {
             ConstValue cv = constexpr_eval(lo->sema, src->expr, CE_FOLD);
@@ -727,11 +729,11 @@ void lower_asm(Lower *lo, AstNode *s)
             a.clobbers_memory = true;
         } else if (strcmp(c, "cc") == 0) {
             a.clobbers_cc = true;
-        } else if (!asm_target_is_arm64() && strcmp(c, "st") == 0) {
+        } else if (!asm_target_is_arm64(lo) && strcmp(c, "st") == 0) {
             /* x87 is stack-modelled around IR_ASM, never allocated. The
              * exact input-consuming form was checked above. */
             continue;
-        } else if (lower_asm_clobber_reg(c, &reg)) {
+        } else if (lower_asm_clobber_reg(lo->sema->target.kind, c, &reg)) {
             if (nclob < 64 && !reg_in_list(clobregs, nclob, reg))
                 clobregs[nclob++] = reg;
         } else {
