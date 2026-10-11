@@ -10029,7 +10029,21 @@ and green post-publication CI.
   three-state result. It now subtracts the mutually exclusive `(x == -inf)`
   predicate from `(x == +inf)`, preserving single evaluation and all NaN/
   finite behavior without injecting control flow into its surrounding x86
-  expression. Exact-head Linux republication remains pending.
+  expression. A second x86 run reproduced the same three crashes and disproved
+  that control-flow hypothesis.
+
+  GDB then isolated `CAMP-LIBXML2-003`: `xmlDictLookupHashed` returns a
+  two-eightbyte `xmlHashedString` in `RAX:RDX`, but parser-scale register
+  pressure made precolor repair emit `rdx = rax` before capturing the original
+  `RDX`. The caller consequently stored the hash into both structure halves
+  and later passed that 32-bit hash as `name.name` to `xmlHashValue`. Pair-call
+  selection now emits both `READREG`s before either store, keeping each result
+  live across both fixed-register captures so allocation cannot select an
+  unread return register as the other result's home. Direct selector and
+  allocator regressions pin that contract. The repaired compiler passes the
+  complete x86-64 Linux campaign locally: 22/22 tests, 52 certified
+  translations, 37 byte-checked archive members, 13 linked products, and all
+  ten expected-result rows. Exact-head Linux CI publication remains pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
