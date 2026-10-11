@@ -145,7 +145,8 @@ strict-C17 portable-default three-library closure and 30-suite self-test run
 independently from its symmetric-only configuration, 25-suite self-test, 140
 generated suite runners, 57 normal C sample/test programs, and ten standalone
 one-file fuzz programs on the same two native Linux architectures. Libpng
-1.6.59 is the third such large-FOSS rung; libjpeg-turbo 3.2.0 is the fourth.
+1.6.59 is the third such large-FOSS rung; libjpeg-turbo 3.2.0 is the fourth,
+and zstd 1.5.7 is the fifth.
 Both run complete static, sole-C closures plus pristine host-oracle builds and
 their upstream test suites on the same native architectures. Curl's
 network-dependent full suite and larger campaigns

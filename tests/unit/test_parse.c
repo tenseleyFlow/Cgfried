@@ -744,6 +744,15 @@ void test_parse_records_and_enums(TestCtx *t)
     T_ASSERT(t, tu->decls[0]->type->record->members[0]->init == NULL);
     pfix_free(&f);
 
+    tu = parse_src(&f,
+                   "typedef unsigned long u64; "
+                   "enum Fixed : u64 { F0, F1 = 1UL << 40 };\n",
+                   STD_GNU17);
+    T_ASSERT_EQ_INT(t, f.errors, 0);
+    T_ASSERT(t, tu->decls[1]->type->record->enum_fixed_type != NULL);
+    T_ASSERT_EQ_INT(t, tu->decls[1]->type->record->nmembers, 2);
+    pfix_free(&f);
+
     /* A trailing comma in an enumerator list is a C99 feature. */
     tu = parse_src(&f, "enum F { X, };\n", STD_C89);
     T_ASSERT(t, f.warnings >= 1);

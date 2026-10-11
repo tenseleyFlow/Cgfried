@@ -9895,6 +9895,48 @@ and green post-publication CI.
   suites and exact closure gates. Pull-request bootstrap run 37800700519 and
   exact-head push bootstrap run 37800694789 passed both applicable x86 O0/O2
   jobs; their architecture/cross-mode jobs skipped by policy.
+- PR #184 merged the libjpeg-turbo tranche green-only as
+  `92b91e791900cfec18e71eba501be3e9de32c10a`; its tested head was
+  `d73124c16e65b8defbe19e4d7880ef7b966e0dc9`, and the merge/head trees are
+  byte-identical.
+- The active `s56.90-zstd-sole-c` tranche starts from exact merged PR #184. It
+  pins zstd 1.5.7 (tag commit
+  `f8745da6ff1ad1e7bab384bd1f9d742439278e99`, official release SHA-256
+  `eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3`)
+  and builds the complete static portable-C configuration with legacy level 5
+  and multithreading enabled. Assembly/SIMD, shared libraries, contrib, and
+  optional external-codec integrations are off. Separate pristine Cgfried and
+  host trees each build 81 project objects, the 37-member `libzstd.a`, the two
+  CLI programs, and five test programs. Both lanes run all four CTest entries;
+  `fuzzer` and `zstreamtest` use fixed 10,000-case seeds, fullbench uses one
+  deterministic iteration, and datagen/compression/cross-decompression
+  artifacts must be byte-identical. The normalized exact closure contains 81
+  sole-C translations, 37 byte-checked archive members, 51 final-link inputs,
+  and seven linked products.
+
+  Native Apple-silicon bring-up exposed two compiler gaps. AArch64 extended
+  asm constraint `Q` is now decoded as the base-register memory operand zstd's
+  prefetch macro requires, while x86-64 retains its register-class meaning.
+  Current Apple `<malloc/malloc.h>` also publishes a C23 fixed-underlying enum
+  definition unconditionally. Cgfried now accepts the definition form as a
+  pre-C23 extension, resolves typedef-written integer representations,
+  enforces enumerator range, and preserves `_Bool` conversion semantics;
+  non-integer, out-of-range, and not-yet-modeled opaque forward forms fail
+  closed. The campaign uses the SDK-documented `TARGET_CPU_ARM64` fallback
+  rather than claiming Apple-Clang identity.
+
+  The complete native ARM64 macOS campaign is green: the Cgfried-built suite
+  passes in 402 seconds, the host suite in about 150 seconds, parity is exact,
+  the sole-C verifier passes, and the committed ten-row expected gate matches.
+  The full local unit runner retains exactly the eight inherited Apple-host
+  failures: 1,018 tests / 4,331,613 assertions. Focused normal and
+  ASan+UBSan tests, pinned clang-format 22, campaign meta, sole-C meta,
+  target-seam, sema-target, bans, GNU-tier, verification-coverage,
+  POSIX-shell, workflow-YAML, and whitespace checks are green. The two added
+  program fixtures intentionally advance the 5,000-iteration frontend-fuzz
+  corpus digest to `1968649d72df48b1`; the 2,000-iteration smoke has zero
+  findings. Native x86-64/ARM64 Linux CI and the PR number are the remaining
+  publication steps; merge only after every applicable check is green.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

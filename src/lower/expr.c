@@ -1566,6 +1566,8 @@ IrOperand lower_scalar_convert_access(Lower *lo, IrOperand v, Type *from,
 {
     IrType ft, tt;
     bool fint, tint;
+    bool from_bool;
+    bool to_bool;
 
     if (!from || !to)
         return v;
@@ -1608,9 +1610,17 @@ IrOperand lower_scalar_convert_access(Lower *lo, IrOperand v, Type *from,
     tt = lower_irtype(lo, to);
     fint = !type_is_floating(from);
     tint = !type_is_floating(to);
+    from_bool =
+        from->kind == TY_BOOL ||
+        (from->kind == TY_ENUM && type_enum_underlying(from)->kind == TY_BOOL);
+    to_bool =
+        to->kind == TY_BOOL ||
+        (to->kind == TY_ENUM && type_enum_underlying(to)->kind == TY_BOOL);
 
-    /* _Bool is a CONVERSION, not a truncation: any nonzero maps to 1. */
-    if (to->kind == TY_BOOL && !(from->kind == TY_BOOL)) {
+    /* _Bool is a CONVERSION, not a truncation: any nonzero maps to 1. A C23
+     * fixed-underlying enum with `_Bool` representation follows the same
+     * machine conversion while retaining its enum identity in sema. */
+    if (to_bool && !from_bool) {
         IrOperand one = truth_ne(lo, v, from);
         ValueId t8 = ir_build1(&lo->b, IR_TRUNC, IRT_I8, one);
 

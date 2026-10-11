@@ -230,8 +230,21 @@ static bool decode_constraint(Lower *lo, IrAsmOp *op, const char *c,
             op->cls = ASM_CLS_FPREG;
             saw_class = true;
             continue;
-        case 'q':
         case 'Q':
+            /* AArch64 Q is a memory operand whose address is held in one
+             * general register with no offset. ASM_CLS_MEM already has
+             * exactly that contract: lowering passes the lvalue address and
+             * the emitter prints it as [xN]. On x86-64 Q retains its
+             * byte-addressable-register meaning below. */
+            if (asm_target_is_arm64()) {
+                op->cls = ASM_CLS_MEM;
+                saw_class = true;
+                continue;
+            }
+            op->cls = ASM_CLS_REG;
+            saw_class = true;
+            continue;
+        case 'q':
             /* Byte-addressable GP. Every allocatable GP register on x86-64
              * has a byte form, so this is `r` here -- unlike 32-bit x86,
              * where it genuinely excludes esi/edi. */

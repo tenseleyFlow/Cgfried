@@ -70,7 +70,7 @@ predefine.
 | `nonnull(...)`, bare `nonnull` | `tests/programs/gnu/attr_nonnull.c` | glibc (`memcpy`, `strlen`, most of `string.h`) |
 | `noreturn` | `tests/programs/gnu/attr_noreturn.c` | glibc's `__assert_fail`/`abort`, musl, every fatal-error helper |
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
-| extended `asm` — operands, constraints, symbolic `s`/`i` address constants, exact register clobbers, GNU local register variables, x86 `N`/`Nd`, and fixed+tied extra x86 outputs | `tests/corpus/x86_64/int/asm_local_register.c` | musl syscall wrappers and atomics; glibc `<sys/io.h>`; every libc's `arch/` |
+| extended `asm` — operands, constraints, symbolic `s`/`i` address constants, exact register clobbers, GNU local register variables, x86 `N`/`Nd`, AArch64 base-memory `Q`, and fixed+tied extra x86 outputs | `tests/corpus/x86_64/int/asm_local_register.c` | musl syscall wrappers and atomics; glibc `<sys/io.h>`; zstd prefetching; every libc's `arch/` |
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
 | block-scoped labels (`__label__`) | `tests/programs/gnu/local_label.c` | statement-expression macros that need a collision-free private jump target on every expansion |
 | `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
@@ -108,6 +108,7 @@ predefine.
 | `__builtin_va_arg_pack()` / `__builtin_va_arg_pack_len()` | `tests/corpus/x86_64/int/gnu_va_arg_pack.c` | glibc's `<error.h>` and forwarding wrappers that preserve the caller's anonymous arguments |
 | ellipsis-only variadic functions and one-argument `va_start` | `tests/programs/gnu/ellipsis_only_varargs.c` | C23-style GNU sources whose variadic function has no last named parameter |
 | `_Float16` hosted declaration/layout boundary | `tests/campaigns/float16_hosted_declarations.c` | current Apple `<math.h>` prototypes; distinct two-byte type identity, declarations, pointers, `sizeof`, `_Alignof`, and compatibility queries are accepted, while evaluated half-precision values fail closed pending ABI/code generation |
+| C23 fixed-underlying enum definitions in pre-C23 modes | `tests/programs/gnu/fixed_underlying_enum.c` | current Apple `<malloc/malloc.h>` declarations; the written integer type controls representation and range, while the not-yet-modeled opaque forward-declaration form fails closed |
 | GNU/TS 18661 floating types — `_Float32`, `_Float64`, `_Float32x`, `_Float64x`, `_Float128` / `__float128` | `tests/corpus/x86_64/fp/gnu_float128.c` | glibc's `<bits/floatn*.h>` and `<math.h>`, activated by the GCC 8 identity |
 | `__builtin_bswap16/32/64` | `tests/corpus/x86_64/int/gnu_bswap.c` | glibc's `<bits/byteswap.h>`, so every `htonl`/`be32toh`; Linux, musl |
 | binary integer constants (`0b...`) | `tests/programs/gnu/binary_integer_constants.c` | chibicc's UTF-8 codec; bit-mask-heavy systems code |
@@ -734,6 +735,12 @@ constants, and plain numbers under `s` are diagnosed. `%cN` and `%c[name]`
 print constants without x86's ordinary `$` prefix (and without Cgfried's
 AArch64 immediate marker). The permanent positive and negative boundary is
 `tests/programs/gnu/asm_constraint_symbolic*.c`.
+
+Constraint letters remain target vocabulary. In particular, AArch64 `Q`
+names a memory operand whose complete address resides in one general register,
+so Cgfried lowers its lvalue address through the ordinary memory class and
+prints `[xN]`; the same letter retains its register-class meaning on x86-64.
+`tests/programs/gnu/asm_constraint_arm64_q.c` pins the zstd prefetch form.
 
 GNU variadic argument packs are caller-specialization operands, not runtime
 `va_list` values. Cgfried expands a direct inline wrapper into each caller
