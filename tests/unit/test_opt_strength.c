@@ -188,8 +188,8 @@ void test_opt_strength_preserves_variadic_argument_provenance(TestCtx *t)
     if (m) {
         T_ASSERT(t, ir_verify(fix.dc, m));
         printed = strength_print(m, &text);
-        T_ASSERT(t, strstr(printed,
-                           "call i32 @sink(i32 11 anon, i32 %") != NULL);
+        T_ASSERT(t,
+                 strstr(printed, "call i32 @sink(i32 11 anon, i32 %") != NULL);
         T_ASSERT(t, strstr(printed, " anon) va") != NULL);
         buf_free(&text);
     }

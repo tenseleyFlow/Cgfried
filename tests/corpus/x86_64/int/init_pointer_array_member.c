@@ -41,8 +41,7 @@ int main(void)
     int first = valid_string(cases[0].redirects[0], "http://server/end") &&
                 cases[0].redirects[1] == 0;
     int second = valid_string(cases[1].redirects[0], "/relative") &&
-                 valid_string(cases[1].redirects[1],
-                              "https://server/end") &&
+                 valid_string(cases[1].redirects[1], "https://server/end") &&
                  cases[1].redirects[2] == 0;
     int fields = cases[0].success == 0 && cases[1].success == 1 &&
                  valid_string(cases[1].url, "http://server/start");

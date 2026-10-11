@@ -94,8 +94,7 @@ void test_link_argv_default_sequence(TestCtx *t)
     mk_crt_dir(LINK_CRT_DIR, true);
     arena_init(&ar);
     fill_linux_args(&a);
-    T_ASSERT(t,
-             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     /* Canonical order: -dynamic-linker BEFORE -o; crt1/crti before the
      * stream; the stream in argv order; -lc after it; crtn last. */
     idl = argv_index(&v, "-dynamic-linker");
@@ -158,8 +157,7 @@ void test_link_argv_static_grouping(TestCtx *t)
     arena_init(&ar);
     fill_linux_args(&a);
     a.static_link = true;
-    T_ASSERT(t,
-             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     T_ASSERT(t, argv_index(&v, "-static") == 1);
     T_ASSERT(t, argv_index(&v, "-dynamic-linker") < 0);
     isg = argv_index(&v, "--start-group");
@@ -184,8 +182,7 @@ void test_link_argv_atomic16_dependency(TestCtx *t)
     arena_init(&ar);
     fill_linux_args(&a);
     a.needs_libatomic = true;
-    T_ASSERT(t,
-             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     ilg = argv_index_prefix(&v, "-L/usr/lib/gcc/");
     isg = argv_index(&v, "--start-group");
     ila = argv_index(&v, "-latomic");
@@ -203,8 +200,7 @@ void test_link_argv_atomic16_dependency(TestCtx *t)
     memset(&v, 0, sizeof(v));
     a.needs_libatomic = true;
     a.static_link = true;
-    T_ASSERT(t,
-             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     isg = argv_index(&v, "--start-group");
     ila = argv_index(&v, "-latomic");
     ilc = argv_index(&v, "-lc");
@@ -233,8 +229,7 @@ void test_link_argv_cgf_safe_wrap_family(TestCtx *t)
     arena_init(&ar);
     fill_linux_args(&a);
     a.fcgf_safe = true;
-    T_ASSERT(t,
-             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     previous = argv_index(&v, "--eh-frame-hdr");
     for (i = 0; i < CGF_ARRAY_LEN(wraps); i++) {
         int at = argv_index(&v, wraps[i]);
@@ -248,8 +243,7 @@ void test_link_argv_cgf_safe_wrap_family(TestCtx *t)
 
     fill_linux_args(&a);
     memset(&v, 0, sizeof(v));
-    T_ASSERT(t,
-             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     T_ASSERT(t, argv_index(&v, "--wrap=malloc") < 0);
     VecStr_free(&v);
     args_free(&a);
@@ -270,8 +264,7 @@ void test_link_argv_subtraction(TestCtx *t)
     fill_linux_args(&a);
     a.nostartfiles = true;
     memset(&v, 0, sizeof(v));
-    T_ASSERT(t,
-             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     T_ASSERT(t, argv_index_suffix(&v, "/crt1.o") < 0);
     T_ASSERT(t, argv_index_suffix(&v, "/crtn.o") < 0);
     T_ASSERT(t, argv_index(&v, "-lc") > 0);
@@ -283,8 +276,7 @@ void test_link_argv_subtraction(TestCtx *t)
     a.nodefaultlibs = true;
     a.fcgf_safe = true;
     memset(&v, 0, sizeof(v));
-    T_ASSERT(t,
-             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     T_ASSERT(t, argv_index_suffix(&v, "/crt1.o") > 0);
     T_ASSERT(t, argv_index_suffix(&v, "/crtn.o") > 0);
     T_ASSERT(t, argv_index(&v, "-lc") < 0);
@@ -297,8 +289,7 @@ void test_link_argv_subtraction(TestCtx *t)
     a.nostdlib = true;
     a.fcgf_safe = true;
     memset(&v, 0, sizeof(v));
-    T_ASSERT(t,
-             toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     T_ASSERT(t, argv_index_suffix(&v, "/crt1.o") < 0);
     T_ASSERT(t, argv_index(&v, "-lc") < 0);
     T_ASSERT(t, argv_index(&v, "--wrap=malloc") < 0);

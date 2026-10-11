@@ -725,8 +725,7 @@ bool type_array_initializer_compatible(const Type *target, const Type *source)
     return type_compatible(&target_unqual, &source_unqual);
 }
 
-bool type_string_initializer_compatible(const Type *target,
-                                        const Type *source)
+bool type_string_initializer_compatible(const Type *target, const Type *source)
 {
     Type target_elem;
     Type source_elem;

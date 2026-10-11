@@ -2111,8 +2111,7 @@ static bool array_size_from_init(Sema *s, Type *array, const AstNode *init,
         (init->kind == AST_INIT_LIST && init->nitems == 1 && init->items[0] &&
          init->items[0]->kind == AST_EXPR_STRING &&
          init->items[0]->ndesignators == 0 &&
-         type_string_initializer_compatible(array,
-                                            init->items[0]->sem_type))) {
+         type_string_initializer_compatible(array, init->items[0]->sem_type))) {
         const AstNode *str =
             init->kind == AST_EXPR_STRING ? init : init->items[0];
 

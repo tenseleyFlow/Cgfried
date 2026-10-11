@@ -540,8 +540,7 @@ bool type_array_initializer_compatible(const Type *target, const Type *source);
  * either bound.  In particular, `char *items[] = { "x" }` initializes one
  * pointer element; the braces must not be flattened as a string-array
  * initializer. */
-bool type_string_initializer_compatible(const Type *target,
-                                        const Type *source);
+bool type_string_initializer_compatible(const Type *target, const Type *source);
 /* 6.2.7p3. `int a[]` + `int a[10]` -> `int[10]`; `int f()` + a prototype
  * -> the prototype. Requires the two to be compatible. */
 Type *type_composite(Arena *ar, Type *a, Type *b);

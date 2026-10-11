@@ -1149,8 +1149,7 @@ void test_sema_builtin_bzero_contract(TestCtx *t)
     T_ASSERT_EQ_INT(t, f.errors, 2);
     sfix_free(&f);
 
-    run_sema(&f,
-             "void f(const void *p) { __builtin_bzero(p, 1); }\n",
+    run_sema(&f, "void f(const void *p) { __builtin_bzero(p, 1); }\n",
              STD_GNU17);
     T_ASSERT_EQ_INT(t, f.errors, 0);
     T_ASSERT(t, f.warnings > 0); /* destination qualifier discard */

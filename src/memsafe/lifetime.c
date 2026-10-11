@@ -3747,7 +3747,8 @@ static const char *safe_wrapper_name(const char *name)
  * --wrap remains useful for allocations originating in an unsafe ELF object,
  * but it cannot be the safe-TU mechanism: ld64 has no equivalent option.
  * Retarget only direct external calls after every analysis is complete so the
- * source-level allocator summaries and alias sites keep their ordinary names. */
+ * source-level allocator summaries and alias sites keep their ordinary names.
+ */
 static bool retarget_safe_runtime_calls(MsFunctionResult *result)
 {
     IrModule *module = result->module;

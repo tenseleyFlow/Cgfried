@@ -5139,8 +5139,7 @@ static IrOperand lower_libc_builtin(Lower *lo, AstNode *e)
                 if (e->op == SEMA_BUILTIN_MEMPCPY)
                     return ir_op_value(
                         lo->fn, ir_build_ptradd(&lo->b, args[0], args[2]));
-                if (e->op == SEMA_BUILTIN_BCOPY ||
-                    e->op == SEMA_BUILTIN_BZERO)
+                if (e->op == SEMA_BUILTIN_BCOPY || e->op == SEMA_BUILTIN_BZERO)
                     return ir_op_undef(IRT_I32);
                 return libc[k].ret == IRT_VOID ? ir_op_undef(IRT_I32)
                                                : ir_op_value(lo->fn, call);
