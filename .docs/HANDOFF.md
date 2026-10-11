@@ -10022,6 +10022,14 @@ and green post-publication CI.
   `long double`. The intentional builtin/fixture surface change advances the
   5,000-iteration frontend-fuzz digest to `9d471456735b8b36`; the 2,000-case
   smoke run has zero findings. Repaired Linux campaign publication is pending.
+  The first repaired CI run (`38173536402`) proved the full campaign on native
+  ARM64 (22/22 tests) but exposed an x86-only runtime issue: `runtest`,
+  `runsuite`, and `testparser` segfaulted after compiling and linking cleanly.
+  The original lowering used two nested select diamonds to assemble the
+  three-state result. It now subtracts the mutually exclusive `(x == -inf)`
+  predicate from `(x == +inf)`, preserving single evaluation and all NaN/
+  finite behavior without injecting control flow into its surrounding x86
+  expression. Exact-head Linux republication remains pending.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
