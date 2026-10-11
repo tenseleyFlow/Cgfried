@@ -1084,3 +1084,4 @@ include ci/campaigns/mbedtls.mk
 include ci/campaigns/libpng.mk
 include ci/campaigns/libjpeg.mk
 include ci/campaigns/zstd.mk
+include ci/campaigns/libxml2.mk
