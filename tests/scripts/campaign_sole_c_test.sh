@@ -17,6 +17,7 @@ tmp=$(CDPATH='' cd "$tmp" && pwd -P)
 
 write_source() {
     directory=$1
+    mkdir -p "$directory/dup-one" "$directory/dup-two"
     cat >"$directory/lib.c" <<'EOF'
 int answer(void) { return 42; }
 EOF
@@ -30,6 +31,12 @@ int main(void) { return answer() != 42; }
 EOF
     cat >"$directory/extra.c" <<'EOF'
 int extra(void) { return 7; }
+EOF
+    cat >"$directory/dup-one/shared.c" <<'EOF'
+int dup_one(void) { return 11; }
+EOF
+    cat >"$directory/dup-two/shared.c" <<'EOF'
+int dup_two(void) { return 22; }
 EOF
 }
 
@@ -48,10 +55,15 @@ write_manifest() {
 # cgf-sole-c-closure-v1
 object	$directory/lib.c	$directory/lib.o
 object	$directory/main.c	$directory/main.o
+object	$directory/dup-one/shared.c	$directory/dup-one/shared.o
+object	$directory/dup-two/shared.c	$directory/dup-two/shared.o
 compile-link	$directory/bench.c	$directory/bench
 archive	$directory/libanswer.a	lib.o	$directory/lib.o
+archive	$directory/libduplicates.a	shared.o	$directory/dup-one/shared.o
+archive	$directory/libduplicates.a	shared.o	$directory/dup-two/shared.o
 link-input	$directory/app	$directory/main.o
 link-input	$directory/app	$directory/libanswer.a
+link-input	$directory/app	$directory/libduplicates.a
 link-input	$directory/bench	$directory/bench.c
 link-input	$directory/bench	$directory/libanswer.a
 EOF
@@ -72,9 +84,25 @@ build_fixture() {
         "$sole" cc "$directory/receipts" "$directory/designated-cc" \
             -c "$directory/main.c" -o "$directory/main.o"
     fi
-    ar rc "$directory/libanswer.a" "$directory/lib.o"
     "$sole" cc "$directory/receipts" "$directory/designated-cc" \
-        "$directory/main.o" "$directory/libanswer.a" -o "$directory/app"
+        -c "$directory/dup-one/shared.c" -o "$directory/dup-one/shared.o"
+    "$sole" cc "$directory/receipts" "$directory/designated-cc" \
+        -c "$directory/dup-two/shared.c" -o "$directory/dup-two/shared.o"
+    [ "$(wc -c <"$directory/dup-one/shared.o" | tr -d ' ')" -eq \
+      "$(wc -c <"$directory/dup-two/shared.o" | tr -d ' ')" ] || {
+        echo 'campaign-sole-c-meta: duplicate-name objects have unequal sizes' >&2
+        exit 1
+    }
+    if cmp -s "$directory/dup-one/shared.o" "$directory/dup-two/shared.o"; then
+        echo 'campaign-sole-c-meta: duplicate-name objects are unexpectedly identical' >&2
+        exit 1
+    fi
+    ar rc "$directory/libanswer.a" "$directory/lib.o"
+    ar rcs "$directory/libduplicates.a" \
+        "$directory/dup-one/shared.o" "$directory/dup-two/shared.o"
+    "$sole" cc "$directory/receipts" "$directory/designated-cc" \
+        "$directory/main.o" "$directory/libanswer.a" \
+        "$directory/libduplicates.a" -o "$directory/app"
     "$sole" cc "$directory/receipts" "$directory/designated-cc" \
         "$directory/bench.c" "$directory/libanswer.a" -o "$directory/bench"
     write_manifest "$directory"
@@ -98,11 +126,15 @@ expect_fail() {
 build_fixture "$tmp/valid"
 "$sole" verify "$tmp/valid/receipts" "$tmp/valid/designated-cc" \
     "$tmp/valid/closure.tsv" "$tmp/valid/report.txt" >/dev/null
-grep -F 'project_objects=2' "$tmp/valid/report.txt" >/dev/null
-grep -F 'archive_members=1' "$tmp/valid/report.txt" >/dev/null
+grep -F 'project_objects=4' "$tmp/valid/report.txt" >/dev/null
+grep -F 'archive_members=3' "$tmp/valid/report.txt" >/dev/null
 grep -F 'linked_products=2' "$tmp/valid/report.txt" >/dev/null
-grep -F 'translations=3' "$tmp/valid/report.txt" >/dev/null
+grep -F 'translations=5' "$tmp/valid/report.txt" >/dev/null
 grep -F 'status=PASS' "$tmp/valid/report.txt" >/dev/null
+[ "$(ar t "$tmp/valid/libduplicates.a" | grep -c '^shared\.o$')" -eq 2 ] || {
+    echo 'campaign-sole-c-meta: duplicate archive members were not retained' >&2
+    exit 1
+}
 
 # A process identifier is not a unique invocation identity: long parallel
 # campaigns can reuse one, and a sourced adapter naturally makes repeated
@@ -139,6 +171,25 @@ ar rc "$tmp/archive/libanswer.a" "$tmp/archive/host/lib.o"
 expect_fail archive-substitution 'archive member differs from certified object' \
     "$sole" verify "$tmp/archive/receipts" "$tmp/archive/designated-cc" \
     "$tmp/archive/closure.tsv" "$tmp/archive/report.txt"
+
+# Keep the duplicate names and byte sizes unchanged while substituting the
+# first object for the second.  Only ordered aggregate payload verification
+# can distinguish this archive portably: BSD and GNU ar provide different
+# nonportable ordinal-selection interfaces.
+build_fixture "$tmp/duplicate-archive"
+rm "$tmp/duplicate-archive/libduplicates.a"
+mkdir "$tmp/duplicate-archive/dup-copy"
+cp "$tmp/duplicate-archive/dup-one/shared.o" \
+    "$tmp/duplicate-archive/dup-copy/shared.o"
+ar rcs "$tmp/duplicate-archive/libduplicates.a" \
+    "$tmp/duplicate-archive/dup-one/shared.o" \
+    "$tmp/duplicate-archive/dup-copy/shared.o"
+expect_fail duplicate-archive-substitution \
+    'archive member differs from certified object' \
+    "$sole" verify "$tmp/duplicate-archive/receipts" \
+    "$tmp/duplicate-archive/designated-cc" \
+    "$tmp/duplicate-archive/closure.tsv" \
+    "$tmp/duplicate-archive/report.txt"
 
 build_fixture "$tmp/missing" missing-receipt
 expect_fail missing-receipt 'recorded translation/link closure differs from the manifest' \
