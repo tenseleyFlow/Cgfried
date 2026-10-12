@@ -3401,14 +3401,14 @@ void test_lower_asm_arm64_multiple_rmw_outputs(TestCtx *t)
     LowFix f;
     const IrAsm *a;
 
-    T_ASSERT(t, run_lower_target_opts(&f,
-                                      "void fence(unsigned long a, "
-                                      "unsigned long b) {\n"
-                                      "  __asm__(\"\" : \"+r\"(a), "
-                                      "\"+r\"(b));\n"
-                                      "}\n",
-                                      STD_GNU17, false,
-                                      CGF_TARGET_ARM64_LINUX));
+    T_ASSERT(t,
+             run_lower_target_opts(&f,
+                                   "void fence(unsigned long a, "
+                                   "unsigned long b) {\n"
+                                   "  __asm__(\"\" : \"+r\"(a), "
+                                   "\"+r\"(b));\n"
+                                   "}\n",
+                                   STD_GNU17, false, CGF_TARGET_ARM64_LINUX));
     T_ASSERT_EQ_INT(t, f.m->nasms, 1);
     a = &f.m->asms[0];
     T_ASSERT_EQ_INT(t, a->noutputs, 2);

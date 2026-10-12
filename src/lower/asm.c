@@ -464,8 +464,7 @@ static bool validate_register_outputs(Lower *lo, const AstNode *s,
         if (register_outputs == 1)
             continue;
         if (asm_target_is_arm64(lo)) {
-            if (op->cls == ASM_CLS_REG &&
-                tied_input_count(ops, n, i) == 1)
+            if (op->cls == ASM_CLS_REG && tied_input_count(ops, n, i) == 1)
                 continue;
             asm_error(lo, s->asm_ops[i].span,
                       "an asm with more than one register output on arm64 "

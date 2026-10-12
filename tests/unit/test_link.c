@@ -179,8 +179,7 @@ void test_link_argv_elf_rejects_framework(TestCtx *t)
     fill_args(&a);
     push_link(&a, LINK_FRAMEWORK, "CoreServices");
     a.nostdlib = true;
-    T_ASSERT(t,
-             !toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, !toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
     VecStr_free(&v);
     args_free(&a);
     arena_free_all(&ar);

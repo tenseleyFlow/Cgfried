@@ -782,8 +782,7 @@ void test_a64_isel_multiple_rmw_asm_outputs_share_tied_locations(TestCtx *t)
     dc = diag_ctx_new(&arena);
     module = ir_module_new(&arena, dc);
     irf = ir_func_new(module, "multi_rmw", IRT_VOID, params, 4);
-    ir_builder_at(&builder, module, irf,
-                  ir_block_new(module, irf, "entry"));
+    ir_builder_at(&builder, module, irf, ir_block_new(module, irf, "entry"));
 
     memset(asm_ops, 0, sizeof(asm_ops));
     for (i = 0; i < CGF_ARRAY_LEN(asm_ops); i++) {
