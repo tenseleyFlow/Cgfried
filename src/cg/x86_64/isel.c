@@ -3301,7 +3301,10 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
          * unfixed output can use the same vreg; fixed outputs use a fresh
          * pre-coloured input vreg. A write-only extra fixed output gets an
          * otherwise-unused READREG -> ASM reservation, and every extra fixed
-         * output is captured with READREG immediately after the asm. */
+         * output is captured with READREG immediately after the asm. An
+         * allocator-chosen extra read-write output shares its matching
+         * input's local vreg; that interval spans the asm and carries the
+         * template's changed register value into the post-asm store. */
         const IrAsm *a = in->callee && in->callee <= is->m->nasms
                              ? &is->m->asms[in->callee - 1]
                              : NULL;
@@ -3327,8 +3330,8 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
         memset(outkeep, 0, sizeof(outkeep));
         memset(clobval, 0, sizeof(clobval));
         /* Pass 1: the primary register output, so a tied input can target
-         * the instruction's one real def. Lowering permits later register
-         * outputs only when they are fixed and have one matching input. */
+         * the instruction's one real def. Lowering permits a later general
+         * register output only when it has exactly one matching input. */
         for (k = 0; k < a->nops && k < 64; k++)
             if (a->ops[k].is_output && a->ops[k].cls != ASM_CLS_MEM) {
                 if (a->ops[k].cls == ASM_CLS_X87) {
@@ -3414,6 +3417,14 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
                 if (out->cls == ASM_CLS_FIXED)
                     mv->def_fixed = (u8)(out->reg + 1);
                 opreg[k] = dst;
+                /* The extra general output has no MIR def slot. Its one
+                 * matching input deliberately remains live in the same
+                 * allocator-chosen register through the opaque asm, and the
+                 * post-asm store observes the register after the template
+                 * has modified it. Fixed extras are captured by READREG
+                 * below instead. */
+                if (tied != outidx && out->cls == ASM_CLS_REG)
+                    outval[tied] = dst;
                 continue;
             }
             /* An input, or a memory operand's ADDRESS: both are just a
@@ -3557,8 +3568,14 @@ static void sel_inst(Isel *is, const IrInst *in, const IrBlock *irb)
             if (!o->is_output || o->cls == ASM_CLS_MEM ||
                 o->cls == ASM_CLS_X87 || o->cls == ASM_CLS_X87UP || k == outidx)
                 continue;
+            if (o->cls == ASM_CLS_REG) {
+                if (!outval[k].v)
+                    CGF_ICE("x86_64 isel: read-write extra asm output has no "
+                            "matching input vreg");
+                continue;
+            }
             if (o->cls != ASM_CLS_FIXED)
-                CGF_ICE("x86_64 isel: extra asm output is not fixed");
+                CGF_ICE("x86_64 isel: unsupported extra asm output class");
             outval[k] = newv(is);
             rr = emit(is, X64_OP_READREG, asm_width(o->size));
             rr->def = outval[k];

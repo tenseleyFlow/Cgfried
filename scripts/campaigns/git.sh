@@ -7,7 +7,6 @@ export LC_ALL
 GIT_VERSION=2.56.0
 GIT_COMMIT=a018953688f1b10bddf91bff8747068f5f4746a4
 GIT_SHA256=26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3
-SHELL_TEST_COUNT=33203
 UNIT_TEST_COUNT=261
 LINKED_PRODUCT_COUNT=10
 
@@ -69,6 +68,9 @@ case $compiler_target in
         cflags='-std=gnu17 -O2 -Wno-attributes'
         object_count=563
         archive_member_count=303
+        shell_test_count=33235
+        shell_success_count=32180
+        shell_broken_count=358
         OBJECT_CLOSURE_SHA256=d9b0880c5429ae58bddd45d23657107d196d5695a5a80d49a803e8c819e8402a
         LINK_CLOSURE_SHA256=63d4eea89da713655eea0f566411a80d948ca690ecf9c1159131197a45f29810
         ARCHIVE_CLOSURE_SHA256=dd9aecc20b76c312262bd76c2b3883bf2ad5d3605fa7f683338eb6b10ad8ccf0
@@ -78,6 +80,9 @@ case $compiler_target in
         cflags='-std=gnu17 -O2 -Wno-attributes -DTARGET_CPU_ARM64=1 -DTARGET_OS_MAC=1 -DTARGET_OS_OSX=1'
         object_count=565
         archive_member_count=305
+        shell_test_count=33203
+        shell_success_count=31846
+        shell_broken_count=361
         OBJECT_CLOSURE_SHA256=aacbf0461c958cdde7e1ff71a5d45778c78ea604fed98f06b92ffd9a316e143f
         LINK_CLOSURE_SHA256=63d4eea89da713655eea0f566411a80d948ca690ecf9c1159131197a45f29810
         ARCHIVE_CLOSURE_SHA256=ea88eaa097cd20fa972f62a5a05c770b53ea018694a93f94a73fcbb9354da7cc
@@ -397,8 +402,12 @@ test_shell_tree() {
         fail "$label shell summary omitted total count"
     [ "$fixed" -eq 0 ] || fail "$label shell suite fixed a declared breakage"
     [ "$failed" -eq 0 ] || fail "$label shell suite reported failures"
-    [ "$total" -eq "$SHELL_TEST_COUNT" ] ||
-        fail "$label shell suite ran $total tests, expected $SHELL_TEST_COUNT"
+    [ "$success" -eq "$shell_success_count" ] ||
+        fail "$label shell suite passed $success tests, expected $shell_success_count"
+    [ "$broken" -eq "$shell_broken_count" ] ||
+        fail "$label shell suite reported $broken known breakages, expected $shell_broken_count"
+    [ "$total" -eq "$shell_test_count" ] ||
+        fail "$label shell suite ran $total tests, expected $shell_test_count"
     {
         printf 'broken=%s\n' "$broken"
         printf 'failed=%s\n' "$failed"
@@ -616,7 +625,7 @@ validate_stage() {
         echo '# cgf-campaign-results-v1'
         printf '# columns=key\toutcome\tdetail\n'
         printf 'baseline.build\tPASS\tcompiler=host-cc,opt=O2\n'
-        printf 'baseline.test.shell\tPASS\ttests=33203,failures=0\n'
+        printf 'baseline.test.shell\tPASS\ttests=darwin:33203|linux:33235,successes=darwin:31846|linux:32180,known-breakages=darwin:361|linux:358,failures=0\n'
         printf 'baseline.test.unit\tPASS\ttests=261\n'
         printf 'build\tPASS\tarchives=1,objects=darwin:565|linux:563\n'
         printf 'compiler.sole-c\tPASS\tproject-objects=darwin:565|linux:563,archive-members=darwin:305|linux:303,linked-products=10\n'
@@ -625,7 +634,7 @@ validate_stage() {
         printf 'parity.smoke\tPASS\tinit=1,commit=1,log=matched\n'
         printf 'source.archive\tPASS\tsha256=%s\n' "$GIT_SHA256"
         printf 'source.pin\tPASS\tcommit=%s,version=%s\n' "$GIT_COMMIT" "$GIT_VERSION"
-        printf 'test.shell\tPASS\ttests=33203,failures=0,host=matched\n'
+        printf 'test.shell\tPASS\ttests=darwin:33203|linux:33235,successes=darwin:31846|linux:32180,known-breakages=darwin:361|linux:358,failures=0,host=matched\n'
         printf 'test.unit\tPASS\ttests=261,host=matched\n'
     } >"$work/results.txt"
     printf 'campaign-git: PASS target=%s results=%s artifacts=%s\n' \

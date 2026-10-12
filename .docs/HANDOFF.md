@@ -434,7 +434,8 @@ archive-member attestation tranche merged green-only as
 skipped checks at tested head `2617c1c79b2d3fc851040f63f24366cf8582d60a`,
 then merged green-only as `0a0cd8680ce3be7a5da82b6a2dc97fa08eeb803c`.
 The active `s56.97-git-campaign` branch starts from that exact merge and owns
-the pinned symmetric Git 2.56.0 publication campaign.
+the pinned symmetric Git 2.56.0 publication campaign plus its first native CI
+findings, `CAMP-GIT-004` and `CAMP-GIT-005`.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -10280,6 +10281,32 @@ and green post-publication CI.
   ordered archive members, and all ten linked products. CI adds the same
   offline-capable publication job on native x86-64 and ARM64 Linux and retains
   results, receipts, closure inventories, parity output, summaries, and logs.
+
+  The first native x86-64 publication run then exposed `CAMP-GIT-004` at
+  `xdiff/xutils.c:302`: the ARM64 prerequisite tranche had admitted Git's
+  two-`+r` reassociation fence, but x86-64 still admitted only fixed-register
+  extras. The x86 selector now gives each additional general read-write output
+  the localized vreg of its exactly one matching input. That interval spans
+  the opaque asm, keeps the allocator's physical-register choice stable, and
+  feeds the immediate post-asm store; template emission resolves the output
+  through the same tied xuse. This retains the one-def MIR contract and leaves
+  allocator-chosen write-only `=r` extras as an explicit refusal.
+
+  The same run proved `CAMP-GIT-005` on native ARM64 Linux. Both compiler and
+  test execution completed with zero failures, but Linux runs 33,235 shell
+  tests rather than Darwin's 33,203: 32,180 succeed and 358 are declared
+  upstream known breakages. The campaign now selects those exact per-platform
+  totals (Darwin remains 31,846 / 361), rejects any drift in success, broken,
+  failure, or unexpectedly-fixed counts, and still requires the independent
+  host-compiler summary to match byte for byte.
+
+  Focused lowering/selection/emission tests, the pre-existing fixed-output and
+  ARM64 controls, the full 1,040-unit suite (4,331,815 assertions), native
+  ARM64 execution at every optimization level, and x86-64 normal/spill-all
+  assembly are green locally. The stale torture-policy descriptions left by
+  the ARM64 half of this repair are narrowed at the same time; both targets
+  still reject GCC's write-only `inline-asm-1.c` shape, now under fingerprints
+  matching the live diagnostics.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

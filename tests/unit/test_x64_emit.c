@@ -738,6 +738,88 @@ void test_x64_isel_opaque_flag_clobbers_materialize_pending_compare(TestCtx *t)
     }
 }
 
+void test_x64_isel_multiple_rmw_asm_outputs_share_tied_locations(TestCtx *t)
+{
+    Arena a;
+    EmitFix fx = {0};
+    DiagCtx *dc;
+    DiagSink sink;
+    IrModule *m;
+    IrType params[4] = {IRT_PTR, IRT_PTR, IRT_I64, IRT_I64};
+    IrFunc *f;
+    IrBuilder b;
+    IrAsmOp asm_ops[4];
+    IrAsm as;
+    IrOperand operands[4];
+    X64Func *xf;
+    X64Inst *asm_inst = NULL;
+    Buf out;
+    u32 i;
+
+    arena_init(&a);
+    dc = diag_ctx_new(&a);
+    sink.handle = e_sink;
+    sink.user = &fx;
+    diag_set_sink(dc, sink);
+    m = ir_module_new(&a, dc);
+    f = ir_func_new(m, "multi_rmw", IRT_VOID, params, 4);
+    ir_builder_at(&b, m, f, ir_block_new(m, f, "entry"));
+
+    memset(asm_ops, 0, sizeof(asm_ops));
+    for (i = 0; i < CGF_ARRAY_LEN(asm_ops); i++) {
+        asm_ops[i].constraint = "+r";
+        asm_ops[i].cls = ASM_CLS_REG;
+        asm_ops[i].size = 8;
+        asm_ops[i].tied_to = -1;
+        operands[i] = ir_op_value(f, f->param_vals[i]);
+    }
+    asm_ops[0].is_output = true;
+    asm_ops[1].is_output = true;
+    asm_ops[2].tied_to = 0;
+    asm_ops[3].tied_to = 1;
+    memset(&as, 0, sizeof(as));
+    as.tmpl = "addq $1, %0\n\taddq $2, %1";
+    as.ops = asm_ops;
+    as.nops = CGF_ARRAY_LEN(asm_ops);
+    as.noutputs = 2;
+    ir_build_asm(&b, ir_asm_new(m, &as), operands, CGF_ARRAY_LEN(operands));
+    ir_build_ret(&b, NULL);
+
+    T_ASSERT(t, ir_verify(dc, m));
+    xf = x64_isel_function(m, f, &a, X64_PIC_NONE);
+    for (i = 0; i < xf->blocks[0].n; i++)
+        if (xf->blocks[0].insts[i].op == X64_OP_ASM)
+            asm_inst = &xf->blocks[0].insts[i];
+    T_ASSERT(t, asm_inst != NULL);
+    T_ASSERT(t, asm_inst && asm_inst->def.v != 0);
+    T_ASSERT_EQ_INT(t, asm_inst ? asm_inst->nxuses : 0, 2);
+    T_ASSERT(t, asm_inst && asm_inst->xuses[0].r.v == asm_inst->def.v);
+    T_ASSERT(t, asm_inst && asm_inst->xuses[1].r.v != 0);
+    T_ASSERT(t, asm_inst && asm_inst->xuses[1].r.v != asm_inst->xuses[0].r.v);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+
+    x64_regalloc(xf);
+    asm_inst = NULL;
+    for (i = 0; i < xf->blocks[0].n; i++)
+        if (xf->blocks[0].insts[i].op == X64_OP_ASM)
+            asm_inst = &xf->blocks[0].insts[i];
+    T_ASSERT(t, asm_inst != NULL);
+    T_ASSERT(t, asm_inst && asm_inst->def.v != 0);
+    T_ASSERT_EQ_INT(t, asm_inst ? asm_inst->nxuses : 0, 2);
+    T_ASSERT(t, asm_inst && asm_inst->xuses[0].r.v == asm_inst->def.v);
+    T_ASSERT(t, asm_inst && asm_inst->xuses[1].r.v != asm_inst->xuses[0].r.v);
+    T_ASSERT_EQ_INT(t, x64_mir_verify(xf, dc), 0);
+
+    buf_init(&out);
+    x64_emit_function(xf, m, 0, IRLINK_EXTERNAL, &out);
+    T_ASSERT(t, has(&out, "addq $1, %"));
+    T_ASSERT(t, has(&out, "addq $2, %"));
+    T_ASSERT(t, !has(&out, "<bad-asm-operand-"));
+    buf_free(&out);
+    T_ASSERT_EQ_INT(t, fx.errors, 0);
+    arena_free_all(&a);
+}
+
 void test_x64_isel_reserves_write_only_fixed_asm_outputs(TestCtx *t)
 {
     Arena a;

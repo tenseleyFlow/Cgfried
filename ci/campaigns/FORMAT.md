@@ -82,7 +82,9 @@ OpenSSL 3.5.9 is the eighth certified closure and seventh large-FOSS rung:
 is the ninth certified closure and eighth large-FOSS rung: 563 C translations,
 all 303 ordered `libgit.a` members (including duplicate `fsck.o` and `tree.o`
 basenames), ten linked products, 261 C unit tests, and the complete 33,203-test
-shell suite on each native Linux architecture.
+shell suite on Darwin. Both native Linux architectures instead run the exact
+33,235-test platform plan; the campaign pins each platform's success and known-
+breakage counts and requires the pristine host-compiler summary to match.
 
 Run `scripts/campaign-lint.sh` to validate every installed descriptor and
 expected file plus `ladder.yml`.  Paths may be passed to lint a bounded
