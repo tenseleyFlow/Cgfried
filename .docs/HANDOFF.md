@@ -10306,7 +10306,10 @@ and green post-publication CI.
   assembly are green locally. The stale torture-policy descriptions left by
   the ARM64 half of this repair are narrowed at the same time; both targets
   still reject GCC's write-only `inline-asm-1.c` shape, now under fingerprints
-  matching the live diagnostics.
+  matching the live diagnostics. Editing that permanent GNU asm fixture
+  intentionally moves the 5,000-step deterministic frontend-fuzz digest to
+  `c1d8ab43ae2300f5`; native Apple ARM64 and hosted Linux x86-64 reproduce the
+  same value, and the 2,000-iteration smoke run has zero findings.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
