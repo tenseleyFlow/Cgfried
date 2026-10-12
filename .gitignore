@@ -32,3 +32,4 @@ build-san/
 build-clang/
 *.o
 *.a
+cgfried-*.tar.gz

@@ -5,9 +5,7 @@
 
 #include "driver/args.h"
 #include "util/base.h"
-
-/* Single source of truth for the version; Sprint 62 audits every copy. */
-#define CGF_VERSION "0.1.0"
+#include "version.h"
 
 /* Exit-code contract (see .docs/sprints/00-scaffolding/s00). main() is the
  * single return-to-OS site; everything else returns status up. Only cgf_ice

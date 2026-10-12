@@ -1166,3 +1166,78 @@ jobs:
           cat macho-objdiff.log
           [ "${s:-0}" -eq 0 ]
           ! grep -q HARNESS_SKIP macho-objdiff.log
+
+  # Sprint 62: build from the exported source archive on every native release
+  # platform. Each lane uploads the archive it tested; the aggregation job
+  # proves that independently produced host archives are byte-identical.
+  release-dist:
+    name: dist-check (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            runner: ubuntu-latest
+            packages: ""
+            cc: gcc
+          - target: arm64-linux
+            runner: ubuntu-24.04-arm
+            packages: binutils libc6-dev
+            cc: gcc
+          - target: arm64-macos
+            runner: macos-15
+            packages: ""
+            cc: cc
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: initialize pinned submodules through HTTPS
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1
+      - name: install native release-lane prerequisites
+        if: matrix.packages != ''
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ${{ matrix.packages }}
+      - name: create the object-derived source archive
+        run: make dist
+      - name: build, test, install, and compile from the exported archive
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh scripts/dist-check.sh cgfried-0.1.0.tar.gz
+      - name: retain the exact tested source archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: cgfried-dist-${{ matrix.target }}
+          path: cgfried-0.1.0.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+
+  release-dist-reproducible:
+    name: dist reproducible across hosts
+    needs: release-dist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: cgfried-dist-x86_64-linux
+          path: dist/x86_64-linux
+      - uses: actions/download-artifact@v8
+        with:
+          name: cgfried-dist-arm64-linux
+          path: dist/arm64-linux
+      - uses: actions/download-artifact@v8
+        with:
+          name: cgfried-dist-arm64-macos
+          path: dist/arm64-macos
+      - name: compare every host product byte-for-byte
+        run: |
+          x86=dist/x86_64-linux/cgfried-0.1.0.tar.gz
+          arm=dist/arm64-linux/cgfried-0.1.0.tar.gz
+          mac=dist/arm64-macos/cgfried-0.1.0.tar.gz
+          sha256sum "$x86" "$arm" "$mac"
+          cmp "$x86" "$arm"
+          cmp "$x86" "$mac"
