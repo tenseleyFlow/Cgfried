@@ -562,6 +562,63 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Seventh post-v0.1.0 large-FOSS rung. OpenSSL's complete no-assembly static
+  # build is sole-C certified on both native Linux architectures. Every one of
+  # the 347 upstream recipe files / 4,009 tests must pass in both the Cgfried
+  # and pristine host-compiler lanes; the sole compile-only _Complex probe is
+  # replaced symmetrically under the audited CAMP-OPENSSL-001 boundary.
+  campaign-openssl:
+    name: campaign-openssl (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: cache the pinned OpenSSL archive
+        uses: actions/cache@v5
+        with:
+          path: build/campaigns/dl
+          key: campaign-openssl-3.5.9-603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+      - name: build the compiler and verify the campaign contract
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          scripts/campaign-lint.sh
+          tests/scripts/campaign_contract_test.sh
+          tests/scripts/campaign_sole_c_test.sh
+      - name: populate the verified cache and run the offline campaign
+        run: |
+          make campaign-openssl-fetch
+          CGF_CAMPAIGN_OFFLINE=1 make openssl-expected
+      - name: retain OpenSSL campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-foss-openssl-${{ matrix.arch }}
+          path: |
+            build/campaigns/openssl/results.txt
+            build/campaigns/openssl/provenance.txt
+            build/campaigns/openssl/sole-c/**
+            build/campaigns/openssl/sole-c-closure.tsv
+            build/campaigns/openssl/sole-c-report.txt
+            build/campaigns/openssl/object-closure.tsv
+            build/campaigns/openssl/link-closure.tsv
+            build/campaigns/openssl/archive-closure.tsv
+            build/campaigns/openssl/program-closure.txt
+            build/campaigns/openssl/logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS

@@ -136,8 +136,8 @@ record_invocation() {
         kind=link
     fi
 
-    receipt_dir=$receipts/invocations/$$
-    mkdir "$receipt_dir" || fail "receipt process identifier was reused: $$"
+    receipt_dir=$(mktemp -d "$receipts/invocations/receipt.XXXXXX") ||
+        fail "cannot allocate a unique receipt directory"
     receipt=$receipt_dir/receipt.txt
     {
         echo '# cgf-sole-c-receipt-v1'

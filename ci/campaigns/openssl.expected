@@ -1,0 +1,12 @@
+# cgf-campaign-results-v1
+# columns=key	outcome	detail
+baseline.build	PASS	compiler=host-cc,opt=O2
+baseline.test.upstream	PASS	files=347,tests=4009
+build	PASS	archives=8,objects=1681
+compiler.sole-c	PASS	project-objects=1681,archive-members=1350,linked-products=343
+configure	PASS	asm=off,atomics=off,docs=off,mode=static
+linkage	PASS	archives=8,binaries=343,static=yes
+scope.rsa-complex	SKIP	CAMP-OPENSSL-001;replacement=checksum-pinned-no-op
+source.archive	PASS	sha256=603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+source.pin	PASS	commit=45e844fa2a14ec92d146bd8f5778ac130b6625fb,version=3.5.9
+test.upstream	PASS	files=347,tests=4009
