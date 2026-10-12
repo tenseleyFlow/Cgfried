@@ -1167,6 +1167,52 @@ jobs:
           [ "${s:-0}" -eq 0 ]
           ! grep -q HARNESS_SKIP macho-objdiff.log
 
+  # Sprint 51's fifth target needs a native execution witness, not only the
+  # cross-emission check in `make test`.  Keep this as a small PR smoke: the
+  # full imported corpus is substantially slower in the VM, while compiling,
+  # statically linking, and executing through both assembler routes proves the
+  # target ABI, FreeBSD branding note, crt discovery, libc link, and kernel
+  # handoff on every change.
+  freebsd-x86_64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+      - name: initialize pinned submodules through HTTPS
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1 afs-as
+      - name: build and execute the x86_64-freebsd smoke
+        # vmactions/freebsd-vm v1.5.9; pin the immutable commit rather than
+        # allowing the release gate's VM implementation to drift under us.
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc
+        with:
+          release: '15.0'
+          prepare: pkg install -y binutils gmake rust
+          run: |
+            set -eu
+            gmake CC=cc -j2 all
+            cargo build --manifest-path afs-as/Cargo.toml --release
+            test "$(build/cgfried -dumpmachine)" = x86_64-freebsd
+            CGF_FREEBSD_SYSROOT=/ \
+              sh scripts/freebsd_cross_lane.sh build/cgfried \
+              > build/freebsd-cross.log 2>&1
+            cat build/freebsd-cross.log
+            ! grep -q HARNESS_SKIP build/freebsd-cross.log
+            grep -q 'native executions=2$' build/freebsd-cross.log
+      - name: retain the native FreeBSD target evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint51-freebsd-x86_64-smoke
+          path: |
+            build/freebsd-cross.log
+            build/freebsd-cross/probe.c
+          if-no-files-found: warn
+          retention-days: 90
+
   # Sprint 62: build from the exported source archive on every native release
   # platform. Each lane uploads the archive it tested; the aggregation job
   # proves that independently produced host archives are byte-identical.

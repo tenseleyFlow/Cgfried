@@ -6,10 +6,9 @@
 # aggregate classification is identical. Everything that differs is driver and
 # link time, and the FreeBSD sysroot proves it without a VM.
 #
-# What a VM adds is one question this cannot answer -- does the product
-# actually EXEC? -- and it has been answered on FreeBSD 15 by hand:
-# both a system-as and an afs-as build print and exit 0. See the ELF BRANDING
-# note below for why that was in doubt.
+# Cross-host runs prove the link and branding.  On a native FreeBSD host the
+# same lane must also EXECUTE both products; this is the permanent CI witness
+# for the kernel handoff that an ELF inspection alone cannot establish.
 #
 # Freestanding by construction: FreeBSD's sys/_types.h uses
 # __attribute__((__aligned__)) UNCONDITIONALLY, so hosted compilation waits on
@@ -41,6 +40,7 @@ int main(void)
 SRC
 
 pass=0
+native=0
 for as in afs system; do
     out=$WORK/probe.$as
     if [ "$as" = system ]; then
@@ -67,8 +67,17 @@ for as in afs system; do
         echo "freebsd_cross: $as build is not static" >&2
         exit 1
     fi
+    if [ "$(uname -s)" = FreeBSD ]; then
+        got=$("$out")
+        if [ "$got" != "freebsd ok" ]; then
+            echo "freebsd_cross: $as build executed with unexpected output:" >&2
+            printf '  %s\n' "$got" >&2
+            exit 1
+        fi
+        native=$((native + 1))
+    fi
     pass=$((pass + 1))
 done
 
 echo "freebsd_cross: $pass static FreeBSD binaries cross-linked and branded" \
-    "(afs-as + system as)"
+    "(afs-as + system as); native executions=$native"
