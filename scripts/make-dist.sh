@@ -33,7 +33,8 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-dist.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 name=cgfried-$version
 
-git -C "$root" archive --format=tar --prefix="$name/" "$treeish" |
+git -C "$root" -c tar.umask=0022 archive --format=tar \
+    --prefix="$name/" "$treeish" |
     tar -xf - -C "$tmp"
 
 common=$(git -C "$root" rev-parse --git-common-dir)
@@ -59,7 +60,7 @@ do
         echo "make-dist: run 'git submodule update --init'" >&2
         exit 1
     }
-    git --git-dir="$gitdir" archive --format=tar \
+    git --git-dir="$gitdir" -c tar.umask=0022 archive --format=tar \
         --prefix="$name/$submodule/" "$revision" |
         tar -xf - -C "$tmp"
 done
@@ -81,7 +82,7 @@ commit=$(
         GIT_AUTHOR_DATE="@$epoch +0000" GIT_COMMITTER_DATE="@$epoch +0000" \
         git -C "$archive_repo" commit-tree "$tree"
 )
-git -C "$archive_repo" archive --format=tar "$commit" |
+git -C "$archive_repo" -c tar.umask=0022 archive --format=tar "$commit" |
     gzip -n -9 >"$tmp/$name.tar.gz"
 mv -f "$tmp/$name.tar.gz" "$output"
 

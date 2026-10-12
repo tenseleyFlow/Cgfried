@@ -17,6 +17,11 @@ cmp "$tmp/one.tar.gz" "$tmp/two.tar.gz" || {
 }
 
 tar -tzf "$tmp/one.tar.gz" >"$tmp/members"
+tar -tvzf "$tmp/one.tar.gz" >"$tmp/modes"
+case $(sed -n '1p' "$tmp/modes") in
+    drwxr-xr-x*) ;;
+    *) echo "dist-repro: archive modes are not pinned to umask 0022" >&2; exit 1 ;;
+esac
 grep -q '^cgfried-0\.1\.0/afs-as/' "$tmp/members" ||
     { echo "dist-repro: afs-as sources are absent" >&2; exit 1; }
 grep -q '^cgfried-0\.1\.0/afs-ld/' "$tmp/members" ||
