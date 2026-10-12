@@ -81,10 +81,11 @@ OpenSSL 3.5.9 is the eighth certified closure and seventh large-FOSS rung:
 343 linked programs, and all 347 recipe files / 4,043 Linux tests. Git 2.56.0
 is the ninth certified closure and eighth large-FOSS rung: 563 C translations,
 all 303 ordered `libgit.a` members (including duplicate `fsck.o` and `tree.o`
-basenames), ten linked products, 261 C unit tests, and the complete 33,203-test
-shell suite on Darwin. Both native Linux architectures instead run the exact
-33,235-test platform plan; the campaign pins each platform's success and known-
-breakage counts and requires the pristine host-compiler summary to match.
+basenames), 19 linked products, 261 C unit tests, and the complete 33,235-test
+shell suite on both native Linux architectures. Darwin retains 565
+translations, 305 archive members, ten linked products, and its 33,203-test
+platform plan. The campaign pins each platform's success and known-breakage
+counts and requires the pristine host-compiler summary to match.
 
 Run `scripts/campaign-lint.sh` to validate every installed descriptor and
 expected file plus `ladder.yml`.  Paths may be passed to lint a bounded

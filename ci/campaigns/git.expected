@@ -4,9 +4,9 @@ baseline.build	PASS	compiler=host-cc,opt=O2
 baseline.test.shell	PASS	tests=darwin:33203|linux:33235,successes=darwin:31846|linux:32180,known-breakages=darwin:361|linux:358,failures=0
 baseline.test.unit	PASS	tests=261
 build	PASS	archives=1,objects=darwin:565|linux:563
-compiler.sole-c	PASS	project-objects=darwin:565|linux:563,archive-members=darwin:305|linux:303,linked-products=10
+compiler.sole-c	PASS	project-objects=darwin:565|linux:563,archive-members=darwin:305|linux:303,linked-products=darwin:10|linux:19
 configure	PASS	curl=off,expat=off,gettext=off,mode=gnu17,perl=off,python=off,rust=off,tcltk=off
-linkage	PASS	archives=1,binaries=10,static-project-closure=yes
+linkage	PASS	archives=1,binaries=darwin:10|linux:19,static-project-closure=yes
 parity.smoke	PASS	init=1,commit=1,log=matched
 source.archive	PASS	sha256=26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3
 source.pin	PASS	commit=a018953688f1b10bddf91bff8747068f5f4746a4,version=2.56.0

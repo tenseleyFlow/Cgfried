@@ -8,7 +8,6 @@ GIT_VERSION=2.56.0
 GIT_COMMIT=a018953688f1b10bddf91bff8747068f5f4746a4
 GIT_SHA256=26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3
 UNIT_TEST_COUNT=261
-LINKED_PRODUCT_COUNT=10
 
 fail() {
     echo "campaign-git: $*" >&2
@@ -68,11 +67,13 @@ case $compiler_target in
         cflags='-std=gnu17 -O2 -Wno-attributes'
         object_count=563
         archive_member_count=303
+        # config.mak.uname enables LINK_FUZZ_PROGRAMS only on Linux.
+        linked_product_count=19
         shell_test_count=33235
         shell_success_count=32180
         shell_broken_count=358
         OBJECT_CLOSURE_SHA256=d9b0880c5429ae58bddd45d23657107d196d5695a5a80d49a803e8c819e8402a
-        LINK_CLOSURE_SHA256=63d4eea89da713655eea0f566411a80d948ca690ecf9c1159131197a45f29810
+        LINK_CLOSURE_SHA256=11f3fec574812a1cfebe2d9831afac47cf09585556724b95ce5d702534a89e7a
         ARCHIVE_CLOSURE_SHA256=dd9aecc20b76c312262bd76c2b3883bf2ad5d3605fa7f683338eb6b10ad8ccf0
         ;;
     arm64-macos)
@@ -80,6 +81,7 @@ case $compiler_target in
         cflags='-std=gnu17 -O2 -Wno-attributes -DTARGET_CPU_ARM64=1 -DTARGET_OS_MAC=1 -DTARGET_OS_OSX=1'
         object_count=565
         archive_member_count=305
+        linked_product_count=10
         shell_test_count=33203
         shell_success_count=31846
         shell_broken_count=361
@@ -308,6 +310,19 @@ t/helper/test-fake-ssh
 t/helper/test-tool
 t/unit-tests/bin/unit-tests
 EOF
+    if [ "$platform" = linux ]; then
+        cat <<'EOF'
+oss-fuzz/fuzz-commit-graph
+oss-fuzz/fuzz-config
+oss-fuzz/fuzz-credential-from-url-gently
+oss-fuzz/fuzz-date
+oss-fuzz/fuzz-pack-headers
+oss-fuzz/fuzz-pack-idx
+oss-fuzz/fuzz-parse-attr-line
+oss-fuzz/fuzz-reftable
+oss-fuzz/fuzz-url-decode-mem
+EOF
+    fi
 }
 
 verify_products() {
@@ -559,8 +574,8 @@ verify_inventory_contract() {
     write_expected_products | sort >"$work/expected-products.txt"
     cmp "$work/expected-products.txt" "$program_inventory" >/dev/null ||
         fail "linked-product inventory differs from Git's pinned products"
-    [ "$(wc -l <"$program_inventory" | tr -d ' ')" -eq "$LINKED_PRODUCT_COUNT" ] ||
-        fail "sole-C linked-product closure is not exactly $LINKED_PRODUCT_COUNT products"
+    [ "$(wc -l <"$program_inventory" | tr -d ' ')" -eq "$linked_product_count" ] ||
+        fail "sole-C linked-product closure is not exactly $linked_product_count products"
     for tuple in \
         "$OBJECT_CLOSURE_SHA256:$object_got:object" \
         "$LINK_CLOSURE_SHA256:$link_got:link" \
@@ -608,6 +623,9 @@ validate_stage() {
     test_shell_tree host "$host_tree" "$hostcc" host
     cmp "$work/cgfried-shell-summary.txt" "$work/host-shell-summary.txt" >/dev/null ||
         fail "host and Cgfried shell-test summaries differ"
+    # Each smoke creates a repository; direct validation reruns must not add a
+    # second commit to a repository left by the preceding successful run.
+    rm -rf "$work/parity"
     mkdir -p "$work/parity"
     run_smoke cgfried "$tree"
     run_smoke host "$host_tree"
@@ -628,9 +646,9 @@ validate_stage() {
         printf 'baseline.test.shell\tPASS\ttests=darwin:33203|linux:33235,successes=darwin:31846|linux:32180,known-breakages=darwin:361|linux:358,failures=0\n'
         printf 'baseline.test.unit\tPASS\ttests=261\n'
         printf 'build\tPASS\tarchives=1,objects=darwin:565|linux:563\n'
-        printf 'compiler.sole-c\tPASS\tproject-objects=darwin:565|linux:563,archive-members=darwin:305|linux:303,linked-products=10\n'
+        printf 'compiler.sole-c\tPASS\tproject-objects=darwin:565|linux:563,archive-members=darwin:305|linux:303,linked-products=darwin:10|linux:19\n'
         printf 'configure\tPASS\tcurl=off,expat=off,gettext=off,mode=gnu17,perl=off,python=off,rust=off,tcltk=off\n'
-        printf 'linkage\tPASS\tarchives=1,binaries=10,static-project-closure=yes\n'
+        printf 'linkage\tPASS\tarchives=1,binaries=darwin:10|linux:19,static-project-closure=yes\n'
         printf 'parity.smoke\tPASS\tinit=1,commit=1,log=matched\n'
         printf 'source.archive\tPASS\tsha256=%s\n' "$GIT_SHA256"
         printf 'source.pin\tPASS\tcommit=%s,version=%s\n' "$GIT_COMMIT" "$GIT_VERSION"

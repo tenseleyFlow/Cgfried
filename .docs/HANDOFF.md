@@ -435,7 +435,7 @@ skipped checks at tested head `2617c1c79b2d3fc851040f63f24366cf8582d60a`,
 then merged green-only as `0a0cd8680ce3be7a5da82b6a2dc97fa08eeb803c`.
 The active `s56.97-git-campaign` branch starts from that exact merge and owns
 the pinned symmetric Git 2.56.0 publication campaign plus its first native CI
-findings, `CAMP-GIT-004` and `CAMP-GIT-005`.
+findings, `CAMP-GIT-004` through `CAMP-GIT-007`.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -10262,11 +10262,13 @@ and green post-publication CI.
   of reconstructing duplicate members by basename. Both Linux architectures
   have the same 563-object / 303-member topology, including distinct pairs of
   `fsck.o` and `tree.o`, while Darwin retains its measured 565 / 305 profile.
-  Ten actual compiler-linked products are certified; dashed built-ins that are
-  hardlinks to `git` are not misreported as separate link operations. Linux
-  object, link, and archive topology SHA-256 values are respectively
+  Darwin's ten actual compiler-linked products are certified; dashed built-ins
+  that are hardlinks to `git` are not misreported as separate link operations.
+  Linux additionally enables Git's `LINK_FUZZ_PROGRAMS` platform policy, so
+  its nine retained `oss-fuzz/*` fuzzer binaries make 19 certified products.
+  Linux object, link, and archive topology SHA-256 values are respectively
   `d9b0880c5429ae58bddd45d23657107d196d5695a5a80d49a803e8c819e8402a`,
-  `63d4eea89da713655eea0f566411a80d948ca690ecf9c1159131197a45f29810`,
+  `11f3fec574812a1cfebe2d9831afac47cf09585556724b95ce5d702534a89e7a`,
   and `dd9aecc20b76c312262bd76c2b3883bf2ad5d3605fa7f683338eb6b10ad8ccf0`.
   Darwin object and archive topology hashes are
   `aacbf0461c958cdde7e1ff71a5d45778c78ea604fed98f06b92ffd9a316e143f`
@@ -10299,6 +10301,24 @@ and green post-publication CI.
   totals (Darwin remains 31,846 / 361), rejects any drift in success, broken,
   failure, or unexpectedly-fixed counts, and still requires the independent
   host-compiler summary to match byte for byte.
+
+  The repaired native ARM64 retry then exposed `CAMP-GIT-006` after every
+  compiler and shell test passed: Git's Linux configuration links nine
+  `oss-fuzz/*` fuzzer binaries that Darwin deliberately leaves as object-only
+  build checks. Sole-C discovery correctly retained all 19 Linux products but
+  the campaign still compared them with Darwin's ten-product profile. The
+  platform contract now names every Linux fuzzer, pins its independently
+  measured 316-edge link topology, and keeps all of those inputs inside the
+  same provenance closure. The retained x86-64 and ARM64 artifacts agree
+  byte-for-byte on the normalized object, archive, program, and link
+  inventories.
+
+  The first direct Darwin validation rerun exposed `CAMP-GIT-007`: both full
+  shell-test lanes passed, but the final smoke reused its previous repository,
+  created a second commit, and correctly failed the one-commit assertion.
+  Validation now recreates only its bounded parity workspace before both
+  smokes, making the stage repeatable without weakening any retained-output or
+  closure check.
 
   Focused lowering/selection/emission tests, the pre-existing fixed-output and
   ARM64 controls, the full 1,040-unit suite (4,331,815 assertions), native
