@@ -89,6 +89,20 @@ chmod +x "$tmp/bin/fake-cgf" "$tmp/bin/readelf" "$tmp/bin/objdump"
 PATH=$tmp/bin:$PATH
 export PATH
 
+# Every fixture is about dashboard behavior, not Git discovery.  Pin complete
+# provenance here so the meta-test has the same semantics in a checkout and
+# in the Git-free source archive shipped by `make dist`; individual negative
+# cases below override exactly the field they are testing.
+CGF_KERNEL_DASHBOARD_SCOPE_KIND=host_class
+CGF_KERNEL_DASHBOARD_SCOPE=fixture-deterministic
+CGF_KERNEL_DASHBOARD_DATE_UTC=2026-08-02T15:00:00Z
+CGF_KERNEL_DASHBOARD_REV=fixture-dashboard-rev
+CGF_KERNEL_DASHBOARD_TREE_STATE=clean
+CGF_KERNEL_DASHBOARD_PROTOCOL=fixture-static-dashboard-v1
+export CGF_KERNEL_DASHBOARD_SCOPE_KIND CGF_KERNEL_DASHBOARD_SCOPE
+export CGF_KERNEL_DASHBOARD_DATE_UTC CGF_KERNEL_DASHBOARD_REV
+export CGF_KERNEL_DASHBOARD_TREE_STATE CGF_KERNEL_DASHBOARD_PROTOCOL
+
 cat >"$tmp/runtime.txt" <<'EOF'
 # cgfried kernel runtime metrics v1
 date=2026-08-10T12:00:00Z
