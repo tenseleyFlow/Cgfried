@@ -9,6 +9,29 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-dist-repro.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 epoch=${SOURCE_DATE_EPOCH:-$(git -C "$root" show -s --format=%ct HEAD)}
 
+cat >"$tmp/not-gnu-gzip" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = --version ]; then
+    echo 'Apple gzip fixture'
+    exit 0
+fi
+exit 99
+EOF
+chmod +x "$tmp/not-gnu-gzip"
+if CGF_DIST_GZIP="$tmp/not-gnu-gzip" SOURCE_DATE_EPOCH=$epoch \
+    sh "$root/scripts/make-dist.sh" "$tmp/rejected.tar.gz" \
+    >"$tmp/rejected.out" 2>"$tmp/rejected.err"
+then
+    echo "dist-repro: non-GNU gzip was accepted" >&2
+    exit 1
+fi
+grep -F 'GNU gzip is required for cross-host byte identity' \
+    "$tmp/rejected.err" >/dev/null || {
+    cat "$tmp/rejected.err" >&2
+    echo "dist-repro: non-GNU gzip rejection diagnostic drifted" >&2
+    exit 1
+}
+
 SOURCE_DATE_EPOCH=$epoch sh "$root/scripts/make-dist.sh" "$tmp/one.tar.gz"
 SOURCE_DATE_EPOCH=$epoch sh "$root/scripts/make-dist.sh" "$tmp/two.tar.gz"
 cmp "$tmp/one.tar.gz" "$tmp/two.tar.gz" || {

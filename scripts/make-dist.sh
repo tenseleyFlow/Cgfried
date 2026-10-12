@@ -29,6 +29,19 @@ case $epoch in
     '' | *[!0-9]*) echo "make-dist: SOURCE_DATE_EPOCH must be decimal" >&2; exit 1 ;;
 esac
 
+gzip_bin=${CGF_DIST_GZIP:-gzip}
+if ! command -v "$gzip_bin" >/dev/null 2>&1; then
+    echo "make-dist: GNU gzip is required: command not found: $gzip_bin" >&2
+    exit 1
+fi
+if ! "$gzip_bin" --version 2>&1 |
+    grep -F 'Free Software Foundation' >/dev/null
+then
+    echo "make-dist: GNU gzip is required for cross-host byte identity" >&2
+    echo "make-dist: macOS: brew install gzip; or set CGF_DIST_GZIP" >&2
+    exit 1
+fi
+
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/cgf-dist.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 name=cgfried-$version
@@ -83,7 +96,7 @@ commit=$(
         git -C "$archive_repo" commit-tree "$tree"
 )
 git -C "$archive_repo" -c tar.umask=0022 archive --format=tar "$commit" |
-    gzip -n -9 >"$tmp/$name.tar.gz"
+    "$gzip_bin" -n -9 >"$tmp/$name.tar.gz"
 mv -f "$tmp/$name.tar.gz" "$output"
 
 echo "make-dist: wrote $output"

@@ -1251,6 +1251,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ${{ matrix.packages }}
+      - name: install the canonical release compressor on macOS
+        if: runner.os == 'macOS'
+        run: brew install gzip
       - name: create the object-derived source archive
         run: make dist
       - name: build, test, install, and compile from the exported archive

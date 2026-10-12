@@ -77,6 +77,16 @@ diagnostic compatibility. Current performance policy and frozen measurements
 are documented in [the performance gates](doc/perf-gates.md) and
 `.benchmarks/report-0.1.0.md`.
 
+## Reproducible source archive
+
+`make dist` creates `cgfried-0.1.0.tar.gz` from committed Git objects and the
+two pinned submodule commits. Release maintainers need GNU gzip because Apple
+gzip produces a different deflate stream for the same byte-identical tar
+payload; on macOS, install it with `brew install gzip`. `CGF_DIST_GZIP` can
+name an alternate GNU gzip binary. The release gate builds the archive on
+x86-64 Linux, ARM64 Linux, and ARM64 macOS and compares all three products
+byte-for-byte.
+
 ## License
 
 GPL-3.0-only. See [LICENSE](LICENSE).
