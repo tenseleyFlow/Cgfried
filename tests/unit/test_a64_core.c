@@ -763,6 +763,85 @@ void test_a64_isel_opaque_ops_clobber_cached_compare_flags(TestCtx *t)
     }
 }
 
+void test_a64_isel_multiple_rmw_asm_outputs_share_tied_locations(TestCtx *t)
+{
+    Arena arena;
+    DiagCtx *dc;
+    IrModule *module;
+    IrType params[4] = {IRT_PTR, IRT_PTR, IRT_I64, IRT_I64};
+    IrFunc *irf;
+    IrBuilder builder;
+    IrAsmOp asm_ops[4];
+    IrAsm as;
+    IrOperand operands[4];
+    A64Func *func;
+    A64Inst *asm_inst = NULL;
+    u32 i;
+
+    arena_init(&arena);
+    dc = diag_ctx_new(&arena);
+    module = ir_module_new(&arena, dc);
+    irf = ir_func_new(module, "multi_rmw", IRT_VOID, params, 4);
+    ir_builder_at(&builder, module, irf,
+                  ir_block_new(module, irf, "entry"));
+
+    memset(asm_ops, 0, sizeof(asm_ops));
+    for (i = 0; i < CGF_ARRAY_LEN(asm_ops); i++) {
+        asm_ops[i].constraint = "+r";
+        asm_ops[i].size = 8;
+        asm_ops[i].tied_to = -1;
+        operands[i] = ir_op_value(irf, irf->param_vals[i]);
+    }
+    asm_ops[0].is_output = true;
+    asm_ops[1].is_output = true;
+    asm_ops[2].tied_to = 0;
+    asm_ops[3].tied_to = 1;
+    memset(&as, 0, sizeof(as));
+    as.tmpl = "add %0, %0, #1\n\tadd %1, %1, #2";
+    as.ops = asm_ops;
+    as.nops = CGF_ARRAY_LEN(asm_ops);
+    as.noutputs = 2;
+    ir_build_asm(&builder, ir_asm_new(module, &as), operands,
+                 CGF_ARRAY_LEN(operands));
+    ir_build_ret(&builder, NULL);
+
+    T_ASSERT(t, ir_verify(dc, module));
+    func = a64_isel_function(module, irf, &arena);
+    for (i = 0; i < func->blocks[0].n; i++)
+        if (func->blocks[0].insts[i].op == A64_OP_ASM)
+            asm_inst = &func->blocks[0].insts[i];
+    T_ASSERT(t, asm_inst != NULL && asm_inst->asm_info != NULL);
+    T_ASSERT_EQ_INT(t, asm_inst->asm_info->nops, 4);
+    T_ASSERT(t, asm_inst->asm_info->ops[0].reg.id != 0);
+    T_ASSERT(t, asm_inst->asm_info->ops[1].reg.id != 0);
+    T_ASSERT(t, asm_inst->asm_info->ops[0].reg.id !=
+                    asm_inst->asm_info->ops[1].reg.id);
+    T_ASSERT_EQ_INT(t, asm_inst->asm_info->ops[2].reg.id,
+                    asm_inst->asm_info->ops[0].reg.id);
+    T_ASSERT_EQ_INT(t, asm_inst->asm_info->ops[3].reg.id,
+                    asm_inst->asm_info->ops[1].reg.id);
+    T_ASSERT_EQ_INT(t, asm_inst->asm_info->out.id,
+                    asm_inst->asm_info->ops[0].reg.id);
+    T_ASSERT_EQ_INT(t, a64_mir_verify(func, dc), 0);
+
+    a64_regalloc(func);
+    asm_inst = NULL;
+    for (i = 0; i < func->blocks[0].n; i++)
+        if (func->blocks[0].insts[i].op == A64_OP_ASM)
+            asm_inst = &func->blocks[0].insts[i];
+    T_ASSERT(t, asm_inst != NULL && asm_inst->asm_info != NULL);
+    T_ASSERT(t, asm_inst->asm_info->ops[0].reg.physical);
+    T_ASSERT(t, asm_inst->asm_info->ops[1].reg.physical);
+    T_ASSERT(t, asm_inst->asm_info->ops[0].reg.id !=
+                    asm_inst->asm_info->ops[1].reg.id);
+    T_ASSERT_EQ_INT(t, asm_inst->asm_info->ops[2].reg.id,
+                    asm_inst->asm_info->ops[0].reg.id);
+    T_ASSERT_EQ_INT(t, asm_inst->asm_info->ops[3].reg.id,
+                    asm_inst->asm_info->ops[1].reg.id);
+    T_ASSERT_EQ_INT(t, a64_mir_verify(func, dc), 0);
+    arena_free_all(&arena);
+}
+
 void test_a64_mixed_width_and_call_metadata(TestCtx *t)
 {
     Arena arena;

@@ -10166,9 +10166,21 @@ and green post-publication CI.
   expected by Git's build. This is campaign configuration, not a compiler gap:
   the required `-std=gnu17` selects the already-published GCC compatibility
   surface and removes all three unresolved helpers. The corrected scout then
-  reached one genuine next gap in `xdiff/xutils.c`: ARM64 extended asm rejects
-  the two read/write register operands in `REASSOC_FENCE`. Reduce and repair
-  that multi-output lowering before building the publication harness.
+  exposed and closed `CAMP-GIT-002` in `xdiff/xutils.c`: ARM64 extended asm now
+  supports additional general-register read/write outputs when each has one
+  matching input. The allocator keeps each pair in one distinct physical
+  register through the opaque asm; arbitrary extra write-only outputs remain
+  refused. Focused lowering, post-regalloc, negative, native execution, and
+  spill-all regressions pin that boundary.
+
+  With both compiler findings repaired, Cgfried builds Git 2.56.0's complete
+  configured `all` target. The resulting executable reports `git version
+  2.56.0`; repository initialization, an allow-empty commit, revision walking,
+  and logging pass. Git's C unit runner passes 261/261 tests. Its full shell
+  suite exits zero with 31,846 successes, zero failures, and 361 explicitly
+  marked upstream known breakages across 33,203 tests. The next work is to
+  turn this scout into the pinned, symmetric, provenance-certified Git sole-C
+  publication campaign and run it on both native architectures.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
