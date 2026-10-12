@@ -70,7 +70,7 @@ predefine.
 | `nonnull(...)`, bare `nonnull` | `tests/programs/gnu/attr_nonnull.c` | glibc (`memcpy`, `strlen`, most of `string.h`) |
 | `noreturn` | `tests/programs/gnu/attr_noreturn.c` | glibc's `__assert_fail`/`abort`, musl, every fatal-error helper |
 | basic `asm` (no operands), statement and file-scope | `tests/corpus/x86_64/int/asm_basic.c` | musl `crt`, tinycc, `nop`/`mfence`/`cli` one-liners |
-| extended `asm` — operands, constraints, symbolic `s`/`i` address constants, exact register clobbers, GNU local register variables, x86 `N`/`Nd`, AArch64 base-memory `Q`, fixed extra x86 outputs, and multiple ARM64 `+r` outputs | `tests/corpus/x86_64/int/asm_cpuid_outputs.c`, `tests/corpus/x86_64/int/asm_multi_rmw_outputs_arm64.c` | musl syscall wrappers and atomics; glibc `<sys/io.h>`; zstd prefetching and CPU probes; Git's reassociation fence; every libc's `arch/` |
+| extended `asm` — operands, constraints, symbolic `s`/`i` address constants, exact register clobbers, GNU local register variables, x86 `N`/`Nd`, AArch64 base-memory `Q`, fixed extra x86 outputs, and multiple ARM64 `+r` outputs | `tests/corpus/x86_64/int/asm_multi_rmw_outputs_arm64.c` | musl syscall wrappers and atomics; glibc `<sys/io.h>`; zstd prefetching and CPU probes; Git's reassociation fence; every libc's `arch/` |
 | statement expressions `({ ... })` | `tests/corpus/x86_64/int/stmt_expr.c` | musl and glibc internal headers, Linux, every safe-macro idiom |
 | block-scoped labels (`__label__`) | `tests/programs/gnu/local_label.c` | statement-expression macros that need a collision-free private jump target on every expansion |
 | `typeof` / `__typeof__` / `__typeof`, `__auto_type` | `tests/corpus/x86_64/int/typeof_auto_type.c` | every generic macro in musl, glibc and Linux |
