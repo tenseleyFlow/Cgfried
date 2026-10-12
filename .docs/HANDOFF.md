@@ -10139,6 +10139,10 @@ and green post-publication CI.
   `35f6768855d41ce61871ac9e998c8db7feca0d879e75ba1dc0761df801286e33`,
   and `9e3e6de588d9cef2755615f150a77cf80baee4b6e62be66907d28a33743466c0`.
   Darwin's existing 1,681 / 1,350 profile and hashes remain unchanged.
+  `CAMP-OPENSSL-011` likewise pins the platform test plans: both Linux targets
+  run 347 recipe files / 4,043 tests, while Darwin runs 347 / 4,009. Both
+  native Linux logs independently reported `All tests successful` and
+  `Result: PASS`; only the former Darwin-only numeric assertion rejected them.
   Native x86-64 and ARM64 Linux CI publication remains pending; merge only
   after every applicable check is green.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on

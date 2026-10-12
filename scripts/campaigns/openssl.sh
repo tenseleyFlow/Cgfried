@@ -76,6 +76,7 @@ case $compiler_target in
         object_count=1682
         archive_member_count=1351
         libcrypto_member_count=1014
+        upstream_test_count=4043
         OBJECT_CLOSURE_SHA256=c0ffa90838fff9a87f910b083b3bef358dfe40ec3a5efe09d1edbd353cdf43d2
         LINK_CLOSURE_SHA256=35f6768855d41ce61871ac9e998c8db7feca0d879e75ba1dc0761df801286e33
         ARCHIVE_CLOSURE_SHA256=9e3e6de588d9cef2755615f150a77cf80baee4b6e62be66907d28a33743466c0
@@ -85,6 +86,7 @@ case $compiler_target in
         object_count=1681
         archive_member_count=1350
         libcrypto_member_count=1013
+        upstream_test_count=4009
         OBJECT_CLOSURE_SHA256=7d2f15f144a6189542715a87a0f09ac111de044faf8813da0cd409c79d36c8a2
         LINK_CLOSURE_SHA256=35f6768855d41ce61871ac9e998c8db7feca0d879e75ba1dc0761df801286e33
         ARCHIVE_CLOSURE_SHA256=fcb2833e7748eccc74dd8b308e34341aef03ea80bc8fa93a0e3e65fa382e989e
@@ -353,8 +355,9 @@ test_tree() {
         tail -400 "$logs/$label/test.log" >&2
         fail "$label upstream tests failed"
     fi
-    grep -E '^Files=347, Tests=4009,' "$logs/$label/test.log" >/dev/null ||
-        fail "$label test suite did not run exactly 347 files / 4009 tests"
+    grep -E "^Files=347, Tests=$upstream_test_count," \
+        "$logs/$label/test.log" >/dev/null ||
+        fail "$label test suite did not run exactly 347 files / $upstream_test_count tests"
     grep -Fqx 'Result: PASS' "$logs/$label/test.log" ||
         fail "$label test suite did not report PASS"
 }
@@ -527,7 +530,7 @@ validate_stage() {
         echo '# cgf-campaign-results-v1'
         printf '# columns=key\toutcome\tdetail\n'
         printf 'baseline.build\tPASS\tcompiler=host-cc,opt=O2\n'
-        printf 'baseline.test.upstream\tPASS\tfiles=347,tests=4009\n'
+        printf 'baseline.test.upstream\tPASS\tfiles=347,tests=darwin:4009|linux:4043\n'
         printf 'build\tPASS\tarchives=8,objects=darwin:1681|linux:1682\n'
         printf 'compiler.sole-c\tPASS\tproject-objects=darwin:1681|linux:1682,archive-members=darwin:1350|linux:1351,linked-products=343\n'
         printf 'configure\tPASS\tasm=off,atomics=off,docs=off,mode=static\n'
@@ -536,7 +539,7 @@ validate_stage() {
         printf 'source.archive\tPASS\tsha256=%s\n' "$OPENSSL_SHA256"
         printf 'source.pin\tPASS\tcommit=%s,version=%s\n' \
             "$OPENSSL_COMMIT" "$OPENSSL_VERSION"
-        printf 'test.upstream\tPASS\tfiles=347,tests=4009\n'
+        printf 'test.upstream\tPASS\tfiles=347,tests=darwin:4009|linux:4043\n'
     } >"$work/results.txt"
     printf 'campaign-openssl: PASS target=%s results=%s artifacts=%s\n' \
         "$compiler_target" "$work/results.txt" "$logs"
