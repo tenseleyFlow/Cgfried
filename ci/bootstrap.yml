@@ -108,12 +108,15 @@ timing:
   state: trial
   baseline_policy: first-controlled-receipt-reviewed-separately
 soak:
-  state: running
+  state: complete
   start_utc_date: '2026-09-09'
   start_commit: 1a7bbe80bbb911004513baf29cc3682277e8bfa5
   start_x86_run: https://github.com/tenseleyFlow/Cgfried/actions/runs/34318940375
   start_arm64_run: https://github.com/tenseleyFlow/Cgfried/actions/runs/34327498365
-  completed_distinct_utc_dates: 1
+  completion_utc_date: '2026-10-08'
+  completion_run: https://github.com/tenseleyFlow/Cgfried/actions/runs/37764345726
+  observed_through_utc_date: '2026-10-12'
+  completed_distinct_utc_dates: 34
   required_distinct_utc_dates: 30
   start_condition: first verified hosted run of every active lane
   daily_cadence_utc: '17 3 * * *'

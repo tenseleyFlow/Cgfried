@@ -2,59 +2,21 @@
 
 You are picking up **Cgfried**, a from-scratch C17 compiler.
 
-**WHERE THINGS STAND (soak and compiler gaps through 2026-10-03): Sprints 0–57, 59, and 60 are CLOSED;
-Sprints 59–60 closed out of order, so the contiguous ratchet remains 57.
-Sprint 61 implementation and review are complete with an honest NOT READY
-closeout. Phases 1–11 are CLOSED.**
-Sprints 55–57 were completed out of numerical order while Sprint 54 collected
-its controlled fleet soak; the current deterministic release report, closure
-audit, and contiguous ratchet through Sprint 57 now close that gap. Sprint 58's
-implementation, deterministic per-pass phase-dump playbook, and first complete
-hosted native/cross activation are green; its 30-day bootstrap soak is RUNNING
-at a strict 25/30 through October 3 after required daily x86 evidence was
-absent on September 5 and matching-head evidence was absent on September 7–8.
-It remains
-operationally OPEN. Matching-head September 12--October 3 hosted daily runs are
-green, and the separate September 13 and September 20 weekly runs are
-full-lattice green; the September 27 full-lattice
-[run 36309598318](https://github.com/tenseleyFlow/Cgfried/actions/runs/36309598318)
-is green as well. The
-matching-head September 11 recovery
-[`34569061464`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34569061464)
-is full-lattice green at `5f5b0e66`; it completed all four required daily
-jobs plus reproducibility and cross-host comparison after the scheduled run
-failed to start, so it is an eligible same-date pre-bootstrap infrastructure
-recovery. The matching-head September 10 scheduled x86/ARM
-[run 34453507793](https://github.com/tenseleyFlow/Cgfried/actions/runs/34453507793)
-is green at `4eb240b6`. Matching-head September 9 x86/ARM runs
-[`34318940375`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34318940375)
-and
-[`34327498365`](https://github.com/tenseleyFlow/Cgfried/actions/runs/34327498365)
-are green at `1a7bbe80`; if uninterrupted, day 30 is October 8. Matching-head
-September 26 hosted daily
-[run 36230220640](https://github.com/tenseleyFlow/Cgfried/actions/runs/36230220640)
-is green at `5cc4eb06` with all four fixed-point artifacts retained. Historical
-matching-head August 28 x86/ARM runs
-[`33168831416`](https://github.com/tenseleyFlow/Cgfried/actions/runs/33168831416)
-and
-[`33184794811`](https://github.com/tenseleyFlow/Cgfried/actions/runs/33184794811)
-are green at `5277c7fc`. Scheduled Sunday full-lattice run
-[`32617645741`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32617645741)
-is green at exact head `b54fda67`, and matching-head x86/ARM runs
-[`32919964767`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32919964767)
-and
-[`32928733136`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32928733136)
-are green at `69113c47` on August 26. Matching-head x86/ARM runs
-[`33056638768`](https://github.com/tenseleyFlow/Cgfried/actions/runs/33056638768)
-and
-[`33080889159`](https://github.com/tenseleyFlow/Cgfried/actions/runs/33080889159)
-are green at `6ef24ca2` on August 27; retained O0/O2 manifests record all four
-fixed points plus both ARM O2 ABI differentials as successful. Supplemental
-full-lattice manual run
-[`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
-is green at exact head `8fb99082`; because it is a second August 22
-observation, it neither advances the distinct-date count nor replaces the
-scheduled Sunday weekly gate. Sprint 59's controlled Kasumi/Hasu
+**WHERE THINGS STAND (through 2026-10-12): Sprints 0–61 are CLOSED; the
+contiguous closed-sprint ratchet is 61, and all fourteen phase closeouts are
+READY. Sprint 62's v0.1.0 release landing is unblocked.**
+
+Sprint 58's implementation, deterministic per-pass phase-dump playbook, and
+hosted native/cross activation completed their operational proof. The strict
+matching-head streak began on September 9, reached the required day 30 on
+October 8, and continued green through day 34 on October 12. Every daily
+x86_64 O0/O2 and native arm64 O0/O2 job passed with all four artifacts
+retained. Every weekly reproducibility/cross-host lattice due in the interval
+passed with all eight artifacts retained. The exact run, job, artifact, and
+day-30 digest evidence is recorded in
+`.docs/audits/bootstrap-soak.md`. This closes Sprint 58, makes Phases 12 and
+13 READY, and advances `ci/closed_sprints.txt` from 57 to 61. Sprint 59's
+controlled Kasumi/Hasu
 SQLite baselines and qualifying 15-variant nightly are independently audited
 and complete. The
 performance-gate lattice, native CI measurements, fleet runtime protocol,
@@ -433,41 +395,35 @@ archive-member attestation tranche merged green-only as
 `__has_extension` tranche completed with 38 passing and nine intentionally
 skipped checks at tested head `2617c1c79b2d3fc851040f63f24366cf8582d60a`,
 then merged green-only as `0a0cd8680ce3be7a5da82b6a2dc97fa08eeb803c`.
-The active `s56.97-git-campaign` branch starts from that exact merge and owns
-the pinned symmetric Git 2.56.0 publication campaign plus its first native CI
-findings, `CAMP-GIT-004` through `CAMP-GIT-007`.
+PR #192's pinned symmetric Git 2.56.0 publication campaign and native CI
+findings `CAMP-GIT-004` through `CAMP-GIT-007` completed with 40 successful
+checks and nine intentional skips at tested head `92562dcd`, then merged
+green-only as `35d9f00143deb77926dee96e62bb5c4c57acaeb1`.
 Sprint 56's campaign
-machine and triage map remain complete while Sprint 58
-continues its independent soak.
+machine and triage map remain complete.
 Sprint 57's pinned compile-the-world campaigns, truthful
 staged-musl linkage proof, host baselines, exact gates, and campaign-driven
 compiler repairs are integrated on `trunk`. Sprint 59's exact campaign
 machine, compiler repairs, numeric scale policy, and closure evidence are
-integrated while Sprint 58 continues collecting operational evidence. The old
-D5 notes are retained only as implementation history. Sprint 60's defensive
+integrated. The old D5 notes are retained only as implementation history.
+Sprint 60's defensive
 audit is COMPLETE against full-CI-green baseline
 `1c639e060ab38bf3daf9a4e2f2a431c9ca3041cb`: 12 fronts, 50 raw / 50
 deduplicated findings (C12/H20/M16/L2), and 50 durable expected-failure
-reproducers. Sprint 61 remediated all seeded and discovered debt, completed
-its independent review, and now waits only on Sprint 58's independent soak.
+reproducers. Sprint 61 remediated all seeded and discovered debt and completed
+its independent review. The completed Sprint 58 soak has now cleared its only
+deferred release-entry dependency.
 
 **Known-wrong-but-SHIPPING is ZERO** — every open item on `trunk` is a named
 refusal or a deliberate deferral.
 
-On trunk, continue **Sprint 58's 30-day bootstrap soak**. The
-`s58-soak-daily-hosted` automation repair makes the `17 3 * * *` hosted run
-launch x86 O0/O2 and native ARM O0/O2 together at one `github.sha`; weekly
-cross-host and reproducibility work remains on `41 3 * * 0`. A fail-closed CI
-policy guard prevents daily x86, matching-head identity, or hosted-only
-execution from drifting. Kasumi, Hasu, Nomad, and developer machines are not
-soak dependencies and may be offline. Record only hosted runs that satisfy the
-machine-readable daily/weekly lane contract in
-`.docs/audits/bootstrap-soak.md`; a missing required job or compiler/evidence
-failure resets the streak. Same-date `workflow_dispatch` may recover only a
-hosted infrastructure failure that occurred before bootstrap began. No Sprint
-61 remediation remains. Do not claim Sprint 58 closed, mark
-Phases 12–13 READY, or begin the Sprint 62 release landing until the soak
-reaches 30/30.
+The active `s58-soak-closeout` branch starts from PR #192's exact merge and
+owns only the formal readiness transition: reconcile the 34-day hosted
+ledger, close Sprint 58, promote Phases 12–13 to READY, advance the contiguous
+ratchet to 61, and prove `make check-closeouts` green. After its green-only
+merge, begin Sprint 62 from the resulting trunk commit. The permanent daily
+and weekly hosted bootstrap schedules remain enabled as regression evidence;
+Kasumi, Hasu, Nomad, and developer machines remain outside that contract.
 
 Sprint 55 came out of numerical order because campaign sprints 56–59 consume
 it, 28 deferrals pointed at it, and it blocks HOSTED compilation on macOS and
@@ -515,13 +471,13 @@ at `141ffcad`; the preprocessor/frontend diagnostic cluster closed at
 at `addf16b7`; `IR-L-02` closed at `7a4b9cb6`; the memory-safety Medium
 cluster closed at `687c92a7`; and the determinism/performance-evidence cluster
 closed at `89b68ead`, reducing Sprint 61 audit debt to zero.
-Sprint 58 remains at 10/30; Sprint 60's
-out-of-order closure does not advance the contiguous closure ratchet or permit
-Phase 13/release sign-off.
+At Sprint 60 closeout, Sprint 58 remained at 10/30, so that out-of-order
+closure did not yet advance the contiguous ratchet. The later September
+9--October 8 qualifying streak has now satisfied that dependency.
 
 ---
 
-## Sprint 61 remediation and review — COMPLETE; final verdict NOT READY
+## Sprint 61 remediation and review — COMPLETE; final verdict READY
 
 The phase-boundary preflight is complete. Commit `4b36ba37` promotes the
 aggregate/front ledgers, burndown, and future closeout files to tracked
@@ -617,13 +573,13 @@ review rebuilt every exact resolving commit, reran the full audit lifecycle,
 and read each fixing diff against its root cause. All 6/6 passed, so no sample
 doubling or front-wide escalation fired.
 
-Fourteen phase closeout documents now cover all 429 numbered DoD items from
-Sprints 0–61. The structural/meta closeout gate is green. The production
-Sprint 62 entry gate exits red for exactly two honest verdicts: Phase 12 is
-NOT READY because Sprint 58 is 6/30, and Phase 13 inherits that dependency.
-Phases 00–11 are READY. This is the sole remaining release-entry blocker.
-The gate consumes tracked `ci/closeout-dod.tsv` rather than the ignored local
-roadmap, so a fresh clone proves the exact 62-sprint / 429-item inventory.
+Fourteen phase closeout documents cover all 429 numbered DoD items from
+Sprints 0–61. The structural/meta closeout gate is green. Sprint 58's hosted
+streak completed day 30 on October 8 and continued through day 34, so Phase 12
+and its dependent Phase 13 are now READY alongside Phases 00–11. The Sprint 62
+entry gate is fully green. It consumes tracked `ci/closeout-dod.tsv` rather
+than the ignored local roadmap, so a fresh clone proves the exact 62-sprint /
+429-item inventory.
 
 Final closeout validation completed with `make -j2 test` green: 794 unit
 tests / 4,293,663 assertions, 693 program fixtures, 104 permanent corpus
@@ -718,8 +674,8 @@ conflicts:
 
 Every Critical closure requires its own sibling-hunt record. A newly found
 Critical or High reopens the barrier. The final ledger is 0/0/0/0, all Sprint
-61 closeout verification and ledger finalization are complete, and the blunt
-verdict remains NOT READY only until Sprint 58 reaches 30/30.
+61 closeout verification and ledger finalization are complete, and Sprint
+58's later 30-day proof has promoted the final verdict to READY.
 
 ---
 
@@ -727,8 +683,8 @@ verdict remains NOT READY only until Sprint 58 reaches 30/30.
 
 Sprint 59's code, descriptors, exact-result contracts, compiler repairs,
 designated-host SQLite baselines, and qualifying post-baseline nightly are
-complete on `trunk`. Sprint 58 remains open, so this closure does not advance
-the contiguous ratchet beyond 57.
+complete on `trunk`. It originally closed out of order without advancing the
+ratchet beyond 57; Sprint 58's later completion now makes it contiguous.
 
 - `ci/campaigns/FORMAT.md`, `ladder.yml`, and the retrofitted Sprint 57
   descriptors define one audited eight-project inventory. The linter sees
@@ -800,21 +756,21 @@ the contiguous ratchet beyond 57.
    ZIP matches API SHA-256
    `dcbeb83c2ac991a6df9baf15eaa1ac6cfde991ad585463bf6c1983bf850700d4`.
 
-`ci/closed_sprints.txt` is 57. Sprint 59 is closed out of order; its evidence
-does not manufacture Sprint 58 bootstrap-soak days or advance the contiguous
-ratchet while Sprint 58 remains open.
+Sprint 59 originally closed out of order while `ci/closed_sprints.txt` remained
+57. Sprint 58's later operational closeout now makes Sprints 59–61 contiguous,
+so the ratchet advances to 61 without manufacturing any soak evidence.
 
 ---
 
-## Parallel Sprint 58 self-host campaign — IMPLEMENTED; SOAK RUNNING (25/30)
+## Parallel Sprint 58 self-host campaign — COMPLETE; SOAK PASSED (34/30)
 
 Sprint 58's compiler, runtime, deterministic bootstrap/playbook machinery, and
 hosted CI definitions are integrated. The first hosted streak reached 5/30
 through August 17, then reset on August 18 when the required x86 O0 job was
 cancelled before bootstrap and retained no artifact. A later streak reached
-17/30 before September 5 supplied no x86 run. The current September 9–October
-3 streak is 25/30; the ledger still needs five consecutive dates, so do not
-call the sprint closed until that operational obligation is complete.
+17/30 before September 5 supplied no x86 run. The qualifying September
+9--October 8 streak completed all 30 required consecutive dates and continued
+green through day 34 on October 12, closing the sprint.
 
 - `make bootstrap-O0` and `make bootstrap-O2` perform raw stage1/stage2
   comparisons over all 113 compiler/runtime assembly files, all 113 objects,
@@ -908,7 +864,7 @@ call the sprint closed until that operational obligation is complete.
   `31686587082` subsequently promoted 15 additional PASS cells with zero
   regressions; its retained matrix regenerates the 25,933-cell ratchet
   byte-identically.
-- `.docs/audits/bootstrap-soak.md` is **RUNNING at a strict 25/30**. The first streak
+- `.docs/audits/bootstrap-soak.md` is **COMPLETE at 34/30**. The first streak
   started on August 13, included the complete Sunday activation on August 16,
   and reached 5/30 on August 17. It reset on August 18 at `9ec43d92`: x86 run
   [`32089117040`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32089117040)
@@ -977,12 +933,16 @@ call the sprint closed until that operational obligation is complete.
   [`37112060098`](https://github.com/tenseleyFlow/Cgfried/actions/runs/37112060098)
   at exact head `1bab9c62` is day 25: all four required fixed points passed,
   and the four expected 90-day artifacts are unexpired and carry GitHub API
-  SHA-256 digests. No weekly work was due. The
-  daily-hosted automation
-  repair now launches all four required O0/O2 jobs together without depending
-  on a push or fleet host. Continue recording distinct UTC dates and every due
-  weekly cross/reproducibility result; any missing or red required run breaks the
-  streak. Supplemental manual run
+  SHA-256 digests. No weekly work was due. October 4 daily/weekly runs
+  `37193263749`/`37194183053` are day 26 with the full seven-job weekly lattice
+  green; October 5--7 runs `37296496784`, `37448730044`, and `37606165329`
+  are days 27--29. October 8 run `37764345726` at exact head `f02debe8` is
+  day 30: all four fixed points and retained artifacts passed. October 9--12
+  runs `37918266615`, `38042776997`, `38130338855`/`38131454003`, and
+  `38238644060` extend the streak through day 34; October 11's due weekly
+  seven-job lattice is fully green. The daily-hosted automation continues to
+  launch all four required O0/O2 jobs together without depending on a push or
+  fleet host. Supplemental manual run
   [`32603828216`](https://github.com/tenseleyFlow/Cgfried/actions/runs/32603828216)
   passed all seven jobs and retained all eight artifacts at exact head
   `8fb99082`. A fresh download verified all seven embedded provenance hashes,
@@ -1001,8 +961,8 @@ call the sprint closed until that operational obligation is complete.
   ledger; the separate full payload-rehash audit has not been repeated for
   those dates.
 
-`ci/closed_sprints.txt` is 57. Sprint 58 remains operationally open during its
-soak and therefore owns the next contiguous closure step.
+`ci/closed_sprints.txt` is 61. Sprint 58's closeout makes the already completed
+Sprints 59–61 contiguous and unlocks Sprint 62.
 
 ---
 

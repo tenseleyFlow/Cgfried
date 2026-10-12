@@ -596,15 +596,15 @@ test-audit-fixtures: $(BUILD)/cgfried
 test-audit-sample:
 	sh tests/scripts/audit_sample_test.sh
 
-# The validator's meta-test belongs in ordinary CI even while an honest
-# NOT READY closeout keeps the Sprint 62 entry gate red.
+# The validator's meta-test belongs in ordinary CI so the READY gate cannot
+# drift structurally after closeout.
 test-closeout-gate:
 	sh tests/scripts/closeout_gate_test.sh
 
 test-posix-sh:
 	sh tests/scripts/posix_sh_test.sh
 
-# Sprint 61's gate-of-gates: run this before Sprint 62 starts.
+# Sprint 62 entry gate: all fourteen phase closeouts must stay READY.
 check-closeouts: test-closeout-gate
 	sh ci/check-closeouts.sh
 
