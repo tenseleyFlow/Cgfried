@@ -240,8 +240,9 @@ bool safe_link_inputs_ok(const DriverArgs *args)
                     input->val ? input->val : "");
             return false;
         }
-        /* -l libraries are an explicit system/toolchain boundary. Every
-         * directly named object/archive remains a user input. */
+        /* -l libraries and Darwin frameworks are explicit system/toolchain
+         * boundaries. Every directly named object/archive remains a user
+         * input. */
         if (input->kind != LINK_OBJ || !input->val ||
             explicitly_allowed(args, input->val))
             continue;

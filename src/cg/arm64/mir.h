@@ -351,7 +351,10 @@ typedef struct A64AsmInfo {
     u32 asm_index; /* 1-based IrModule.asms */
     A64AsmOp *ops; /* in IrAsm operand order */
     u32 nops;
-    A64Reg out;   /* the single register output; invalid when none */
+    /* The primary register output occupies A64_OP_ASM's one MIR def slot.
+     * Extra read-write outputs remain in ops[] and span the asm through their
+     * matching input uses; see isel.c's multi-output contract. */
+    A64Reg out;
     bool has_out; /* `out` is meaningful */
 } A64AsmInfo;
 

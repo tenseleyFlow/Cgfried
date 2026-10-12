@@ -1,6 +1,8 @@
-// FLAGS: -fsyntax-only -std=gnu17
+// FLAGS: --target=x86_64-linux-gnu -fsyntax-only -std=gnu17
 // ERROR_EXPECTED: more than one register output is not supported yet
-/* The remaining boundary of extended asm is allocator-chosen extra outputs.
+/* The remaining x86 boundary of extended asm is allocator-chosen extra
+ * outputs. ARM64's narrower write-only boundary has its own target-explicit
+ * fixture in asm_multi_output_arm64_refused.c.
  *
  * An IR instruction defines at most one value and the shared MIR view
  * reports one def per instruction, so a second REGISTER output would mean

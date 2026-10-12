@@ -1,7 +1,9 @@
 // FLAGS: --target=arm64-linux -fsyntax-only -std=gnu17
-// ERROR_EXPECTED: more than one register output is not supported on arm64 yet
-/* ARM64 has no post-asm multi-def representation yet; the x86 fixed+tied
- * exception must not silently widen this target's accepted surface. */
+// ERROR_EXPECTED: more than one register output on arm64 requires every extra
+// output to use the general register class and have exactly one matching input
+/* A read-write extra can span the asm through its matching input. This second
+ * output is write-only, so it deliberately remains outside that narrow,
+ * allocator-sound ARM64 contract. */
 void f(void)
 {
     int a;

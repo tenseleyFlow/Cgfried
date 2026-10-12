@@ -3396,6 +3396,31 @@ void test_lower_asm_rmw_output_evaluated_once(TestCtx *t)
     low_free(&f);
 }
 
+void test_lower_asm_arm64_multiple_rmw_outputs(TestCtx *t)
+{
+    LowFix f;
+    const IrAsm *a;
+
+    T_ASSERT(t,
+             run_lower_target_opts(&f,
+                                   "void fence(unsigned long a, "
+                                   "unsigned long b) {\n"
+                                   "  __asm__(\"\" : \"+r\"(a), "
+                                   "\"+r\"(b));\n"
+                                   "}\n",
+                                   STD_GNU17, false, CGF_TARGET_ARM64_LINUX));
+    T_ASSERT_EQ_INT(t, f.m->nasms, 1);
+    a = &f.m->asms[0];
+    T_ASSERT_EQ_INT(t, a->noutputs, 2);
+    T_ASSERT_EQ_INT(t, a->nops, 4);
+    T_ASSERT(t, a->ops[0].is_output && a->ops[1].is_output);
+    T_ASSERT(t, !a->ops[2].is_output && !a->ops[3].is_output);
+    T_ASSERT_EQ_INT(t, a->ops[2].tied_to, 0);
+    T_ASSERT_EQ_INT(t, a->ops[3].tied_to, 1);
+    T_ASSERT(t, ir_verify(f.dc, f.m));
+    low_free(&f);
+}
+
 void test_lower_asm_symbolic_constant_classes(TestCtx *t)
 {
     LowFix f;

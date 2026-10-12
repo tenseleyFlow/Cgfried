@@ -421,9 +421,11 @@ campaign merged green-only as `92b91e791900cfec18e71eba501be3e9de32c10a`,
 PR #185's zstd sole-C campaign merged green-only as
 `01269429886e2ae457549018a5f3219ec9687bff`, and PR #186's libxml2 sole-C
 campaign merged green-only as `bc923ac33beff33a1bc797503e835afd5e5bff0c`.
-The active `s56.92-openssl-sole-c` branch starts from that exact merge and owns
-the OpenSSL 3.5.9 Apple-native compiler and runtime gaps recorded in the
-campaign findings ledger.
+PR #187's OpenSSL 3.5.9 Apple-native prerequisite tranche merged green-only as
+`d26afae70666222f34343196af3344c052b89b59`, and PR #188's complete OpenSSL
+campaign merged green-only as `f502fe74e85d9a9a693818c0f623a1cddbe10b4f`.
+The active `s56.94-git-sole-c` branch starts from that exact merge and owns the
+Git 2.56.0 compiler gaps and eventual sole-C campaign recorded below.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -10143,8 +10145,42 @@ and green post-publication CI.
   run 347 recipe files / 4,043 tests, while Darwin runs 347 / 4,009. Both
   native Linux logs independently reported `All tests successful` and
   `Result: PASS`; only the former Darwin-only numeric assertion rejected them.
-  Native x86-64 and ARM64 Linux CI publication remains pending; merge only
-  after every applicable check is green.
+  Exact tested head `a88b2bb126d19ea8bc7380d076ee35b3f20c215d`
+  completed with 38 passing and nine intentional skipped checks, then merged
+  green-only through PR #188 as
+  `f502fe74e85d9a9a693818c0f623a1cddbe10b4f`.
+- The active `s56.94-git-sole-c` tranche starts from exact merged PR #188 and
+  scouts the official Git 2.56.0 release archive, SHA-256
+  `26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3`,
+  peeled tag commit `a018953688f1b10bddf91bff8747068f5f4746a4`.
+  With optional network, language, GUI, and Rust integrations disabled, the
+  first Apple-silicon build compiled Git's complete portable C object set and
+  exposed `CAMP-GIT-001` at final link: the driver did not understand Darwin's
+  paired `-framework CoreServices` spelling. Framework pairs now remain in the
+  exact position-sensitive link stream, reach Apple's linker, and fail with a
+  target-specific diagnostic on ELF. Focused parser, link-plan, driver, and
+  native executable evidence is green.
+
+  A strict-C17 scout retry reached unresolved Apple SDK inline helpers because
+  Cgfried's locked default dialect intentionally differs from the GNU dialect
+  expected by Git's build. This is campaign configuration, not a compiler gap:
+  the required `-std=gnu17` selects the already-published GCC compatibility
+  surface and removes all three unresolved helpers. The corrected scout then
+  exposed and closed `CAMP-GIT-002` in `xdiff/xutils.c`: ARM64 extended asm now
+  supports additional general-register read/write outputs when each has one
+  matching input. The allocator keeps each pair in one distinct physical
+  register through the opaque asm; arbitrary extra write-only outputs remain
+  refused. Focused lowering, post-regalloc, negative, native execution, and
+  spill-all regressions pin that boundary.
+
+  With both compiler findings repaired, Cgfried builds Git 2.56.0's complete
+  configured `all` target. The resulting executable reports `git version
+  2.56.0`; repository initialization, an allow-empty commit, revision walking,
+  and logging pass. Git's C unit runner passes 261/261 tests. Its full shell
+  suite exits zero with 31,846 successes, zero failures, and 361 explicitly
+  marked upstream known breakages across 33,203 tests. The next work is to
+  turn this scout into the pinned, symmetric, provenance-certified Git sole-C
+  publication campaign and run it on both native architectures.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

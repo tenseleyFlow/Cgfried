@@ -231,8 +231,10 @@ static u32 a64_inst_uses(const A64Inst *in, u32 *out, u32 cap)
             for (k = 0; k < in->asm_info->nops; k++) {
                 const A64AsmOp *o = &in->asm_info->ops[k];
 
-                /* The output is a DEF, not a use; a memory operand's
-                 * address register and every input are uses. */
+                /* A register-output slot is not itself a use. The primary
+                 * output is the asm's DEF; each permitted extra read-write
+                 * output reappears as its matching input and is therefore a
+                 * use. Memory-output addresses and every input are uses. */
                 if (o->is_output && o->cls != ASM_CLS_MEM)
                     continue;
                 push_use(out, cap, &n, o->reg);

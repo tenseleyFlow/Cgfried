@@ -133,6 +133,7 @@ static const char *const help_text[] = {
     "\n"
     "Link:\n"
     "  -L <dir> / -l <name>  library search dir / library (position kept)\n"
+    "  -framework <name>  link a framework on arm64-macos (position kept)\n"
     "  -fsafe-allow-unsafe=<object>\n"
     "                    permit exactly one unmarked explicit link input\n"
     "  -Wl,a,b           comma-split args passed to the linker in position\n"
@@ -2089,6 +2090,12 @@ int driver_main(int argc, char **argv)
                cgf_target_selected().kind != CGF_TARGET_X86_64_FREEBSD) {
         diag_emit(dc, DIAG_ERROR, no_span,
                   "option '-m64' requires an x86_64 target");
+        status = CGF_EXIT_COMPILE;
+    } else if (a.apple_framework &&
+               cgf_target_selected().kind != CGF_TARGET_ARM64_MACOS) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "option '-framework %s' requires target 'arm64-macos'",
+                  a.apple_framework);
         status = CGF_EXIT_COMPILE;
     } else if (a.missing_arg) {
         diag_emit(dc, DIAG_ERROR, no_span, "option '%s' requires an argument",

@@ -422,14 +422,21 @@ unsupported:
     return false;
 }
 
-/* The shared MIR view still has one def, but x86 can soundly carry a narrow
- * extra-output shape without changing it: every extra output names a FIXED
- * physical register, and the backend READREG-captures the new value
- * immediately afterwards. A matching input reserves that location before
- * the asm; for a write-only output the backend creates an otherwise-unused
- * pre-asm reservation itself. This covers both glibc <sys/io.h>'s =D/=c +
- * 0/1 shape and zstd's =a/=c/=d cpuid shape. An unfixed extra output still
- * has nowhere to record the allocator's choice. */
+/* The shared MIR view still has one def, so each backend admits only an
+ * extra-output shape it can model without inventing a second one.
+ *
+ * x86: every extra output names a FIXED physical register, and READREG
+ * captures the new value immediately afterwards. A matching input reserves
+ * that location before the asm; for a write-only output the backend creates
+ * an otherwise-unused pre-asm reservation itself. This covers both glibc
+ * <sys/io.h>'s =D/=c + 0/1 shape and zstd's =a/=c/=d cpuid shape.
+ *
+ * ARM64: every extra output has exactly one matching input. The backend gives
+ * that read-write pair one local vreg, uses it at the asm point, and stores it
+ * afterwards. Its interval therefore retains the allocator's choice across
+ * the opaque template even though only the primary output occupies the MIR
+ * def slot. Git's two-operand reassociation fence is this exact +r/+r shape.
+ * A write-only allocator-chosen extra still has no value spanning the asm. */
 static bool validate_register_outputs(Lower *lo, const AstNode *s,
                                       const IrAsmOp *ops, u32 n)
 {
@@ -457,9 +464,12 @@ static bool validate_register_outputs(Lower *lo, const AstNode *s,
         if (register_outputs == 1)
             continue;
         if (asm_target_is_arm64(lo)) {
+            if (op->cls == ASM_CLS_REG && tied_input_count(ops, n, i) == 1)
+                continue;
             asm_error(lo, s->asm_ops[i].span,
-                      "an asm with more than one register output is not "
-                      "supported on arm64 yet");
+                      "an asm with more than one register output on arm64 "
+                      "requires every extra output to use the general "
+                      "register class and have exactly one matching input");
             return false;
         }
         if (op->cls != ASM_CLS_FIXED || tied_input_count(ops, n, i) > 1) {

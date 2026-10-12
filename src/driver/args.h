@@ -35,12 +35,12 @@ typedef struct {
                          no link input (-E/-S/-c and non-linking dumps) */
 } DriverInput;
 
-/* THE position-sensitive link stream: objects, -l libs and -Wl,/-Xlinker
- * raw args in exact command-line order. The driver must never reorder —
- * `cgf -lm main.o` has to fail exactly like gcc's (archive-position
- * semantics, Sprint 27). -L dirs are hoisted separately because GNU ld
- * applies all -L to all -l regardless of position. */
-typedef enum { LINK_OBJ, LINK_LIB, LINK_RAW } LinkKind;
+/* THE position-sensitive link stream: objects, -l libs, Darwin frameworks,
+ * and -Wl,/-Xlinker raw args in exact command-line order. The driver must
+ * never reorder — `cgf -lm main.o` has to fail exactly like gcc's
+ * (archive-position semantics, Sprint 27). -L dirs are hoisted separately
+ * because GNU ld applies all -L to all -l regardless of position. */
+typedef enum { LINK_OBJ, LINK_LIB, LINK_FRAMEWORK, LINK_RAW } LinkKind;
 typedef struct LinkInput {
     u8 kind;         /* LinkKind */
     const char *val; /* LINK_OBJ owned by a compiled TU starts NULL and is
@@ -176,6 +176,10 @@ typedef struct {
      * --target selection instead of silently ignoring a wrong architecture. */
     const char *apple_arch;
     const char *conflicting_apple_arch;
+    /* Darwin's paired `-framework NAME` is retained in the position-sensitive
+     * link stream. Keep the first name separately only for the final-target
+     * diagnostic when an ELF target receives this Mach-O-only option. */
+    const char *apple_framework;
     /* --sysroot=<dir>: the root the TARGET's headers, libraries and crt
      * objects live under. Cross-compiling is only half the job without it --
      * the other half is not accidentally linking against the host's. */

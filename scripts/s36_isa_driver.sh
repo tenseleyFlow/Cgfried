@@ -106,8 +106,9 @@ corpus_count=$(wc -l <"$corpus_list" | tr -d ' ')
 # all six optimization levels. The GNU __int128 spelling fixture is the 130th,
 # its bit-field companion is the 131st, its switch fixture is the 132nd, and
 # the x86 CPUID multi-output regression is the 133rd; the OpenSSL bzero and
-# nested pointer-array initializer regressions raise the inventory to 135.
-expected_corpus_count=135
+# nested pointer-array initializer regressions raise the inventory to 135;
+# the Git ARM64 read-write asm regression raises it to 136.
+expected_corpus_count=136
 if [ "$corpus_count" -ne "$expected_corpus_count" ]; then
     echo "s36_isa_driver: expected $expected_corpus_count corpus C files, found $corpus_count" >&2
     exit 1

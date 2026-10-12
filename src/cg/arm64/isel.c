@@ -2065,7 +2065,7 @@ static void select_inst(Isel *is, const IrInst *ir)
         A64AsmInfo *info;
         A64AsmOp slots[64];
         A64Inst *inst;
-        A64Reg outreg = {0, 0};
+        A64Reg outregs[64];
         u32 outidx = (u32)-1;
         u32 n = 0;
         u32 k;
@@ -2076,18 +2076,23 @@ static void select_inst(Isel *is, const IrInst *ir)
             break;
         }
         memset(slots, 0, sizeof(slots));
-        /* Pass 1: the single register output, so a tied input can target
-         * it. Lowering has already refused a second one. */
+        memset(outregs, 0, sizeof(outregs));
+        /* Pass 1: allocate every register output before visiting matching
+         * inputs. The primary output occupies the instruction's one MIR def.
+         * Each permitted extra is read-write: its matching input and later
+         * store keep this same local vreg live across the opaque asm, which
+         * preserves the allocator's chosen physical register without a
+         * second def slot. Lowering rejects every other extra-output shape. */
         for (k = 0; k < a->nops && k < 64; k++)
             if (a->ops[k].is_output && a->ops[k].cls != ASM_CLS_MEM) {
                 A64Sf sf = a->ops[k].size > 4 ? A64_SF64 : A64_SF32;
 
-                outreg =
+                outregs[k] =
                     a->ops[k].cls == ASM_CLS_FIXED
                         ? a64_newv_fixed(is->func, A64RC_GP, sf, a->ops[k].reg)
                         : a64_newv_width(is->func, A64RC_GP, sf);
-                outidx = k;
-                break;
+                if (outidx == (u32)-1)
+                    outidx = k;
             }
         /* Pass 2: materialize everything, BEFORE the asm is appended. */
         for (k = 0; k < a->nops && k < 64; k++) {
@@ -2103,14 +2108,15 @@ static void select_inst(Isel *is, const IrInst *ir)
                     slots[n].reg = none;
                 }
             } else if (o->is_output && o->cls != ASM_CLS_MEM) {
-                slots[n].reg = outreg;
-            } else if (o->tied_to >= 0 && (u32)o->tied_to == outidx &&
-                       outreg.id) {
+                slots[n].reg = outregs[k];
+            } else if (o->tied_to >= 0 && (u32)o->tied_to < 64 &&
+                       outregs[(u32)o->tied_to].id) {
                 /* Tied: move the input into the output's own register.  An
                  * ordinary AAPCS64 constraint leaves that register free;
                  * a GNU local-register output pre-colours it, and the tie
                  * deliberately inherits the same fixed location. */
                 A64Reg src = to_gp(is, &ir->ops[k]);
+                A64Reg outreg = outregs[(u32)o->tied_to];
                 A64Inst *mv =
                     emit(is, A64_OP_MOV, o->size > 4 ? A64_SF64 : A64_SF32);
 
@@ -2147,19 +2153,26 @@ static void select_inst(Isel *is, const IrInst *ir)
                                 _Alignof(A64AsmOp));
         memcpy(info->ops, slots, n * sizeof(A64AsmOp));
         info->nops = n;
-        info->out = outreg;
-        info->has_out = outreg.id != 0;
+        info->out = outidx == (u32)-1 ? (A64Reg){0, 0} : outregs[outidx];
+        info->has_out = info->out.id != 0;
         inst->asm_info = info;
 
-        /* The output goes back to the C object its constraint named; the
-         * operand is that object's ADDRESS (see ir.h). */
-        if (info->has_out) {
-            A64Reg addr = to_gp(is, &ir->ops[outidx]);
-            A64Inst *st = emit(is, A64_OP_STORE,
-                               a->ops[outidx].size > 4 ? A64_SF64 : A64_SF32);
+        /* Every register output goes back to the C object its constraint
+         * named; each IR operand is that object's ADDRESS (see ir.h). The
+         * output vregs remain live until their stores, so materializing one
+         * address cannot reuse another still-uncaptured output register. */
+        for (k = 0; k < a->noutputs && k < a->nops && k < 64; k++) {
+            A64Reg addr;
+            A64Inst *st;
 
-            add_operand(st, reg_op(outreg));
-            add_operand(st, mem_op(addr, 0, a->ops[outidx].size > 4 ? 8 : 4));
+            if (!outregs[k].id)
+                continue;
+            addr = to_gp(is, &ir->ops[k]);
+            st = emit(is, A64_OP_STORE,
+                      a->ops[k].size > 4 ? A64_SF64 : A64_SF32);
+
+            add_operand(st, reg_op(outregs[k]));
+            add_operand(st, mem_op(addr, 0, a->ops[k].size > 4 ? 8 : 4));
         }
         break;
     }
