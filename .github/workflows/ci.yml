@@ -1189,7 +1189,10 @@ jobs:
         # allowing the release gate's VM implementation to drift under us.
         uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc
         with:
-          release: '15.0'
+          # Keep the base release aligned with the active FreeBSD 15 ports
+          # repository.  The 15.0 image can receive packages linked against
+          # 15.1's FBSD_1.9 libc symbol set, making cargo fail before our lane.
+          release: '15.1'
           prepare: pkg install -y binutils gmake rust
           run: |
             set -eu
