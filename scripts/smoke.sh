@@ -10,11 +10,11 @@ fail() { echo "SMOKE FAIL: $*" >&2; fails=$((fails + 1)); }
 mkdir -p "$work"
 printf 'int main(void) { return @; }\n' >"$work/error.c"
 
-out=$("$BIN" --version) || fail "--version exit code"
+out=$(SOURCE_DATE_EPOCH=0 "$BIN" --version) || fail "--version exit code"
 case $out in
-"cgfried 0.1.0 (x86_64-linux-gnu)" | "cgfried 0.1.0 (arm64-linux)" | \
-"cgfried 0.1.0 (arm64-macos)" | "cgfried 0.1.0 (x86_64-linux-musl)" | \
-"cgfried 0.1.0 (x86_64-freebsd)") ;;
+"cgfried (Cgfried) 0.1.0
+Copyright (C) 1970 Cgfried contributors
+License GPL-3.0-only: GNU GPL version 3 only <https://gnu.org/licenses/gpl.html>.") ;;
 *) fail "--version output: '$out'" ;;
 esac
 

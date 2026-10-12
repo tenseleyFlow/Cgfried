@@ -302,8 +302,10 @@ probe_fail() {
     fails=$((fails + 1))
     echo "driver_matrix FAIL probe: $1" >&2
 }
-v=$("$CGF_ABS" --version) && printf '%s\n' "$v" |
-    grep -q '^cgfried [0-9][0-9.]* (.*)$' || probe_fail "--version shape: $v"
+v=$(SOURCE_DATE_EPOCH=0 "$CGF_ABS" --version) ||
+    probe_fail "--version exit"
+printf '%s\n' "$v" | grep -q '^cgfried (Cgfried) [0-9][0-9.]*$' ||
+    probe_fail "--version shape: $v"
 dv=$("$CGF_ABS" -dumpversion) || probe_fail "-dumpversion exit"
 printf '%s\n' "$dv" | grep -q '^[0-9][0-9.]*$' ||
     probe_fail "-dumpversion shape: $dv"
