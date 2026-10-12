@@ -1082,6 +1082,8 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
                 VecStr_push(out, "-lgcc");
                 VecStr_push(out, "-lgcc_eh");
             }
+            if (da->pthread)
+                VecStr_push(out, "-lpthread");
             VecStr_push(out, "-lc");
             VecStr_push(out, "--end-group");
         } else {
@@ -1090,6 +1092,8 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
                 VecStr_push(out, rt);
             if (da->needs_libatomic)
                 VecStr_push(out, "-latomic");
+            if (da->pthread)
+                VecStr_push(out, "-lpthread");
             VecStr_push(out, "-lc");
             VecStr_push(out, "--end-group");
         }

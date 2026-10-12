@@ -90,6 +90,19 @@ void test_args_optimization_controls(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_args_pthread_contract(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-pthread", (char *)"-pthread", (char *)"t.c");
+    T_ASSERT(t, a.pthread);
+    T_ASSERT(t, !a.unknown_opt && !a.bad_value && !a.missing_arg);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_args_cgf_safe_exact_flag(TestCtx *t)
 {
     Arena ar;

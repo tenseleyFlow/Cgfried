@@ -10118,6 +10118,16 @@ and green post-publication CI.
   the native runtime archive instead of relying on a preceding `make all`, and
   suppresses only the already-audited ignored-attribute diagnostic in both
   lanes so the retained Cgfried build log is 2 MiB rather than 144 MiB.
+  PR #188's first native Linux publication run
+  [`38187930995`](https://github.com/tenseleyFlow/Cgfried/actions/runs/38187930995)
+  then failed symmetrically on x86-64 and ARM64 at the first standard
+  `-pthread` argument emitted by OpenSSL's Linux configuration. This is fixed
+  as `CAMP-OPENSSL-008`, not filtered by the campaign adapter: the driver now
+  accepts the combined option, defines `_REENTRANT` before explicit user
+  `-D/-U` operations, and adds `-lpthread` to ELF default libraries while
+  respecting `-nostdlib` and `-nodefaultlibs`; Mach-O continues to use
+  libSystem without a separate pthread library. Focused parser, preprocessor,
+  ELF-link, subtraction, and Mach-O regressions pin the contract.
   Native x86-64 and ARM64 Linux CI publication remains pending; merge only
   after every applicable check is green.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on

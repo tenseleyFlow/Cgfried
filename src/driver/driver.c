@@ -63,6 +63,8 @@ static const char *const help_text[] = {
     "  -U name           undefine (processed in -D/-U order, later wins)\n"
     "  -nostdinc         do not search the system include directories\n"
     "  -trigraphs        enable trigraph translation (default off)\n"
+    "  -pthread          define _REENTRANT and link the target thread "
+    "library\n"
     "  -P                omit linemarkers from -E output\n"
     "  -dM               with -E: dump macro definitions\n"
     "\n"
@@ -605,9 +607,11 @@ static void dump_decl(FILE *out, const AstNode *n, int depth)
     }
 }
 
-/* Builds the "<command-line>" pseudo-file from -D/-U flags, in order.
- * -D name means 1; -D name=val splits at the first '='. -include files
- * follow ALL the defines (gcc processes every -D/-U first), each as if
+/* Builds the "<command-line>" pseudo-file from automatic and explicit
+ * definitions. -pthread supplies _REENTRANT before every user -D/-U, so an
+ * explicit command-line override wins regardless of where -pthread appeared.
+ * -D name means 1; -D name=val splits at the first '='. -include files follow
+ * ALL the defines (gcc processes every -D/-U first), each as if
  * `#include "F"` stood before line 1 of the main file. */
 static SourceFile *build_cmdline_file(Preprocessor *pp, const DriverArgs *a)
 {
@@ -615,9 +619,11 @@ static SourceFile *build_cmdline_file(Preprocessor *pp, const DriverArgs *a)
     SourceFile *sf;
     size_t i;
 
-    if (a->defs.len == 0 && a->pre_includes.len == 0)
+    if (!a->pthread && a->defs.len == 0 && a->pre_includes.len == 0)
         return NULL;
     buf_init(&b);
+    if (a->pthread)
+        buf_printf(&b, "#define _REENTRANT 1\n");
     for (i = 0; i < a->defs.len; i++) {
         const char *d = a->defs.data[i].val;
         const char *eq = strchr(d, '=');

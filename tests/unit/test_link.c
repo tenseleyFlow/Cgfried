@@ -171,6 +171,58 @@ void test_link_argv_static_grouping(TestCtx *t)
     rm_crt_dir(LINK_CRT_DIR);
 }
 
+void test_link_argv_pthread_contract(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+    VecStr v = {0};
+    int ipthread, ilc;
+
+    mk_crt_dir(LINK_CRT_DIR, true);
+    arena_init(&ar);
+    fill_linux_args(&a);
+    a.pthread = true;
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    ipthread = argv_index(&v, "-lpthread");
+    ilc = argv_index(&v, "-lc");
+    T_ASSERT(t, ipthread > 0 && ilc > ipthread);
+    VecStr_free(&v);
+    args_free(&a);
+
+    fill_linux_args(&a);
+    memset(&v, 0, sizeof(v));
+    a.pthread = true;
+    a.nodefaultlibs = true;
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, argv_index(&v, "-lpthread") < 0);
+    VecStr_free(&v);
+    args_free(&a);
+
+    fill_linux_args(&a);
+    memset(&v, 0, sizeof(v));
+    a.pthread = true;
+    a.nostdlib = true;
+    T_ASSERT(t, toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    T_ASSERT(t, argv_index(&v, "-lpthread") < 0);
+    VecStr_free(&v);
+    args_free(&a);
+
+    fill_args(&a);
+    memset(&v, 0, sizeof(v));
+    a.pthread = true;
+    a.nostdlib = true;
+    {
+        TargetSpec target = {CGF_TARGET_ARM64_MACOS};
+
+        T_ASSERT(t, toolchain_build_link_argv(&a, target, &ar, &v));
+    }
+    T_ASSERT(t, argv_index(&v, "-lpthread") < 0);
+    VecStr_free(&v);
+    args_free(&a);
+    arena_free_all(&ar);
+    rm_crt_dir(LINK_CRT_DIR);
+}
+
 void test_link_argv_atomic16_dependency(TestCtx *t)
 {
     Arena ar;
