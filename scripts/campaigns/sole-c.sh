@@ -320,13 +320,52 @@ verify_receipts() {
             >"$tmp/actual-members"
         cmp -s "$tmp/expected-members" "$tmp/actual-members" ||
             fail "archive member inventory differs from the manifest: $archive"
+
+        # Portable ar has no common ordinal selector for duplicate member
+        # names: `ar p archive member` selects the first match on Darwin and
+        # cannot certify a later same-named object.  Pin the ordered size
+        # sequence to retain member boundaries, then compare every regular
+        # member payload as one ordered byte stream.  BSD ar includes its
+        # leading ranlib table in an unqualified `ar p`; GNU and LLVM ar hide
+        # it.  The verbose inventory gives us the exact prefix to remove in
+        # the BSD case without depending on a private archive parser.
+        : >"$tmp/expected-member-sizes"
+        : >"$tmp/expected-member-payload"
         while IFS="$(printf '\t')" read -r row_archive member object; do
             [ "$row_archive" = "$archive" ] || continue
             [ -f "$object" ] || fail "certified object disappeared: $object"
-            ar p "$archive" "$member" >"$tmp/archive-member"
-            cmp -s "$object" "$tmp/archive-member" ||
-                fail "archive member differs from certified object: $archive($member)"
+            wc -c <"$object" | tr -d ' ' >>"$tmp/expected-member-sizes"
+            cat "$object" >>"$tmp/expected-member-payload"
         done <"$tmp/expected-archives"
+
+        ar tv "$archive" >"$tmp/archive-verbose" ||
+            fail "cannot inspect certified archive: $archive"
+        awk '$0 !~ /[[:space:]]__\.SYMDEF( SORTED)?$/ { print $3 }' \
+            "$tmp/archive-verbose" >"$tmp/actual-member-sizes"
+        cmp -s "$tmp/expected-member-sizes" "$tmp/actual-member-sizes" ||
+            fail "archive member differs from certified object: $archive (size sequence)"
+
+        ar p "$archive" >"$tmp/archive-payload" ||
+            fail "cannot read certified archive payload: $archive"
+        expected_bytes=$(wc -c <"$tmp/expected-member-payload" | tr -d ' ')
+        actual_bytes=$(wc -c <"$tmp/archive-payload" | tr -d ' ')
+        symdef_bytes=$(awk '
+            $0 ~ /[[:space:]]__\.SYMDEF( SORTED)?$/ { total += $3 }
+            END { print total + 0 }
+        ' "$tmp/archive-verbose")
+        verified_payload=$tmp/archive-payload
+        if [ "$actual_bytes" -eq "$expected_bytes" ]; then
+            :
+        elif [ "$symdef_bytes" -gt 0 ] &&
+             [ "$actual_bytes" -eq $((expected_bytes + symdef_bytes)) ]; then
+            dd if="$tmp/archive-payload" of="$tmp/archive-regular-payload" \
+                bs="$symdef_bytes" skip=1 2>/dev/null
+            verified_payload=$tmp/archive-regular-payload
+        else
+            fail "archive member differs from certified object: $archive (payload size)"
+        fi
+        cmp -s "$tmp/expected-member-payload" "$verified_payload" ||
+            fail "archive member differs from certified object: $archive (ordered payload)"
     done <"$tmp/archive-paths"
 
     project_objects=$(awk -F '\t' '$1 == "object" { count++ } END { print count + 0 }' \

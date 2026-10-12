@@ -47,7 +47,12 @@ inputs. Its closure manifest enumerates every retained C translation, archive
 member, and linked product. Verification rejects missing, duplicate, or extra
 translations; compiler or object substitution; stale outputs; archive members
 that are not byte-identical to their certified objects; and explicit link
-inputs outside the certified closure.
+inputs outside the certified closure. Duplicate archive member basenames are
+legal and remain distinct: verification pins the ordered name and size
+sequence, then compares the complete ordered regular-member payload with the
+certified object stream. Darwin's leading `__.SYMDEF` ranlib payload is removed
+only when `ar tv` reports the matching prefix; GNU and LLVM archives require no
+special-case bytes.
 
 The host-compiler oracle remains a separate pristine tree and contributes no
 bytes to the certified products. System assembler, linker, archive tools, CRT,
