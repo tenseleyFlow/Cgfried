@@ -10052,7 +10052,7 @@ and green post-publication CI.
   complete x86-64 Linux campaign locally: 22/22 tests, 52 certified
   translations, 37 byte-checked archive members, 13 linked products, and all
   ten expected-result rows. Exact-head Linux CI publication remains pending.
-- The active `s56.92-openssl-sole-c` prerequisite tranche starts from exact
+- The merged `s56.92-openssl-sole-c` prerequisite tranche started from exact
   merged PR #186 (`bc923ac33beff33a1bc797503e835afd5e5bff0c`). Its pinned
   OpenSSL 3.5.9 Apple-silicon scout compiled 1,681 project objects into eight
   archives with Cgfried, then passed the complete upstream suite: 347 test
@@ -10085,12 +10085,66 @@ and green post-publication CI.
   as a macOS suite. Linux CI remains the full-profile publication gate, while
   macOS CI now pins the runtime archive and safe-mode object/runtime contracts.
 
-  Publish this prerequisite tranche green-only. The next tranche is the full
-  checksum-pinned, offline-capable OpenSSL 3.5.9 sole-C campaign: reproduce the
-  scout configuration in both Cgfried and host lanes, certify every retained
-  object/archive/link input, install the one audited no-op symmetrically, run
-  all upstream recipes, and commit an exact bidirectional expected-results
-  gate.
+  Exact head `73fec895bcd9ca0a8954266381c0c9e0d7a44d02` completed with every
+  applicable check green, including the 40-minute frontend fuzz lane, both
+  native zstd architectures, torture-x86, and sanitizers. PR #187 merged
+  green-only as `d26afae70666222f34343196af3344c052b89b59`; the active
+  `s56.93-openssl-campaign` tranche starts exactly there.
+
+  The full checksum-pinned, offline-capable OpenSSL 3.5.9 sole-C campaign is
+  now implemented locally. It pins official release SHA-256
+  `603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a`
+  and peeled tag commit `45e844fa2a14ec92d146bd8f5778ac130b6625fb`.
+  Cgfried and AppleClang build independent, identically configured static
+  GNU17/O2 trees with assembly, modules, shared libraries, atomics, and docs
+  disabled. The exact upstream `test/rsa_complex.c` checksum is verified and
+  only that compile-only `_Complex` probe is replaced byte-identically in both
+  trees by the committed checksum-pinned no-op under `CAMP-OPENSSL-001`.
+
+  Both Apple-silicon lanes pass all 347 upstream recipe files / 4,009 tests.
+  Sole-C certification covers 1,681 translations, all 1,350 members of eight
+  retained archives, and all 343 linked programs. Normalized object, explicit
+  link-input, and archive-closure SHA-256 values are respectively
+  `7d2f15f144a6189542715a87a0f09ac111de044faf8813da0cd409c79d36c8a2`,
+  `35f6768855d41ce61871ac9e998c8db7feca0d879e75ba1dc0761df801286e33`,
+  and `fcb2833e7748eccc74dd8b308e34341aef03ea80bc8fa93a0e3e65fa382e989e`.
+  The exact ten-row bidirectional results gate passes.
+
+  This scale exposed `CAMP-ALL-007`: receipt directories were named only by
+  compiler-adapter PID, and macOS reused one after roughly 1,660 invocations.
+  The recorder correctly stopped rather than overwrite evidence. It now uses
+  atomic `mktemp -d` allocation, with a regression that records two tracked
+  invocations inside the same process. Direct campaign entry also depends on
+  the native runtime archive instead of relying on a preceding `make all`, and
+  suppresses only the already-audited ignored-attribute diagnostic in both
+  lanes so the retained Cgfried build log is 2 MiB rather than 144 MiB.
+  PR #188's first native Linux publication run
+  [`38187930995`](https://github.com/tenseleyFlow/Cgfried/actions/runs/38187930995)
+  then failed symmetrically on x86-64 and ARM64 at the first standard
+  `-pthread` argument emitted by OpenSSL's Linux configuration. This is fixed
+  as `CAMP-OPENSSL-008`, not filtered by the campaign adapter: the driver now
+  accepts the combined option, defines `_REENTRANT` before explicit user
+  `-D/-U` operations, and adds `-lpthread` to ELF default libraries while
+  respecting `-nostdlib` and `-nodefaultlibs`; Mach-O continues to use
+  libSystem without a separate pthread library. Focused parser, preprocessor,
+  ELF-link, subtraction, and Mach-O regressions pin the contract.
+  That repair advanced the x86-64 job to OpenSSL's next platform option,
+  `-m64`. `CAMP-OPENSSL-009` accepts it as an explicit constraint on the
+  closed x86-64 target set and rejects it on ARM rather than treating an
+  architecture selection as inert.
+  The same CI run then proved `CAMP-OPENSSL-010`: Linux deliberately adds
+  `engines/e_afalg.c` to `libcrypto.a`. Its pinned topology is 1,682 objects /
+  1,351 archive members, with normalized object, link, and archive hashes
+  `c0ffa90838fff9a87f910b083b3bef358dfe40ec3a5efe09d1edbd353cdf43d2`,
+  `35f6768855d41ce61871ac9e998c8db7feca0d879e75ba1dc0761df801286e33`,
+  and `9e3e6de588d9cef2755615f150a77cf80baee4b6e62be66907d28a33743466c0`.
+  Darwin's existing 1,681 / 1,350 profile and hashes remain unchanged.
+  `CAMP-OPENSSL-011` likewise pins the platform test plans: both Linux targets
+  run 347 recipe files / 4,043 tests, while Darwin runs 347 / 4,009. Both
+  native Linux logs independently reported `All tests successful` and
+  `Result: PASS`; only the former Darwin-only numeric assertion rejected them.
+  Native x86-64 and ARM64 Linux CI publication remains pending; merge only
+  after every applicable check is green.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

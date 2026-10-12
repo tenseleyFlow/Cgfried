@@ -104,6 +104,27 @@ grep -F 'linked_products=2' "$tmp/valid/report.txt" >/dev/null
 grep -F 'translations=3' "$tmp/valid/report.txt" >/dev/null
 grep -F 'status=PASS' "$tmp/valid/report.txt" >/dev/null
 
+# A process identifier is not a unique invocation identity: long parallel
+# campaigns can reuse one, and a sourced adapter naturally makes repeated
+# calls in the same shell.  Both must receive independent atomic receipts.
+mkdir "$tmp/same-pid"
+write_source "$tmp/same-pid"
+write_compiler "$tmp/same-pid"
+"$sole" init "$tmp/same-pid/receipts" "$tmp/same-pid/designated-cc"
+(
+    set -- cc "$tmp/same-pid/receipts" "$tmp/same-pid/designated-cc" \
+        -c "$tmp/same-pid/lib.c" -o "$tmp/same-pid/lib.o"
+    . "$sole"
+    set -- cc "$tmp/same-pid/receipts" "$tmp/same-pid/designated-cc" \
+        -c "$tmp/same-pid/main.c" -o "$tmp/same-pid/main.o"
+    . "$sole"
+)
+[ "$(find "$tmp/same-pid/receipts/invocations" -mindepth 2 \
+    -maxdepth 2 -name receipt.txt | wc -l | tr -d ' ')" -eq 2 ] || {
+    echo 'campaign-sole-c-meta: same-PID invocations lost a receipt' >&2
+    exit 1
+}
+
 build_fixture "$tmp/stale"
 printf 'tamper\n' >>"$tmp/stale/lib.o"
 expect_fail stale-object 'receipt output digest changed' \
