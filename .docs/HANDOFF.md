@@ -424,8 +424,11 @@ campaign merged green-only as `bc923ac33beff33a1bc797503e835afd5e5bff0c`.
 PR #187's OpenSSL 3.5.9 Apple-native prerequisite tranche merged green-only as
 `d26afae70666222f34343196af3344c052b89b59`, and PR #188's complete OpenSSL
 campaign merged green-only as `f502fe74e85d9a9a693818c0f623a1cddbe10b4f`.
-The active `s56.94-git-sole-c` branch starts from that exact merge and owns the
-Git 2.56.0 compiler gaps and eventual sole-C campaign recorded below.
+PR #189's Git 2.56.0 Apple-silicon compiler prerequisite tranche merged
+green-only as `da11692f4ec1322b3f4cc8b5db1e3fb7206b4abb`; its tested head is
+`57406722291eacd4c8b6dec272f39dc48c391387`. The active
+`s56.95-sole-c-duplicate-members` branch starts from that exact merge and owns
+the archive-provenance prerequisite for Git's eventual sole-C campaign.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -10180,7 +10183,31 @@ and green post-publication CI.
   suite exits zero with 31,846 successes, zero failures, and 361 explicitly
   marked upstream known breakages across 33,203 tests. The next work is to
   turn this scout into the pinned, symmetric, provenance-certified Git sole-C
-  publication campaign and run it on both native architectures.
+  publication campaign and run it on both native architectures. Exact head
+  `57406722291eacd4c8b6dec272f39dc48c391387` completed with 38 passing and
+  nine intentionally skipped checks, then merged green-only through PR #189
+  as `da11692f4ec1322b3f4cc8b5db1e3fb7206b4abb`.
+- The active `s56.95-sole-c-duplicate-members` tranche starts from exact merged
+  PR #189. Git's 305-member `libgit.a` contains distinct `fsck.o` and `tree.o`
+  basenames more than once. The reusable sole-C verifier formerly addressed
+  each manifest row with portable `ar p archive member`; Darwin returns the
+  first matching member for every duplicate name, so a correct Git archive
+  could not be certified.
+
+  `CAMP-ALL-008` replaces name-only extraction with three independent ordered
+  proofs: exact member names, exact member byte sizes, and the concatenated
+  regular-member payload against the concatenated certified object stream.
+  BSD `ar p` includes its leading `__.SYMDEF` ranlib payload, while GNU and
+  LLVM `ar` hide it; the verifier removes that prefix only when `ar tv`
+  reports the exact extra byte count. The adversarial meta-test creates two
+  distinct, equal-sized `shared.o` members, accepts the valid archive, and
+  rejects substitution of the first object for the second without relying on
+  a nonportable ordinal-selection flag. Apple BSD and LLVM `ar` runs, campaign
+  lint, the campaign contract meta-test, POSIX-shell parsing, bans, and diff
+  checks are green locally. After this prerequisite lands, remove Git's last
+  scout-only Apple compatibility define by implementing the truthful
+  zero-valued `__has_extension(...)` feature query, then publish the complete
+  Git campaign.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
