@@ -3,6 +3,7 @@
 Date:            2026-08-20
 Baseline commit: `89b68ead`
 Reviewer:        Independent Sprint 61 closeout review
+Readiness update: 2026-10-12 hosted soak reconciliation
 
 ## DoD items (from the phase's sprint files, every numbered item)
 
@@ -18,7 +19,7 @@ Reviewer:        Independent Sprint 61 closeout review
 - [x] S61.3 `burndown.md` complete from audit totals to zero-C/H, one row per merge; `check-burndown.sh` green. — EVIDENCE: [zero-debt burndown](burndown.md) and [`scripts/check-burndown.sh`](../../scripts/check-burndown.sh) (PASS at review).
 - [x] S61.4 Every Critical fix's PR contains its cluster-hunt result (findings or the explicit "clean" line) — 100%, checked in review. — EVIDENCE: [15/15 durable Critical cluster-hunt records](audit-00.md#sprint-61-critical-cluster-hunt-record), including the three discovered Critical siblings and their resolutions.
 - [x] S61.5 XFAIL ledger: every ID carries one of the four verdicts; zero Critical-tagged XFAILs; total ≤ the N recorded in `closeout-12-campaigns.md`; every wontfix has written justification. — EVIDENCE: [post-triage XFAIL ledger](xfail-debt.md) and [Phase 12 release bar](closeout-12-campaigns.md#release-xfail-bar).
-- [x] S61.6 All 14 closeout files exist, `check-closeouts.sh` green, and all 14 end in READY — or this sprint's own report states NOT READY and lists exactly what blocks, per the house rule that the honest sentence beats the green checkbox. — EVIDENCE: [Sprint 61's explicit NOT READY handoff](../HANDOFF.md#sprint-61-remediation-and-review--complete-final-verdict-not-ready); the structural/meta gate passes and the production gate names only Phase 12 plus this dependent Phase 13.
+- [x] S61.6 All 14 closeout files exist, all 14 end in READY, and `make check-closeouts` is green after Sprint 58's hosted soak satisfied the sole deferred prerequisite. — EVIDENCE: [Phase 12 READY verdict](closeout-12-campaigns.md), [34-day bootstrap soak ledger](bootstrap-soak.md), and the permanent closeout gate in the repository Makefile.
 - [x] S61.7 Re-audit sample completed at ≥10% (min 5) with escalation rule applied; sample seed and results recorded in `audit-00.md`. — EVIDENCE: [seed 61 deterministic sample](audit-00.md#sprint-61-deterministic-re-audit-sample): 6/55 exact-commit reviews PASS with no escalation trigger.
 - [x] S61.8 `tests/audit-regressions/` runs in `make test` and CI on all targets; removing any one reproducer fails `check-audit-fixtures.sh`. — EVIDENCE: [audit suite wiring](../../Makefile) and [`check-audit-fixtures.sh`](../../scripts/check-audit-fixtures.sh) (55 PASS, 0 XFAIL/XPASS/FAIL at review).
 
@@ -28,6 +29,8 @@ None. At remediation baseline `89b68ead`, [the Sprint 61 burndown](burndown.md) 
 
 ## Verdict
 
-All Sprint 61 remediation and review evidence is complete; the all-READY gate remains blocked only by Sprint 58's 6/30 soak through Phase 12.
+All Sprint 61 remediation and review evidence is complete. Sprint 58's
+30-consecutive-day prerequisite is satisfied, so the fourteen-phase release
+entry gate is fully READY.
 
-NOT READY
+READY

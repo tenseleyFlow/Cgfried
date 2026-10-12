@@ -3,6 +3,7 @@
 Date:            2026-08-20
 Baseline commit: `89b68ead`
 Reviewer:        Independent Sprint 61 closeout review
+Readiness update: 2026-10-12 hosted soak reconciliation
 
 ## Release XFAIL bar
 
@@ -36,7 +37,7 @@ Reviewer:        Independent Sprint 61 closeout review
 - [x] S58.4 `bisect-nondet.sh` + `audit-determinism.sh` in CI; all seeded-fault playbook tests pass (correct TU + phase named for ≥3 injected suspects). — EVIDENCE: [tracked implementation and validation record](../HANDOFF.md) and [permanent test entry points](../../Makefile).
 - [x] S58.5 Bootstrap lanes wired as required checks on every PR (x86_64) with the nightly/weekly cadence documented in `ci/bootstrap.yml`. — EVIDENCE: [tracked implementation and validation record](../HANDOFF.md) and [permanent test entry points](../../Makefile).
 - [x] S58.6 Stage1 self-compile time reporting into the Sprint 54 dashboard. — EVIDENCE: [tracked implementation and validation record](../HANDOFF.md) and [permanent test entry points](../../Makefile).
-- [ ] S58.7 MILESTONE gate armed: soak log started; Phase 13 sign-off requires 30 consecutive green days on all configured lanes — stability, not luck. — VERDICT: blocking — the required 30-consecutive-day all-lane soak is recorded at 6/30 through 2026-08-24.
+- [x] S58.7 MILESTONE gate complete: the hosted soak records 34 consecutive green UTC dates from 2026-09-09 through 2026-10-12. Day 30 completed on 2026-10-08 with x86_64 O0/O2 and native arm64 O0/O2 green at one exact commit; every weekly reproducibility/cross-host lattice due inside the interval is green. — EVIDENCE: [Sprint 58 bootstrap soak ledger](bootstrap-soak.md), including linked runs, retained artifact names, and day-30 SHA-256 metadata.
 - [x] S59.1 `ci/campaigns/FORMAT.md` committed; all S57+S59 campaigns conform (8 descriptors total lint-clean under `scripts/campaign-lint.sh`). — EVIDENCE: [tracked implementation and validation record](../HANDOFF.md) and [permanent test entry points](../../Makefile).
 - [x] S59.2 zlib: configure+build+`make test` 100% on x86_64 and arm64; musl-static variant builds and self-tests. — EVIDENCE: [tracked implementation and validation record](../HANDOFF.md) and [permanent test entry points](../../Makefile).
 - [x] S59.3 lua: `make generic` builds; `all.lua` 0 failures at O0 and O2 on both arches; musl-static lua passes `all.lua`. — EVIDENCE: [tracked implementation and validation record](../HANDOFF.md) and [permanent test entry points](../../Makefile).
@@ -51,6 +52,7 @@ None. At remediation baseline `89b68ead`, [the Sprint 61 burndown](burndown.md) 
 
 ## Verdict
 
-The XFAIL release bar is satisfied, but Sprint 58's required 30-day all-lane soak remains at 6/30.
+The XFAIL release bar is satisfied, Sprint 58's required 30-day all-lane soak
+completed on 2026-10-08, and continued hosted evidence is green through day 34.
 
-NOT READY
+READY
