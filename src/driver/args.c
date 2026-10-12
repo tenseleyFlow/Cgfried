@@ -120,6 +120,7 @@ enum {
     F_PIC,
     F_DIR_L,
     F_LIB,
+    F_FRAMEWORK,
     F_XLINKER,
     F_STATIC,
     F_NOSTDLIB,
@@ -799,6 +800,13 @@ static bool h_link(DriverArgs *da, const FlagSpec *fs, const char *val)
         li.val = val;
         VecLink_push(&da->link_inputs, li);
         break;
+    case F_FRAMEWORK:
+        li.kind = LINK_FRAMEWORK;
+        li.val = val;
+        VecLink_push(&da->link_inputs, li);
+        if (!da->apple_framework)
+            da->apple_framework = val;
+        break;
     case F_XLINKER:
         li.kind = LINK_RAW;
         li.val = val;
@@ -948,6 +956,7 @@ static const FlagSpec args_flag_table[] = {
     /* link */
     {"-L", ARG_EITHER, h_dir, F_DIR_L},
     {"-l", ARG_EITHER, h_link, F_LIB},
+    {"-framework", ARG_SEPARATE, h_link, F_FRAMEWORK},
     {"-Wl,", ARG_JOINED, h_link, F_WL},
     {"-Xlinker", ARG_SEPARATE, h_link, F_XLINKER},
     {"-static", ARG_NONE, h_link, F_STATIC},

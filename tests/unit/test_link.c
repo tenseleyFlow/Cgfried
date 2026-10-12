@@ -146,6 +146,46 @@ void test_link_argv_macho_null_terminated(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_link_argv_macho_framework_pair(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+    VecStr v = {0};
+    TargetSpec target = {CGF_TARGET_ARM64_MACOS};
+    int framework;
+
+    arena_init(&ar);
+    fill_args(&a);
+    push_link(&a, LINK_FRAMEWORK, "CoreServices");
+    a.nostdlib = true;
+    T_ASSERT(t, toolchain_build_link_argv(&a, target, &ar, &v));
+    framework = argv_index(&v, "-framework");
+    T_ASSERT(t, framework > 0);
+    T_ASSERT(t, framework + 1 < (int)v.len);
+    T_ASSERT_EQ_STR(t, v.data[framework + 1], "CoreServices");
+    T_ASSERT(t, argv_index(&v, "x.o") < framework);
+    VecStr_free(&v);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
+void test_link_argv_elf_rejects_framework(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+    VecStr v = {0};
+
+    arena_init(&ar);
+    fill_args(&a);
+    push_link(&a, LINK_FRAMEWORK, "CoreServices");
+    a.nostdlib = true;
+    T_ASSERT(t,
+             !toolchain_build_link_argv(&a, linux_x86_target(), &ar, &v));
+    VecStr_free(&v);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_link_argv_static_grouping(TestCtx *t)
 {
     Arena ar;

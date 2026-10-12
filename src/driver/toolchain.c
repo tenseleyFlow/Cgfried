@@ -870,6 +870,20 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
     bool want_libs = !da->nostdlib && !da->nodefaultlibs;
     size_t i;
 
+    /* `-framework` is an ld64 pair, not a library-name alias. Reject it at
+     * this boundary too so direct callers cannot accidentally hand the name
+     * to an ELF linker as a file even if they bypass driver_main's friendlier
+     * final-target diagnostic. */
+    if (!macho)
+        for (i = 0; i < da->link_inputs.len; i++)
+            if (da->link_inputs.data[i].kind == LINK_FRAMEWORK) {
+                fprintf(stderr,
+                        "cgfried: error: option '-framework %s' requires "
+                        "target 'arm64-macos'\n",
+                        da->link_inputs.data[i].val);
+                return false;
+            }
+
     if (!tc.ld_path) {
         /* Only the LINKER's own resolution matters here; a missing
          * bundled assembler is the compile step's problem
@@ -963,7 +977,10 @@ bool toolchain_build_link_argv(const DriverArgs *da, TargetSpec t,
                 continue;
             if (li->kind == LINK_LIB)
                 VecStr_push(out, joined2(ar, "-l", li->val));
-            else
+            else if (li->kind == LINK_FRAMEWORK) {
+                VecStr_push(out, "-framework");
+                VecStr_push(out, li->val);
+            } else
                 VecStr_push(out, li->val);
         }
         if (want_libs) {

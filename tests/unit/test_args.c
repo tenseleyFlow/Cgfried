@@ -75,6 +75,31 @@ void test_args_macos_arch_constraint(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_args_macos_framework_contract(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-framework", (char *)"CoreServices",
+          (char *)"main.o", (char *)"-framework", (char *)"Security");
+    T_ASSERT_EQ_INT(t, (int)a.link_inputs.len, 3);
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[0].kind, LINK_FRAMEWORK);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[0].val, "CoreServices");
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[1].kind, LINK_OBJ);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[1].val, "main.o");
+    T_ASSERT_EQ_INT(t, a.link_inputs.data[2].kind, LINK_FRAMEWORK);
+    T_ASSERT_EQ_STR(t, a.link_inputs.data[2].val, "Security");
+    T_ASSERT_EQ_STR(t, a.apple_framework, "CoreServices");
+    T_ASSERT(t, !a.unknown_opt && !a.missing_arg);
+    args_free(&a);
+
+    PARSE(a, &ar, (char *)"-framework");
+    T_ASSERT_EQ_STR(t, a.missing_arg, "-framework");
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_args_optimization_controls(TestCtx *t)
 {
     Arena ar;
