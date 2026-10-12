@@ -54,6 +54,7 @@ enum {
     F_EMIT_MIR,
     F_TRIGRAPHS,
     F_PTHREAD,
+    F_M64,
     F_STD,
     F_NOSTDINC,
     F_DIR_I,
@@ -306,6 +307,9 @@ static bool h_mode(DriverArgs *da, const FlagSpec *fs, const char *val)
         break;
     case F_PTHREAD:
         da->pthread = true;
+        break;
+    case F_M64:
+        da->m64 = true;
         break;
     case F_TIME_REPORT:
         da->time_report = true;
@@ -871,6 +875,7 @@ static const FlagSpec args_flag_table[] = {
     {"-std=", ARG_JOINED, h_std, F_STD},
     {"-trigraphs", ARG_NONE, h_mode, F_TRIGRAPHS},
     {"-pthread", ARG_NONE, h_mode, F_PTHREAD},
+    {"-m64", ARG_NONE, h_mode, F_M64},
     {"-pedantic", ARG_NONE, h_warn, F_PEDANTIC},
     {"-pedantic-errors", ARG_NONE, h_warn, F_PEDANTIC_ERR},
     {"-fmax-errors=", ARG_JOINED, h_max_errors, F_MAX_ERRORS},

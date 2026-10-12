@@ -2,8 +2,8 @@
 # columns=key	outcome	detail
 baseline.build	PASS	compiler=host-cc,opt=O2
 baseline.test.upstream	PASS	files=347,tests=4009
-build	PASS	archives=8,objects=1681
-compiler.sole-c	PASS	project-objects=1681,archive-members=1350,linked-products=343
+build	PASS	archives=8,objects=darwin:1681|linux:1682
+compiler.sole-c	PASS	project-objects=darwin:1681|linux:1682,archive-members=darwin:1350|linux:1351,linked-products=343
 configure	PASS	asm=off,atomics=off,docs=off,mode=static
 linkage	PASS	archives=8,binaries=343,static=yes
 scope.rsa-complex	SKIP	CAMP-OPENSSL-001;replacement=checksum-pinned-no-op

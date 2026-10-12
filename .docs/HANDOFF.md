@@ -10128,6 +10128,17 @@ and green post-publication CI.
   respecting `-nostdlib` and `-nodefaultlibs`; Mach-O continues to use
   libSystem without a separate pthread library. Focused parser, preprocessor,
   ELF-link, subtraction, and Mach-O regressions pin the contract.
+  That repair advanced the x86-64 job to OpenSSL's next platform option,
+  `-m64`. `CAMP-OPENSSL-009` accepts it as an explicit constraint on the
+  closed x86-64 target set and rejects it on ARM rather than treating an
+  architecture selection as inert.
+  The same CI run then proved `CAMP-OPENSSL-010`: Linux deliberately adds
+  `engines/e_afalg.c` to `libcrypto.a`. Its pinned topology is 1,682 objects /
+  1,351 archive members, with normalized object, link, and archive hashes
+  `c0ffa90838fff9a87f910b083b3bef358dfe40ec3a5efe09d1edbd353cdf43d2`,
+  `35f6768855d41ce61871ac9e998c8db7feca0d879e75ba1dc0761df801286e33`,
+  and `9e3e6de588d9cef2755615f150a77cf80baee4b6e62be66907d28a33743466c0`.
+  Darwin's existing 1,681 / 1,350 profile and hashes remain unchanged.
   Native x86-64 and ARM64 Linux CI publication remains pending; merge only
   after every applicable check is green.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on

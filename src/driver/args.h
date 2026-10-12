@@ -112,6 +112,7 @@ typedef struct {
                          — the divergence is documented in --help) */
     bool trigraphs;
     bool pthread; /* -pthread: _REENTRANT plus the target's thread library */
+    bool m64;     /* -m64: require one of the closed x86_64 targets */
     bool pedantic, pedantic_errors;
     u32 max_errors; /* -fmax-errors=N / -ferror-limit=N; 0 = unlimited */
 

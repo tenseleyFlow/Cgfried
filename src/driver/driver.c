@@ -90,6 +90,7 @@ static const char *const help_text[] = {
     "                    is deliberate and documented here)\n"
     "  -arch arm64       require the arm64-macos target (Darwin build-system\n"
     "                    compatibility; other architectures are rejected)\n"
+    "  -m64              require an x86-64 target and its 64-bit ABI\n"
     "  -W<name>/-Wno-<name>  enable/disable a warning; exact options\n"
     "                    outrank groups regardless of argv order\n"
     "  -Wmem/-Wno-mem   enable/disable default-on intraprocedural memory\n"
@@ -2081,6 +2082,13 @@ int driver_main(int argc, char **argv)
         diag_emit(dc, DIAG_ERROR, no_span,
                   "option '-arch %s' requires target 'arm64-macos'",
                   a.apple_arch);
+        status = CGF_EXIT_COMPILE;
+    } else if (a.m64 &&
+               cgf_target_selected().kind != CGF_TARGET_X86_64_LINUX_GNU &&
+               cgf_target_selected().kind != CGF_TARGET_X86_64_LINUX_MUSL &&
+               cgf_target_selected().kind != CGF_TARGET_X86_64_FREEBSD) {
+        diag_emit(dc, DIAG_ERROR, no_span,
+                  "option '-m64' requires an x86_64 target");
         status = CGF_EXIT_COMPILE;
     } else if (a.missing_arg) {
         diag_emit(dc, DIAG_ERROR, no_span, "option '%s' requires an argument",

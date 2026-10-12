@@ -103,6 +103,19 @@ void test_args_pthread_contract(TestCtx *t)
     arena_free_all(&ar);
 }
 
+void test_args_m64_contract(TestCtx *t)
+{
+    Arena ar;
+    DriverArgs a;
+
+    arena_init(&ar);
+    PARSE(a, &ar, (char *)"-m64", (char *)"-m64", (char *)"t.c");
+    T_ASSERT(t, a.m64);
+    T_ASSERT(t, !a.unknown_opt && !a.bad_value && !a.missing_arg);
+    args_free(&a);
+    arena_free_all(&ar);
+}
+
 void test_args_cgf_safe_exact_flag(TestCtx *t)
 {
     Arena ar;

@@ -9,9 +9,6 @@ OPENSSL_COMMIT=45e844fa2a14ec92d146bd8f5778ac130b6625fb
 OPENSSL_SHA256=603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
 RSA_COMPLEX_SHA256=2295d607d06329e30f897f1e2d1d19e1d6659dae93acbe435749e7e86ae7bcc0
 RSA_NOOP_SHA256=afce7814ab943c7ca342b41fa911780e6d5decbeab9f2aa3e77767d78c9edaf0
-OBJECT_CLOSURE_SHA256=7d2f15f144a6189542715a87a0f09ac111de044faf8813da0cd409c79d36c8a2
-LINK_CLOSURE_SHA256=35f6768855d41ce61871ac9e998c8db7feca0d879e75ba1dc0761df801286e33
-ARCHIVE_CLOSURE_SHA256=fcb2833e7748eccc74dd8b308e34341aef03ea80bc8fa93a0e3e65fa382e989e
 
 fail() {
     echo "campaign-openssl: $*" >&2
@@ -71,9 +68,27 @@ command -v "$hostcc" >/dev/null 2>&1 || fail "host compiler is unavailable: $hos
 
 compiler_target=$("$cgf" -dumpmachine) || fail "cannot query Cgfried's target"
 case $compiler_target in
-    x86_64-linux-gnu) openssl_target=linux-x86_64 ;;
-    arm64-linux) openssl_target=linux-aarch64 ;;
-    arm64-macos) openssl_target=darwin64-arm64-cc ;;
+    x86_64-linux-gnu | arm64-linux)
+        case $compiler_target in
+            x86_64-linux-gnu) openssl_target=linux-x86_64 ;;
+            arm64-linux) openssl_target=linux-aarch64 ;;
+        esac
+        object_count=1682
+        archive_member_count=1351
+        libcrypto_member_count=1014
+        OBJECT_CLOSURE_SHA256=c0ffa90838fff9a87f910b083b3bef358dfe40ec3a5efe09d1edbd353cdf43d2
+        LINK_CLOSURE_SHA256=35f6768855d41ce61871ac9e998c8db7feca0d879e75ba1dc0761df801286e33
+        ARCHIVE_CLOSURE_SHA256=9e3e6de588d9cef2755615f150a77cf80baee4b6e62be66907d28a33743466c0
+        ;;
+    arm64-macos)
+        openssl_target=darwin64-arm64-cc
+        object_count=1681
+        archive_member_count=1350
+        libcrypto_member_count=1013
+        OBJECT_CLOSURE_SHA256=7d2f15f144a6189542715a87a0f09ac111de044faf8813da0cd409c79d36c8a2
+        LINK_CLOSURE_SHA256=35f6768855d41ce61871ac9e998c8db7feca0d879e75ba1dc0761df801286e33
+        ARCHIVE_CLOSURE_SHA256=fcb2833e7748eccc74dd8b308e34341aef03ea80bc8fa93a0e3e65fa382e989e
+        ;;
     *) fail "unsupported native campaign target: $compiler_target" ;;
 esac
 
@@ -293,14 +308,14 @@ write_program_inventory() {
 verify_products() {
     label=$1
     destination=$2
-    archive_spec='apps/libapps.a:19
-libcrypto.a:1013
+    archive_spec="apps/libapps.a:19
+libcrypto.a:$libcrypto_member_count
 libssl.a:94
 providers/libcommon.a:23
 providers/libdefault.a:156
 providers/liblegacy.a:23
 providers/libtemplate.a:2
-test/libtestutil.a:20'
+test/libtestutil.a:20"
     printf '%s\n' "$archive_spec" | while IFS=: read -r name count; do
         [ -f "$destination/$name" ] || fail "$label omitted archive $name"
         [ "$(archive_members "$destination/$name")" -eq "$count" ] ||
@@ -312,8 +327,8 @@ test/libtestutil.a:20'
     while IFS= read -r program; do
         [ -x "$destination/$program" ] || fail "$label omitted program $program"
     done <"$program_inventory"
-    [ "$(find "$destination" -type f -name '*.o' | wc -l | tr -d ' ')" -eq 1681 ] ||
-        fail "$label retained object inventory is not exactly 1681"
+    [ "$(find "$destination" -type f -name '*.o' | wc -l | tr -d ' ')" -eq "$object_count" ] ||
+        fail "$label retained object inventory is not exactly $object_count"
     [ -z "$(find "$destination" -type f \( -name '*.so' -o -name '*.dylib' \) -print -quit)" ] ||
         fail "$label produced a shared library"
 }
@@ -448,12 +463,12 @@ verify_inventory_contract() {
     object_got=$(sha256sum "$object_inventory" | awk '{print $1}')
     link_got=$(sha256sum "$link_inventory" | awk '{print $1}')
     archive_got=$(sha256sum "$archive_inventory" | awk '{print $1}')
-    [ "$(wc -l <"$object_inventory" | tr -d ' ')" -eq 1681 ] ||
-        fail "sole-C object closure is not exactly 1681 translations"
-    [ "$(sort -u "$object_inventory" | wc -l | tr -d ' ')" -eq 1681 ] ||
+    [ "$(wc -l <"$object_inventory" | tr -d ' ')" -eq "$object_count" ] ||
+        fail "sole-C object closure is not exactly $object_count translations"
+    [ "$(sort -u "$object_inventory" | wc -l | tr -d ' ')" -eq "$object_count" ] ||
         fail "sole-C object closure contains a duplicate identity"
-    [ "$(wc -l <"$archive_inventory" | tr -d ' ')" -eq 1350 ] ||
-        fail "sole-C archive closure is not exactly 1350 members"
+    [ "$(wc -l <"$archive_inventory" | tr -d ' ')" -eq "$archive_member_count" ] ||
+        fail "sole-C archive closure is not exactly $archive_member_count members"
     awk -F '\t' '!seen[$1]++ { print $1 }' "$link_inventory" | sort \
         >"$work/linked-products.txt"
     cmp "$program_inventory" "$work/linked-products.txt" ||
@@ -513,8 +528,8 @@ validate_stage() {
         printf '# columns=key\toutcome\tdetail\n'
         printf 'baseline.build\tPASS\tcompiler=host-cc,opt=O2\n'
         printf 'baseline.test.upstream\tPASS\tfiles=347,tests=4009\n'
-        printf 'build\tPASS\tarchives=8,objects=1681\n'
-        printf 'compiler.sole-c\tPASS\tproject-objects=1681,archive-members=1350,linked-products=343\n'
+        printf 'build\tPASS\tarchives=8,objects=darwin:1681|linux:1682\n'
+        printf 'compiler.sole-c\tPASS\tproject-objects=darwin:1681|linux:1682,archive-members=darwin:1350|linux:1351,linked-products=343\n'
         printf 'configure\tPASS\tasm=off,atomics=off,docs=off,mode=static\n'
         printf 'linkage\tPASS\tarchives=8,binaries=343,static=yes\n'
         printf 'scope.rsa-complex\tSKIP\tCAMP-OPENSSL-001;replacement=checksum-pinned-no-op\n'
