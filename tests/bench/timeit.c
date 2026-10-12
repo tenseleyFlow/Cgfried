@@ -1,4 +1,9 @@
-#ifdef __APPLE__
+#ifdef __FreeBSD__
+/* wait4 is a BSD extension.  The project-wide POSIX feature request hides
+   its declaration in FreeBSD libc, so restore that translation unit's native
+   visibility before including any system header. */
+#undef _POSIX_C_SOURCE
+#elif defined(__APPLE__)
 #define _DARWIN_C_SOURCE
 #else
 #define _GNU_SOURCE

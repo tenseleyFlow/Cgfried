@@ -1,0 +1,613 @@
+.TH CGFRIED 1 "2026-10-12" "Cgfried 0.1.0" "Cgfried Manual"
+.SH NAME
+cgfried, cgf \- deterministic C17 compiler for five explicit targets
+.SH SYNOPSIS
+.B cgfried
+.RI [ options ] " file" ...
+.br
+.B cgf
+.RI [ options ] " file" ...
+.br
+.B cgfried
+.RI [ options ]
+.BR \-E | \-S | \-c
+.RI [ \-o " output" ]
+.IR file ...
+.SH DESCRIPTION
+.B cgfried
+is a self-hosting C compiler with x86-64 and ARM64 backends.  It emits ELF or
+Mach-O for a closed set of five targets, supplies freestanding headers and
+.BR libcgf_rt ,
+and drives either system tools or the companion
+.B afs-as
+and
+.B afs-ld
+tools.
+.PP
+The default language mode is ISO C17.  The accepted
+.B \-std=
+modes are c89, c90, c99, c11, c17, c18, their iso9899 aliases, and the
+corresponding GNU modes.  Unlike GCC, the default does not enable GNU
+extensions.
+.PP
+Version 0.1.0 is intentionally bounded.  It is not a drop-in GCC replacement.
+C23, _Complex, threads.h, general-dynamic TLS, full DWARF, LTO, PGO, and
+asm goto are outside this release and are rejected rather than silently
+miscompiled.  Applicable unsupported standard facilities are advertised with
+the corresponding __STDC_NO_* feature macros.
+.SH OPTIONS
+.SS Information and target selection
+.TP
+.B \-\-help
+Print the command-line help and exit.
+.TP
+.B \-\-help=warnings
+Print every warning option and its current default/group state.
+.TP
+.B \-\-version
+Print the frozen three-line release identity and license notice.
+.TP
+.B \-dumpversion
+Print the full semantic version and a newline.
+.TP
+.B \-dumpmachine
+Print the exact selected target spelling and a newline.
+.TP
+.B \-print\-search\-dirs
+Print the compiler's resolved program and library search directories.
+.TP
+.BI \-print\-prog\-name= program
+Print the resolved path of a tool, or the supplied name when unresolved.
+.TP
+.BI \-print\-file\-name= file
+Print the first resolved library/start-file path, or the supplied name.
+.TP
+.BI \-\-target= triple
+Select exactly one of x86_64-linux-gnu, arm64-linux, arm64-macos,
+x86_64-linux-musl, or x86_64-freebsd.
+.TP
+.BI \-arch " arm64"
+Require the arm64-macos target for Apple build-system compatibility.
+.TP
+.BI \-\-sysroot= directory
+Resolve target headers, libraries, and start files beneath
+.IR directory .
+.TP
+.B \-m64
+Require an x86-64 target and its 64-bit ABI.
+.TP
+.B \-v
+Print each external command before it runs.
+.TP
+.B \-###
+Analyze inputs and print the exact command plan without running external
+commands.
+.SS Compilation modes and output
+.TP
+.B \-E
+Preprocess only; write to standard output unless
+.B \-o
+is present.
+.TP
+.B \-S
+Stop after assembly generation.
+.TP
+.B \-c
+Compile and assemble without linking.
+.TP
+.BI \-o " file"
+Name the output.  It is invalid with multiple inputs under
+.BR \-E ,
+.BR \-S ,
+or
+.BR \-c .
+.TP
+.BI \-x " language"
+Treat following inputs as
+.B c
+or
+.BR none ;
+a standard-input source requires
+.BR "\-x c" .
+.TP
+.B \-P
+Omit linemarkers from preprocessor output.
+.TP
+.B \-dM
+With
+.BR \-E ,
+dump macro definitions.
+.TP
+.B \-\-dump\-tokens
+Dump preprocessing tokens for compiler development.
+.TP
+.B \-\-dump\-ast
+Dump the parsed syntax tree.
+.TP
+.B \-fdump\-sema
+Dump semantic-analysis state.
+.TP
+.B \-fdump\-layout
+Dump target record layouts.
+.TP
+.B \-fdump\-init
+Dump lowered initializer data.
+.TP
+.B \-fsyntax\-only
+Parse and analyze without producing output.
+.TP
+.B \-emit\-ir
+Write deterministic textual Cgfried IR.
+.TP
+.B \-emit\-mir
+Write target machine IR.
+.SS Language and preprocessing
+.TP
+.BI \-std= standard
+Select an ISO or GNU C language mode.  The last occurrence wins.
+.TP
+.B \-trigraphs
+Enable trigraph translation.
+.TP
+.B \-pthread
+Define _REENTRANT and add the target thread library at link time.
+.TP
+.B \-pedantic
+Enable ISO conformance diagnostics.
+.TP
+.B \-pedantic\-errors
+Promote ISO conformance diagnostics to errors.
+.TP
+.BI \-fmax\-errors= count
+Stop after
+.I count
+errors; zero means unlimited.
+.TP
+.BI \-ferror\-limit= count
+Alias for
+.BR \-fmax\-errors= .
+.TP
+.BI \-I directory
+Add a quote and angle include directory.
+.TP
+.BI \-iquote directory
+Add a quote-only include directory.
+.TP
+.BI \-isystem directory
+Add a system include directory after
+.B \-I
+directories and before built-in paths.
+.TP
+.BI \-include file
+Include
+.I file
+before the first line of every C input.
+.TP
+.BI \-D "name[=value]"
+Define a preprocessor macro; the omitted value is 1.
+.TP
+.BI \-U name
+Undefine a preprocessor macro.  Definitions and undefinitions are processed
+in command-line order.
+.TP
+.B \-nostdinc
+Do not search target system include directories.
+.SS Dependency generation
+.TP
+.BR \-M ", " \-MM
+Write make dependencies to standard output and imply preprocessing;
+.B \-MM
+omits system headers.
+.TP
+.BR \-MD ", " \-MMD
+Write a side-effect dependency file while compiling;
+.B \-MMD
+omits system headers.
+.TP
+.BI \-MF file
+Set the dependency-file name.
+.TP
+.BI \-MT target
+Add a dependency target verbatim.
+.TP
+.BI \-MQ target
+Add a dependency target with make metacharacters quoted.
+.TP
+.B \-MP
+Emit a phony target for every dependency header.
+.SS Optimization, diagnostics, and safety
+.TP
+.BI \-O level
+Select 0, 1, 2, 3, s, or fast.
+.B \-O
+alone means
+.BR \-O1 ;
+the last optimization option wins.
+.TP
+.B \-ftime\-report
+Print per-pass invocation counts and wall time.
+.TP
+.B \-w
+Suppress all warnings.
+.TP
+.B \-Werror
+Promote all enabled warnings to errors.
+.TP
+.BI \-Werror= name
+Promote one warning to an error.
+.TP
+.BI \-W name
+Enable a warning or warning group.  Every positive spelling accepts the
+.B \-Wno\-
+form.  Exact options outrank groups regardless of argument order.
+.TP
+.BR \-Wall ", " \-Wextra ", " \-Wunused ", " \-Wformat ", " \-Wimplicit
+Enable the named GCC-compatible warning groups.
+.TP
+.BR \-Wpedantic ", " \-Wcgf\-ext ", " \-Wmem ", " \-Wmem\-strict
+Enable pedantic, Cgfried-extension, memory, or strict heuristic memory
+diagnostics.
+.TP
+.B \-fcommon
+Place tentative definitions in COMMON storage.
+.TP
+.B \-fno\-common
+Emit one definition for tentative definitions; this is the default.
+.TP
+.B \-ffreestanding
+Select a freestanding implementation.
+.TP
+.B \-fhosted
+Restore hosted behavior.
+.TP
+.B \-fwrapv
+Define signed overflow to wrap.
+.TP
+.B \-fgnu89\-inline
+Use GNU89 inline-emission semantics.
+.TP
+.B \-fno\-gnu89\-inline
+Use ISO inline-emission semantics.
+.TP
+.BR \-fstrict\-aliasing ", " \-fno\-strict\-aliasing
+Enable or disable type-based alias analysis.
+.TP
+.BR \-fomit\-frame\-pointer ", " \-fno\-omit\-frame\-pointer
+Control frame-pointer retention.
+.TP
+.B \-fcgf\-safe
+Instrument unresolved heap accesses after static proof.
+.TP
+.B \-fno\-cgf\-safe
+Disable heap instrumentation.
+.TP
+.B \-fsafe
+Enable the safe-translation-unit policy: heap instrumentation, memory and
+uninitialized warnings as errors, zero initialization, and unsafe-construct
+rejection.
+.TP
+.BI \-fsafe\-allow\-unsafe= object
+Permit exactly one explicitly linked unmarked object in a safe link.
+.TP
+.B \-fdiagnostics\-parseable\-fixits
+Emit machine-readable fix-it records.
+.TP
+.B \-fdiagnostics\-apply\-fixits
+Apply all safe edits to a
+.B .cgf-fixed
+copy; never rewrite the source.
+.TP
+.BI \-fdiagnostics\-apply\-fixits= mode
+Select
+.B all
+or
+.B interactive
+fix-it application.
+.TP
+.B \-ftrivial\-auto\-var\-init
+Initialize otherwise-uninitialized automatic objects with zero.
+.TP
+.BI \-ftrivial\-auto\-var\-init= mode
+Select
+.B zero
+or
+.B pattern
+initialization.
+.TP
+.B \-ffast\-math
+Enable Cgfried's complete fast-math bundle.
+.TP
+.B \-fno\-fast\-math
+Disable the bundle.
+.TP
+.BR \-fassociative\-math ", " \-fno\-associative\-math
+Accepted bundle-component controls; inconsistent standalone use warns.
+.TP
+.BR \-fsigned\-zeros ", " \-fno\-signed\-zeros
+Accepted bundle-component controls for signed-zero assumptions.
+.TP
+.BR \-ffinite\-math\-only ", " \-fno\-finite\-math\-only
+Accepted bundle-component controls for finite-value assumptions.
+.TP
+.BR \-freciprocal\-math ", " \-fno\-reciprocal\-math
+Accepted bundle-component controls for reciprocal transforms.
+.TP
+.BR \-fmath\-errno ", " \-fno\-math\-errno
+Accepted bundle-component controls for math errno behavior.
+.TP
+.BI \-ffp\-contract= mode
+Select
+.BR off ,
+.BR on ,
+or
+.B fast
+floating-point contraction.
+.TP
+.BI \-f option
+Unknown
+.B \-f
+options warn and compilation continues for configure-script compatibility.
+.TP
+.BI \-g level
+Emit DWARF v4 line information; levels 1, 2, and 3 currently have the same
+line-table scope, and
+.B \-g0
+disables it.
+.SS Linker and tool routing
+.TP
+.BI \-L directory
+Add a library search directory.
+.TP
+.BI \-l library
+Link a library at its command-line position.
+.TP
+.BI \-framework framework
+Link an Apple framework on arm64-macos.
+.TP
+.BI \-Wl, argument
+Pass comma-separated arguments to the linker in position.
+.TP
+.BI \-Xlinker argument
+Pass one argument to the linker in position.
+.TP
+.BI \-B directory
+Add a tool and start-file search prefix.
+.TP
+.B \-static
+Request a static link.  arm64-macos rejects static linking.
+.TP
+.B \-shared
+Request a shared link on supported target tiers.
+.TP
+.BR \-pie ", " \-no\-pie
+Request or suppress a position-independent executable.
+.TP
+.B \-nostdlib
+Omit start files and default libraries.
+.TP
+.B \-nostartfiles
+Omit target start files.
+.TP
+.B \-nodefaultlibs
+Omit default target libraries.
+.SS Warning catalog
+The following canonical warning spellings are accepted.  Prefix a spelling
+with
+.B \-Wno\-
+to disable it; use
+.B \-\-help=warnings
+for current defaults and group membership.
+.nf
+\-Waddress \-Waggregate\-return \-Warray\-bounds \-Wattributes
+\-Wbackslash\-newline\-escape \-Wbad\-function\-cast \-Wbool\-compare
+\-Wbool\-operation \-Wbuiltin\-macro\-redefined \-Wbundled\-only\-option
+\-Wc11\-extensions \-Wc23\-extensions \-Wc90\-c99\-compat \-Wcast\-align
+\-Wcast\-function\-type \-Wcast\-qual \-Wchar\-subscripts \-Wclobbered
+\-Wcomment \-Wcomments \-Wcompare\-distinct\-pointer\-types \-Wconversion
+\-Wcpp \-Wdangling\-else \-Wdate\-time \-Wdeclaration\-after\-statement
+\-Wdeprecated \-Wdeprecated\-declarations \-Wdisabled\-optimization
+\-Wdiscarded\-qualifiers \-Wdiv\-by\-zero \-Wdouble\-promotion
+\-Wduplicate\-decl\-specifier \-Wempty\-body \-Wempty\-declaration
+\-Wendif\-labels \-Wenum\-compare \-Wfloat\-conversion \-Wfloat\-equal
+\-Wformat \-Wformat\-contains\-nul \-Wformat\-extra\-args
+\-Wformat\-nonliteral \-Wformat\-security \-Wformat\-signedness
+\-Wformat\-unbounded\-scanf \-Wformat\-y2k \-Wformat\-zero\-length
+\-Wframe\-larger\-than \-Wignored\-qualifiers \-Wimplicit
+\-Wimplicit\-fallthrough \-Wimplicit\-function\-declaration \-Wimplicit\-int
+\-Wincompatible\-pointer\-types \-Winfinite\-recursion \-Winit\-self
+\-Winitializer\-string\-too\-long \-Winline \-Wint\-conversion
+\-Wint\-in\-bool\-context \-Wint\-to\-pointer\-cast
+\-Winvalid\-function\-specifier \-Winvalid\-pch \-Wjump\-misses\-init
+\-Wlarger\-than \-Wlogical\-not\-parentheses \-Wlogical\-op \-Wlong\-long
+\-Wmacro\-redefined \-Wmain \-Wmaybe\-uninitialized
+\-Wmem\-annotation\-mismatch \-Wmem\-double\-free \-Wmem\-free\-nonheap
+\-Wmem\-leak \-Wmem\-null\-check \-Wmem\-out\-of\-bounds
+\-Wmem\-realloc\-zero \-Wmem\-sizeof\-mismatch
+\-Wmem\-suggest\-annotations \-Wmem\-unbounded\-copy \-Wmem\-uninit\-read
+\-Wmem\-use\-after\-free \-Wmem\-use\-after\-free\-unknown
+\-Wmemset\-elt\-size \-Wmemset\-transposed\-args
+\-Wmisleading\-indentation \-Wmissing\-braces \-Wmissing\-declarations
+\-Wmissing\-field\-initializers \-Wmissing\-format\-attribute
+\-Wmissing\-include\-dirs \-Wmissing\-parameter\-type
+\-Wmissing\-prototypes \-Wmultichar \-Wmultistatement\-macros
+\-Wnested\-externs \-Wnewline\-eof \-Wnonnull \-Wnonnull\-compare
+\-Wnull\-character \-Wnull\-dereference \-Wold\-style\-declaration
+\-Wold\-style\-definition \-Woverflow \-Woverlength\-strings
+\-Woverride\-init \-Wpacked \-Wpacked\-bitfield\-compat \-Wpadded
+\-Wparentheses \-Wpedantic \-Wpointer\-arith \-Wpointer\-compare
+\-Wpointer\-compared\-to\-zero\-with\-relational \-Wpointer\-sign
+\-Wpointer\-to\-int\-cast \-Wpragmas \-Wprio\-ctor\-dtor
+\-Wredundant\-decls \-Wrestrict \-Wreturn\-local\-addr \-Wreturn\-type
+\-Wscalar\-storage\-order \-Wsequence\-point \-Wshadow
+\-Wshift\-count\-negative \-Wshift\-count\-overflow
+\-Wshift\-negative\-value \-Wshift\-overflow \-Wsign\-compare
+\-Wsign\-conversion \-Wsizeof\-array\-argument \-Wsizeof\-pointer\-div
+\-Wsizeof\-pointer\-memaccess \-Wstack\-protector \-Wstatic\-in\-inline
+\-Wstrict\-aliasing \-Wstrict\-overflow \-Wstrict\-prototypes
+\-Wstringop\-overflow \-Wstringop\-truncation \-Wswitch
+\-Wswitch\-default \-Wswitch\-empty\-range \-Wswitch\-enum
+\-Wswitch\-unreachable \-Wtautological\-compare
+\-Wtentative\-definition\-array \-Wtraditional \-Wtrampolines
+\-Wtrigraphs \-Wtype\-limits \-Wtypedef\-redefinition \-Wundef
+\-Wuninitialized \-Wunknown\-pragmas \-Wunknown\-warning\-option
+\-Wunreachable\-code \-Wunused \-Wunused\-but\-set\-parameter
+\-Wunused\-but\-set\-variable \-Wunused\-command\-line\-argument
+\-Wunused\-const\-variable \-Wunused\-function \-Wunused\-label
+\-Wunused\-local\-typedefs \-Wunused\-macros \-Wunused\-parameter
+\-Wunused\-result \-Wunused\-value \-Wunused\-variable
+\-Wvariadic\-macros \-Wvisibility \-Wvla \-Wvla\-larger\-than
+\-Wvoid\-ptr\-dereference \-Wvolatile\-register\-var \-Wwrite\-strings
+\-Wzero\-length\-array
+.fi
+.SH ENVIRONMENT
+An empty value is treated as unset unless noted otherwise.
+.TP
+.B CGF_AS
+Unset or 1 selects bundled afs-as; 0 selects the system assembler.
+.TP
+.B CGF_AS_PATH
+Use exactly this assembler, overriding
+.BR CGF_AS .
+.TP
+.B CGF_LD
+Unset or 0 selects the system linker; 1 selects bundled afs-ld.
+.TP
+.B CGF_LD_PATH
+Use exactly this linker, overriding
+.BR CGF_LD .
+.TP
+.B CGF_CRT_DIR
+Override target start-file discovery.
+.TP
+.B CGF_INCLUDE_DIR
+Override the shipped freestanding-header directory.
+.TP
+.B CGF_SDKROOT
+Override macOS SDK discovery.  A bad explicit path fails closed.
+.TP
+.B CGF_LIBSYSTEM_TBD
+Override the macOS libSystem text-stub path.
+.TP
+.B CGF_STATS
+When 1, print deterministic compiler allocation/interner/preprocessor counts.
+.TP
+.B CGF_MEMSAFE_DUMP
+When 1, print memory-analysis states, traces, and discharged-check totals.
+.TP
+.B CGF_SAFE_ABORT
+Set to
+.B trap
+to trap instead of aborting after a safe-runtime finding.
+.TP
+.B CGF_VERIFY_AFTER_EACH
+When 1, verify IR after every optimization pass.
+.TP
+.B CGF_OPT_BAIL_LOG
+When 1, report conservative optimizer bailouts.
+.TP
+.BR CGF_OPT_DISABLE_UNSWITCH ", " CGF_OPT_DISABLE_BCE ", " CGF_OPT_DISABLE_FUSION ", " CGF_OPT_DISABLE_VECTORIZE
+When 1, disable the named optimization for differential testing.
+.TP
+.B CGF_DUMP_IR
+Set to
+.B all
+to write every optimization phase.
+.TP
+.B CGF_DUMP_IR_DIR
+Name the fresh, isolated directory required by
+.BR CGF_DUMP_IR=all .
+.TP
+.B CGF_DUMP_BAD_IR
+Name the file used to capture invalid IR at an internal-error boundary.
+.TP
+.BR CGF_PP_DUMP_TOKENS ", " CGF_PP_DUMP_GUARD
+Enable preprocessor token or include-guard diagnostic dumps.
+.TP
+.BR CGF_PP_GUARD_FASTPATH ", " CGF_PP_STATS
+Control the guarded-header fast path or preprocessor counters.
+.TP
+.B CGF_SPILL_ALL
+Force register-allocation spill stress.
+.TP
+.B CGF_DIAG_FULL_BACKTRACE
+Print the full macro-expansion diagnostic backtrace.
+.TP
+.B CGF_FUZZ
+Enable bounded diagnostics suitable for the in-tree fuzz harnesses.
+.TP
+.B SOURCE_DATE_EPOCH
+Decimal Unix timestamp used in UTC for __DATE__, __TIME__, the
+.B \-\-version
+copyright year, and reproducible release archives.
+.TP
+.B NO_COLOR
+Any nonempty value disables diagnostic color.
+.TP
+.B CLICOLOR_FORCE
+Any nonempty value forces diagnostic color when
+.B NO_COLOR
+is unset.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Compilation, option, preprocessing, parsing, semantic, or assembly-input
+error.
+.TP
+.B 2
+Linker or link-planning error.
+.TP
+.B 3
+Input/output or tool-spawn error.
+.TP
+.B 4
+Internal compiler error.
+.SH EXAMPLES
+Compile and link one translation unit with system tools:
+.PP
+.nf
+CGF_AS=0 cgfried hello.c \-o hello
+.fi
+.PP
+Compile and link multiple translation units:
+.PP
+.nf
+CGF_AS=0 cgfried \-c one.c two.c
+CGF_AS=0 cgfried one.o two.o \-o program
+.fi
+.PP
+Preprocess without linemarkers:
+.PP
+.nf
+cgfried \-E \-P config.h
+.fi
+.PP
+Emit ARM64 Linux assembly:
+.PP
+.nf
+cgfried \-\-target=arm64-linux \-S hello.c \-o hello.s
+.fi
+.PP
+Compile a safe translation unit:
+.PP
+.nf
+CGF_AS=0 cgfried \-fsafe app.c \-o app
+.fi
+.SH NOTES
+Unlike historical GCC releases that print only the major component,
+.B \-dumpversion
+prints the full semantic version.  This is a frozen Cgfried build-system
+contract from 0.1.0 onward.
+.SH SEE ALSO
+.BR gcc (1),
+.BR as (1),
+.BR ld (1)
+.PP
+The companion afs-as and afs-ld documentation is distributed in their
+respective source subdirectories.  Cgfried's safe-mode and performance
+contracts are in
+.B doc/safe-mode.md
+and
+.BR doc/perf-gates.md .

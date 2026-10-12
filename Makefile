@@ -4,6 +4,11 @@ CC     ?= cc
 BUILD  ?= build
 PREFIX ?= /usr/local
 HOSTCC ?= $(CC)
+VERSION_HEADER := src/version.h
+VERSION := $(shell sed -n '/^\#define CGF_VERSION "/p' \
+    $(VERSION_HEADER) | cut -d'"' -f2)
+SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null)
+DIST_ARCHIVE := cgfried-$(VERSION).tar.gz
 BOOTSTRAP_JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
 BOOTSTRAP_WORK ?= $(BUILD)/boot
 BOOTSTRAP_HOST ?=
@@ -116,7 +121,7 @@ SIZE_A64_RESULT ?= $(BUILD)/bench/size-arm64-linux.txt
 SIZE_X86_BASELINE := .benchmarks/baseline-size-x86_64-linux-gnu.ci.txt
 SIZE_A64_BASELINE := .benchmarks/baseline-size-arm64-linux.ci.txt
 PERF_CONFIG_DIR := ci/gates.d
-PERF_REPORT_VERSION ?= 0.0.x
+PERF_REPORT_VERSION ?= $(VERSION)
 PERF_REPORT ?= .benchmarks/report-$(PERF_REPORT_VERSION).md
 PERF_REPORT_LATEST ?=
 PERF_REPORT_PREVIOUS ?=
@@ -147,13 +152,16 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
         test-a64-corpus test-audit-fixtures test-audit-sample \
         test-closeout-gate check-closeouts test-posix-sh \
+        test-release-contracts check-version test-version-gate \
+        check-man-coverage test-man-coverage test-release-metadata dist-name \
+        check-release-report dist test-dist-repro dist-check \
         audit-opt-generated \
         audit-opt-alias \
         test-a64-spill-all test-a64-char-sign test-abi-diff \
         fuzz-frontend-smoke fuzz pp-bench clean tools bootstrap \
         bootstrap-O0 bootstrap-O2 bootstrap-repro-O2 \
         bootstrap-cross-emit \
-        bootstrap-cross-compare test-bootstrap install \
+        bootstrap-cross-compare test-bootstrap install test-install \
         asan ubsan
 
 # libcgf_rt.a: the runtime the Sprint 27 link line reserves a slot for.
@@ -368,6 +376,8 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	    echo "test: afs-as unbuilt; exec lanes use system gas (CGF_AS=0)"; fi
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-bootstrap
 	$(BUILD)/unit_tests
+	$(MAKE) BUILD=$(BUILD) test-release-contracts
+	$(MAKE) BUILD=$(BUILD) test-release-metadata
 	sh scripts/check_unit_registry.sh $(BUILD)/gen/unit_registry.c
 	$(MAKE) BUILD=$(BUILD) test-audit-fixtures
 	$(MAKE) BUILD=$(BUILD) test-audit-sample
@@ -608,6 +618,48 @@ test-posix-sh:
 check-closeouts: test-closeout-gate
 	sh ci/check-closeouts.sh
 
+# Sprint 62 freezes these lines as build-system APIs across every target
+# selection. SOURCE_DATE_EPOCH makes the copyright year deterministic.
+test-release-contracts: $(BUILD)/cgfried
+	CGF_TEST_CC=$(BUILD)/cgfried sh tests/scripts/version_contract_test.sh
+
+check-version:
+	sh ci/check-version.sh
+
+test-version-gate:
+	sh tests/scripts/version_gate_test.sh
+
+check-man-coverage: $(BUILD)/cgfried
+	sh ci/check-man-coverage.sh . $(BUILD)/cgfried
+
+test-man-coverage: $(BUILD)/cgfried
+	CGF_TEST_CC=$(BUILD)/cgfried sh tests/scripts/man_coverage_test.sh
+
+test-release-metadata: check-version test-version-gate check-man-coverage \
+        test-man-coverage check-release-report
+
+check-release-report:
+	@tmp=$$(mktemp "$${TMPDIR:-/tmp}/cgf-report-0.1.0.XXXXXX"); \
+	trap 'rm -f "$$tmp"' EXIT HUP INT TERM; \
+	$(MAKE) --no-print-directory PERF_REPORT_VERSION=0.1.0 \
+	    PERF_REPORT="$$tmp" perf-report >/dev/null; \
+	cmp .benchmarks/report-0.1.0.md "$$tmp"; \
+	echo 'check-release-report: PASS (0.1.0)'
+
+dist-name:
+	@printf '%s\n' '$(DIST_ARCHIVE)'
+
+dist: $(DIST_ARCHIVE)
+
+$(DIST_ARCHIVE): FORCE scripts/make-dist.sh $(VERSION_HEADER)
+	SOURCE_DATE_EPOCH='$(SOURCE_DATE_EPOCH)' sh scripts/make-dist.sh '$@'
+
+test-dist-repro:
+	SOURCE_DATE_EPOCH='$(SOURCE_DATE_EPOCH)' sh tests/scripts/dist_repro_test.sh
+
+dist-check: dist
+	sh scripts/dist-check.sh '$(DIST_ARCHIVE)'
+
 # Sprint 60 F05 evidence targets.  They are intentionally opt-in during the
 # audit: a generated failure needs inspection and a durable finding, rather
 # than making ordinary contributor test runs non-diagnostic or expensive.
@@ -837,10 +889,23 @@ perf-report:
 	        ci-x86_64-linux-gnu-bench.txt \
 	        ci-x86_64-linux-gnu-size.txt \
 	        ci-arm64-linux-bench.txt ci-arm64-linux-size.txt; do \
-	        latest=$$(find .benchmarks/runs -maxdepth 1 -type f \
-	            -name "*-$$suffix" -print 2>/dev/null | sort | tail -n 1); \
+	        latest=; \
+	        case $$suffix in \
+	        kasumi.txt|hasu.txt|nomad-1.txt) \
+	            for candidate in $$(find .benchmarks/runs -maxdepth 1 \
+	                -type f -name "*-$$suffix" -print 2>/dev/null | \
+	                sort -r); do \
+	                if grep -q '^sqlite3.status=measured$$' "$$candidate" && \
+	                   grep -q '^self.status=measured$$' "$$candidate" && \
+	                   grep -q '^many-tu.status=measured$$' "$$candidate"; then \
+	                    latest=$$candidate; break; \
+	                fi; \
+	            done ;; \
+	        *) latest=$$(find .benchmarks/runs -maxdepth 1 -type f \
+	            -name "*-$$suffix" -print 2>/dev/null | sort | tail -n 1) ;; \
+	        esac; \
 	        [ -n "$$latest" ] || { \
-	            echo "perf-report: no committed latest artifact for *-$$suffix" >&2; \
+	            echo "perf-report: no complete committed artifact for *-$$suffix" >&2; \
 	            exit 3; \
 	        }; \
 	        set -- "$$@" --latest "$$latest"; \
@@ -1053,18 +1118,24 @@ test-bootstrap: $(BUILD)/cgfried
 	CGF_TEST_CC=$(BUILD)/cgfried sh tests/rt/int128_abi.sh
 
 install: all
-	install -d $(DESTDIR)$(PREFIX)/bin
-	install -m 755 $(BUILD)/cgfried $(DESTDIR)$(PREFIX)/bin/cgfried
-	ln -sf cgfried $(DESTDIR)$(PREFIX)/bin/cgf
-	install -d $(DESTDIR)$(PREFIX)/lib/cgfried/include
-	cp -R include/. $(DESTDIR)$(PREFIX)/lib/cgfried/include/
-	install -d $(DESTDIR)$(PREFIX)/lib/cgfried/$(RT_TARGET)
+	install -d '$(DESTDIR)$(PREFIX)/bin'
+	install -m 755 $(BUILD)/cgfried '$(DESTDIR)$(PREFIX)/bin/cgfried'
+	ln -sf cgfried '$(DESTDIR)$(PREFIX)/bin/cgf'
+	install -d '$(DESTDIR)$(PREFIX)/lib/cgfried/$(VERSION)/include'
+	cp -R include/. '$(DESTDIR)$(PREFIX)/lib/cgfried/$(VERSION)/include/'
+	install -d '$(DESTDIR)$(PREFIX)/lib/cgfried/$(VERSION)/$(RT_TARGET)'
 	install -m 644 $(RT_LIB) \
-	    $(DESTDIR)$(PREFIX)/lib/cgfried/$(RT_TARGET)/libcgf_rt.a
+	    '$(DESTDIR)$(PREFIX)/lib/cgfried/$(VERSION)/$(RT_TARGET)/libcgf_rt.a'
+	install -d '$(DESTDIR)$(PREFIX)/share/man/man1'
+	install -m 644 doc/cgfried.1 \
+	    '$(DESTDIR)$(PREFIX)/share/man/man1/cgfried.1'
 	@if [ -x afs-as/target/release/afs-as ]; then \
 	    install -m 755 afs-as/target/release/afs-as \
-	        $(DESTDIR)$(PREFIX)/bin/afs-as; \
+	        '$(DESTDIR)$(PREFIX)/bin/afs-as'; \
 	fi
+
+test-install: all
+	BUILD=$(BUILD) sh tests/scripts/install_layout_test.sh
 
 clean:
 	rm -rf $(BUILD)

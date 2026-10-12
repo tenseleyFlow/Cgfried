@@ -3,8 +3,10 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "cg/arm64/debug.h"
@@ -87,17 +89,21 @@ static const char *const help_text[] = {
     "  -std=<std>        c89/c90, c99, c11, c17/c18 (+iso9899 spellings)\n"
     "                    and the gnu twins; the LAST -std= wins.\n"
     "                    Default c17 (gcc defaults to gnu17 — divergence\n"
-    "                    is deliberate and documented here)\n"
+    "                    is deliberate and documented here)\n",
+    "  --target=<triple> select one of the five closed target spellings\n"
+    "  --sysroot=<dir>   resolve target system inputs beneath <dir>\n"
     "  -arch arm64       require the arm64-macos target (Darwin build-system\n"
     "                    compatibility; other architectures are rejected)\n"
     "  -m64              require an x86-64 target and its 64-bit ABI\n"
     "  -W<name>/-Wno-<name>  enable/disable a warning; exact options\n"
     "                    outrank groups regardless of argv order\n"
+    "  -Wall -Wextra -Wunused -Wformat -Wimplicit -Wpedantic\n"
+    "  -Wcgf-ext -Wmem -Wmem-strict  named warning groups\n"
     "  -Wmem/-Wno-mem   enable/disable default-on intraprocedural memory\n"
     "                    checks; -Wmem-strict adds heuristic checks\n"
     "  -w                suppress all warnings\n"
     "  -Werror[=name]    warnings become errors\n"
-    "  -pedantic[-errors] ISO conformance diagnostics\n"
+    "  -pedantic / -pedantic-errors  ISO conformance diagnostics\n"
     "  -fmax-errors=N    stop after N errors (0 = unlimited, default);\n"
     "                    -ferror-limit=N is accepted as an alias\n"
     "  -fdiagnostics-parseable-fixits\n"
@@ -113,7 +119,10 @@ static const char *const help_text[] = {
     "  -fwrapv           signed overflow wraps\n"
     "  -fgnu89-inline    use GNU89 inline emission semantics\n"
     "  -fno-gnu89-inline  use ISO inline semantics (C99 or later)\n"
-    "  -fno-strict-aliasing  disable type-based aliasing\n"
+    "  -fstrict-aliasing / -fno-strict-aliasing\n"
+    "                    enable/disable type-based alias analysis\n"
+    "  -fomit-frame-pointer / -fno-omit-frame-pointer\n"
+    "                    control frame-pointer retention\n"
     "  -fcgf-safe        instrument unresolved heap accesses; static\n"
     "                    proofs discharge checks before code generation\n"
     "                    (temporal detection is deterministic only while\n"
@@ -122,12 +131,20 @@ static const char *const help_text[] = {
     "                    -Werror=uninitialized, zero automatic\n"
     "                    initialization, and unsafe-construct rejection\n"
     "                    (see doc/safe-mode.md)\n"
+    "  -fno-cgf-safe     disable -fcgf-safe instrumentation\n"
     "  -ftrivial-auto-var-init=zero|pattern\n"
     "                    initialize otherwise-uninitialized automatic\n"
     "                    objects after warning analysis\n"
     "  -ffast-math       enable the complete fast-math bundle\n"
     "  -fno-fast-math    disable it; component flags are accepted but\n"
     "                    bundled-only and warn (docs/fast-math.md)\n"
+    "  -fassociative-math / -fno-associative-math\n"
+    "  -fsigned-zeros / -fno-signed-zeros\n"
+    "  -ffinite-math-only / -fno-finite-math-only\n"
+    "  -freciprocal-math / -fno-reciprocal-math\n"
+    "  -fmath-errno / -fno-math-errno\n"
+    "  -ffp-contract=off|on|fast\n"
+    "                    fast-math component and contraction controls\n"
     "  Unknown -f/-W options warn and continue (configure-script parity);\n"
     "  any other unknown option is an error.\n"
     "\n"
@@ -138,7 +155,10 @@ static const char *const help_text[] = {
     "                    permit exactly one unmarked explicit link input\n"
     "  -Wl,a,b           comma-split args passed to the linker in position\n"
     "  -Xlinker <arg>    one raw linker arg in position\n"
+    "  -B <dir>          tool and start-file search prefix\n"
     "  -static           static link\n"
+    "  -shared           shared link (supported target tiers only)\n"
+    "  -pie / -no-pie    select or suppress a PIE link\n"
     "  -nostdlib -nostartfiles -nodefaultlibs   omit default link inputs\n"
     "\n",
     "Introspection:\n"
@@ -173,6 +193,27 @@ static const char *const help_text[] = {
     "  CGF_SAFE_ABORT=trap  trap instead of abort after a runtime finding\n"
     "  Empty-string values are treated as unset.\n",
 };
+
+static int version_copyright_year(void)
+{
+    const char *source_date_epoch = cgf_env("SOURCE_DATE_EPOCH");
+    time_t stamp = time(NULL);
+    struct tm utc;
+
+    if (source_date_epoch) {
+        char *end = NULL;
+        unsigned long long parsed;
+
+        errno = 0;
+        parsed = strtoull(source_date_epoch, &end, 10);
+        if (errno == 0 && end != source_date_epoch && *end == '\0' &&
+            (unsigned long long)(time_t)parsed == parsed)
+            stamp = (time_t)parsed;
+    }
+    if (stamp != (time_t)-1 && gmtime_r(&stamp, &utc))
+        return utc.tm_year + 1900;
+    return 2026;
+}
 
 VEC_DECL(PpTokVecD, PpToken);
 
@@ -2154,8 +2195,11 @@ int driver_main(int argc, char **argv)
         for (k = 0; k < CGF_ARRAY_LEN(help_text); k++)
             fputs(help_text[k], stdout);
     } else if (a.show_version) {
-        printf("cgfried %s (%s)\n", CGF_VERSION,
-               cgf_target_name(cgf_target_selected()));
+        printf("cgfried (Cgfried) %s\n", CGF_VERSION);
+        printf("Copyright (C) %d Cgfried contributors\n",
+               version_copyright_year());
+        printf("License GPL-3.0-only: GNU GPL version 3 only "
+               "<https://gnu.org/licenses/gpl.html>.\n");
     } else if (a.show_dumpversion) {
         printf("%s\n", CGF_VERSION);
     } else if (a.show_dumpmachine) {

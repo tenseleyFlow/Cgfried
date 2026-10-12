@@ -15,6 +15,7 @@
 #include "driver/driver.h"
 
 #include "util/arena.h"
+#include "version.h"
 
 extern char **environ;
 
@@ -319,8 +320,8 @@ const char *cgf_shipped_include_dir(void)
     static bool computed;
     static const char *result;
     static const char *const suffixes[] = {
-        "/../lib/cgfried/include", /* make install layout */
-        "/../include",             /* dev tree (build/cgfried) */
+        "/../lib/cgfried/" CGF_VERSION "/include", /* installed */
+        "/../include", /* dev tree (build/cgfried) */
     };
     const char *override;
     char probe[4200];
@@ -352,7 +353,7 @@ const char *cgf_shipped_include_dir(void)
 void cgf_report_include_search(FILE *out)
 {
     static const char *const suffixes[] = {
-        "/../lib/cgfried/include",
+        "/../lib/cgfried/" CGF_VERSION "/include",
         "/../include",
     };
     char path[4096];
@@ -808,8 +809,8 @@ static const char *locate_libgcc_dir(void)
 
 /* The libcgf_rt.a slot (content is Sprint 28; this sprint reserves its
  * place in the canonical sequence). Dev tree: build/<target>/ beside
- * the compiler; installed: <prefix>/lib/cgfried/<target>/. Absent file
- * = slot silently empty until Sprint 28 ships it. */
+ * the compiler; installed: <prefix>/lib/cgfried/<version>/<target>/.
+ * Absent file = slot silently empty until Sprint 28 ships it. */
 static const char *locate_rt_archive(TargetSpec t)
 {
     static char path[4096];
@@ -818,8 +819,8 @@ static const char *locate_rt_archive(TargetSpec t)
     snprintf(suffix, sizeof(suffix), "/%s/libcgf_rt.a", cgf_target_name(t));
     if (cgf_exe_relative(suffix, path, sizeof(path)) && access(path, R_OK) == 0)
         return path;
-    snprintf(suffix, sizeof(suffix), "/../lib/cgfried/%s/libcgf_rt.a",
-             cgf_target_name(t));
+    snprintf(suffix, sizeof(suffix), "/../lib/cgfried/%s/%s/libcgf_rt.a",
+             CGF_VERSION, cgf_target_name(t));
     if (cgf_exe_relative(suffix, path, sizeof(path)) && access(path, R_OK) == 0)
         return path;
     return NULL;

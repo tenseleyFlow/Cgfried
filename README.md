@@ -1,67 +1,92 @@
 # Cgfried
 
-A standards-first, performance-first, warnings-first, tests-first C17
-compiler with bespoke tooling, targeting x86_64 and ARM64 (ELF and Mach-O).
-Sister project to [ARMFORTAS](https://github.com/FortranGoingOnForty/armfortas)
-and its assembler/linker, afs-as and afs-ld.
+Cgfried is a self-hosting C compiler written in C11. It defaults to ISO C17,
+has x86-64 and ARM64 backends, and emits ELF or Mach-O for a closed set of
+five targets. The compiler, test runner, runtime, and release tooling are kept
+dependency-light and build with a C11 compiler, GNU Make, and POSIX tools.
 
-## Building
+The project emphasizes deterministic output, precise diagnostics, explicit
+target behavior, and an optional memory-safety ladder. It includes a
+freestanding header set and `libcgf_rt`, and can use either system binutils or
+the companion `afs-as` and `afs-ld` submodules.
 
-Requires any C11 compiler, GNU make, and a POSIX environment.
+Version 0.1.0 is a deliberately bounded release, not a drop-in GCC
+replacement. C23, `_Complex`, `threads.h`, general-dynamic TLS, full DWARF,
+LTO, PGO, and `asm goto` remain outside this release and are rejected rather
+than silently miscompiled. Target feature macros advertise the implemented
+surface, including the applicable `__STDC_NO_*` macros.
+
+## Install
 
 ```sh
-make            # builds build/cgfried (and the short alias build/cgf)
-make test       # unit tests + driver smoke checks
-make bench      # reproducible compile-speed/RSS protocol
-make install    # PREFIX=/usr/local by default
+git clone --recurse-submodules https://github.com/tenseleyFlow/Cgfried.git
+cd Cgfried
+make
+sudo make install
 ```
 
-`-Ofast` and `-ffast-math` use one deliberately bundled policy. Its exact
-licenses, compatibility warnings, and IEC 60559 macro contract are documented
-in [docs/fast-math.md](docs/fast-math.md).
+`PREFIX` defaults to `/usr/local`; packaging can use, for example,
+`make install PREFIX=/usr DESTDIR="$pkgdir"`. The C compiler itself does not
+require Rust. Building the optional bundled assembler and linker with
+`make tools` additionally requires Cargo.
 
-Warning flag precedence, promotion, diagnostic pragmas, and system-header
-suppression are documented in [docs/warnings.md](docs/warnings.md).
+## Quick start
 
-Compile-speed/RSS measurement, profiling, and baseline policy are documented
-in [docs/performance.md](docs/performance.md).
+```sh
+CGF_AS=0 cgfried hello.c -o hello        # compile and link
+CGF_AS=0 cgfried -c one.c two.c          # compile multiple translation units
+cgfried -E -P config.h                    # preprocess
+cgfried --target=arm64-linux -S hello.c  # cross-compile to assembly
+CGF_AS=0 cgfried -fsafe app.c -o app     # opt into the safe-TU policy
+```
 
-## Toolchain
+`CGF_AS=0` selects the system assembler. Use the bundled assembler instead by
+building `make tools`; explicit `CGF_AS_PATH` and `CGF_LD_PATH` settings take
+precedence over both modes. Run `cgfried --help` and
+`cgfried --help=warnings` for the complete command-line surface.
 
-The bundled assembler ([afs-as](https://github.com/FortranGoingOnForty/afs-as))
-and linker ([afs-ld](https://github.com/FortranGoingOnForty/afs-ld)) are git
-submodules built with `make tools`. **Rust/cargo is a build-time dependency
-of the bundled assembler/linker only. The compiler is C11 + POSIX; it builds
-and runs without a Rust toolchain, using system `as`/`ld`.**
+## Target status
 
-Routing (resolution order per tool: explicit path var > mode var > default;
-empty-string values are treated as unset):
-
-| Variable | Values | Effect |
+| Target | Status | Caveats |
 |---|---|---|
-| `CGF_AS` | unset / `1` (default) | use bundled afs-as |
-| | `0` | use system `as` from PATH |
-| `CGF_AS_PATH` | `<bin>` | use exactly this assembler (wins over `CGF_AS`) |
-| `CGF_LD` | unset / `0` (default) | use system `ld` from PATH |
-| | `1` | use afs-ld (not yet supported: Sprint 27) |
-| `CGF_LD_PATH` | `<bin>` | use exactly this linker (wins over `CGF_LD`) |
-| `CGF_CRT_DIR` | `<dir>` | crt object discovery override |
+| `x86_64-linux-gnu` | supported, CI-gated | Native GNU userland is the primary hosted lane; cross use needs a matching sysroot and tools. |
+| `arm64-linux` | supported, CI-gated | Cross-linked programs need an AArch64 sysroot; `long double` is IEEE binary128 and uses the target `libcgf_rt`. |
+| `arm64-macos` | supported, CI-gated | Requires a macOS 11+ SDK; Apple varargs follow the native array carrier; static linking is rejected and produced executables are ad-hoc signed. |
+| `x86_64-linux-musl` | supported, CI-gated | The release gate covers the static musl lane; cross use needs the matching musl sysroot and start files. |
+| `x86_64-freebsd` | built + tested in CI | PR CI covers smoke tests and the full corpus runs in the FreeBSD nightly VM; non-native use needs a FreeBSD sysroot. |
 
-Submodule bump ritual (in this order — a parent pin pointing at an unpushed
-commit breaks every fresh clone and CI):
+All five target spellings are closed and exact. `-dumpmachine` reports the
+selected target, and `--target=<triple>` rejects unknown triples.
 
-1. Commit inside the submodule, on its branch.
-2. **Push the submodule first.**
-3. `git add afs-as && git commit` in the parent to bump the pin
-   (`bump afs-as: <what changed>`).
+## Memory safety
 
-## Status
+`-fcgf-safe` instruments heap accesses that static analysis cannot discharge;
+`-fsafe` adds the safe-translation-unit policy, memory warnings as errors,
+zero initialization, and unsafe-construct rejection. The bounded guarantees,
+escape rules, interoperability marker, and limitations are specified in
+[the safe-mode contract](doc/safe-mode.md), with the analysis details in
+[the memory-safety guide](doc/memsafe.md).
 
-Sprints 0–52 and Sprint 55 are complete. C17 preprocessing, parsing, semantic
-analysis, optimization, x86-64/ARM64 code generation, ELF/Mach-O targets,
-warnings, and the memory-safety ladder are implemented. See `.docs/sprints/`
-(local) for the remaining roadmap to v0.1.0.
+## Compatibility and performance scope
+
+Cgfried's optimizer is tested against the project's GCC 8-class `-O2`
+equivalence matrices and named kernel/corpus gates. Its `-Wall -Wextra`
+behavior is matched to the committed warning differential matrix. Those are
+testable corpus claims, not claims of complete GCC option, extension, ABI, or
+diagnostic compatibility. Current performance policy and frozen measurements
+are documented in [the performance gates](doc/perf-gates.md) and
+`.benchmarks/report-0.1.0.md`.
+
+## Reproducible source archive
+
+`make dist` creates `cgfried-0.1.0.tar.gz` from committed Git objects and the
+two pinned submodule commits. Release maintainers need GNU gzip because Apple
+gzip produces a different deflate stream for the same byte-identical tar
+payload; on macOS, install it with `brew install gzip`. `CGF_DIST_GZIP` can
+name an alternate GNU gzip binary. The release gate builds the archive on
+x86-64 Linux, ARM64 Linux, and ARM64 macOS and compares all three products
+byte-for-byte.
 
 ## License
 
-GPL-3.0-only. See LICENSE.
+GPL-3.0-only. See [LICENSE](LICENSE).

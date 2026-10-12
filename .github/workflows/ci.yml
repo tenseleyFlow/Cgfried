@@ -1166,3 +1166,130 @@ jobs:
           cat macho-objdiff.log
           [ "${s:-0}" -eq 0 ]
           ! grep -q HARNESS_SKIP macho-objdiff.log
+
+  # Sprint 51's fifth target needs a native execution witness, not only the
+  # cross-emission check in `make test`.  Keep this as a small PR smoke: the
+  # full imported corpus is substantially slower in the VM, while compiling,
+  # statically linking, and executing through both assembler routes proves the
+  # target ABI, FreeBSD branding note, crt discovery, libc link, and kernel
+  # handoff on every change.
+  freebsd-x86_64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+      - name: initialize pinned submodules through HTTPS
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1 afs-as
+      - name: build and execute the x86_64-freebsd smoke
+        # vmactions/freebsd-vm v1.5.9; pin the immutable commit rather than
+        # allowing the release gate's VM implementation to drift under us.
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc
+        with:
+          # Keep the base release aligned with the active FreeBSD 15 ports
+          # repository.  The 15.0 image can receive packages linked against
+          # 15.1's FBSD_1.9 libc symbol set, making cargo fail before our lane.
+          release: '15.1'
+          prepare: pkg install -y binutils gmake rust
+          run: |
+            set -eu
+            gmake CC=cc -j2 all
+            cargo build --manifest-path afs-as/Cargo.toml --release
+            test "$(build/cgfried -dumpmachine)" = x86_64-freebsd
+            CGF_FREEBSD_SYSROOT=/ \
+              sh scripts/freebsd_cross_lane.sh build/cgfried \
+              > build/freebsd-cross.log 2>&1
+            cat build/freebsd-cross.log
+            ! grep -q HARNESS_SKIP build/freebsd-cross.log
+            grep -q 'native executions=2$' build/freebsd-cross.log
+      - name: retain the native FreeBSD target evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sprint51-freebsd-x86_64-smoke
+          path: |
+            build/freebsd-cross.log
+            build/freebsd-cross/probe.c
+          if-no-files-found: warn
+          retention-days: 90
+
+  # Sprint 62: build from the exported source archive on every native release
+  # platform. Each lane uploads the archive it tested; the aggregation job
+  # proves that independently produced host archives are byte-identical.
+  release-dist:
+    name: dist-check (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            runner: ubuntu-latest
+            packages: ""
+            cc: gcc
+          - target: arm64-linux
+            runner: ubuntu-24.04-arm
+            packages: binutils libc6-dev
+            cc: gcc
+          - target: arm64-macos
+            runner: macos-15
+            packages: ""
+            cc: cc
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: initialize pinned submodules through HTTPS
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1
+      - name: install native release-lane prerequisites
+        if: matrix.packages != ''
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ${{ matrix.packages }}
+      - name: install the canonical release compressor on macOS
+        if: runner.os == 'macOS'
+        run: brew install gzip
+      - name: create the object-derived source archive
+        run: make dist
+      - name: build, test, install, and compile from the exported archive
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh scripts/dist-check.sh cgfried-0.1.0.tar.gz
+      - name: retain the exact tested source archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: cgfried-dist-${{ matrix.target }}
+          path: cgfried-0.1.0.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+
+  release-dist-reproducible:
+    name: dist reproducible across hosts
+    needs: release-dist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: cgfried-dist-x86_64-linux
+          path: dist/x86_64-linux
+      - uses: actions/download-artifact@v8
+        with:
+          name: cgfried-dist-arm64-linux
+          path: dist/arm64-linux
+      - uses: actions/download-artifact@v8
+        with:
+          name: cgfried-dist-arm64-macos
+          path: dist/arm64-macos
+      - name: compare every host product byte-for-byte
+        run: |
+          x86=dist/x86_64-linux/cgfried-0.1.0.tar.gz
+          arm=dist/arm64-linux/cgfried-0.1.0.tar.gz
+          mac=dist/arm64-macos/cgfried-0.1.0.tar.gz
+          sha256sum "$x86" "$arm" "$mac"
+          cmp "$x86" "$arm"
+          cmp "$x86" "$mac"
