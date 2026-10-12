@@ -1108,3 +1108,4 @@ include ci/campaigns/libjpeg.mk
 include ci/campaigns/zstd.mk
 include ci/campaigns/libxml2.mk
 include ci/campaigns/openssl.mk
+include ci/campaigns/git.mk

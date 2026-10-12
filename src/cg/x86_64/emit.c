@@ -206,12 +206,13 @@ static u8 asm_w(u8 size)
 /* Where operand k ended up, reconstructed from the post-RA instruction.
  *
  * The CONVENTION is isel's and both sides must agree: the primary register
- * output (if any) is the instruction's `def`; a later, necessarily-fixed
- * output names its IrAsmOp.reg directly; and every other operand that needs
- * a register appears in `xuses` in IrAsm operand order. Immediates take no
- * register and are skipped on both sides, so the walk stays in step. Getting
- * this wrong is the "off-by-one corrupts every multi-operand asm" pitfall,
- * which is why the walk is one loop rather than two indexes. */
+ * output (if any) is the instruction's `def`; a later fixed output names its
+ * IrAsmOp.reg directly; a later general read-write output names the xuse of
+ * its one matching input; and every non-output operand that needs a register
+ * appears in `xuses` in IrAsm operand order. Immediates take no register and
+ * are skipped on both sides, so the walk stays in step. Getting this wrong is
+ * the "off-by-one corrupts every multi-operand asm" pitfall, which is why the
+ * walk is one loop rather than two indexes. */
 static bool asm_operand_reg(const X64Inst *in, const IrAsm *a, u32 k, u8 *reg)
 {
     u32 xi = 0;
@@ -234,9 +235,23 @@ static bool asm_operand_reg(const X64Inst *in, const IrAsm *a, u32 k, u8 *reg)
                         return false;
                     *reg = (u8)(in->def.v - 1);
                 } else {
-                    if (o->cls != ASM_CLS_FIXED)
+                    u32 tied;
+
+                    if (o->cls == ASM_CLS_FIXED) {
+                        *reg = o->reg;
+                        return true;
+                    }
+                    if (o->cls != ASM_CLS_REG)
                         return false;
-                    *reg = o->reg;
+                    /* Lowering admits this shape only with exactly one
+                     * matching input. Resolve that input through the normal
+                     * xuse walk so output %1 and its appended input operand
+                     * print the same allocated physical register. */
+                    for (tied = 0; tied < a->nops; tied++)
+                        if (!a->ops[tied].is_output &&
+                            a->ops[tied].tied_to == (i32)j)
+                            return asm_operand_reg(in, a, tied, reg);
+                    return false;
                 }
                 return true;
             }

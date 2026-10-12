@@ -429,9 +429,13 @@ green-only as `da11692f4ec1322b3f4cc8b5db1e3fb7206b4abb`; its tested head is
 `57406722291eacd4c8b6dec272f39dc48c391387`. PR #190's ordered duplicate
 archive-member attestation tranche merged green-only as
 `2c98eb38f8e2d75fe7f41924758b983e9c521454`; its tested head is
-`e4b79af4392496cac736dbb5103fc5024b08ef53`. The active
-`s56.96-has-extension` branch starts from that exact merge and owns Git's last
-Apple scout-only preprocessor compatibility definition.
+`e4b79af4392496cac736dbb5103fc5024b08ef53`. PR #191's
+`__has_extension` tranche completed with 38 passing and nine intentionally
+skipped checks at tested head `2617c1c79b2d3fc851040f63f24366cf8582d60a`,
+then merged green-only as `0a0cd8680ce3be7a5da82b6a2dc97fa08eeb803c`.
+The active `s56.97-git-campaign` branch starts from that exact merge and owns
+the pinned symmetric Git 2.56.0 publication campaign plus its first native CI
+findings, `CAMP-GIT-004` through `CAMP-GIT-007`.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -10211,7 +10215,7 @@ and green post-publication CI.
   `e4b79af4392496cac736dbb5103fc5024b08ef53` completed with 38 passing and
   nine intentionally skipped checks, then merged green-only through PR #190
   as `2c98eb38f8e2d75fe7f41924758b983e9c521454`.
-- The active `s56.96-has-extension` tranche starts from exact merged PR #190.
+- The `s56.96-has-extension` tranche starts from exact merged PR #190.
   `CAMP-GIT-003` removes Git's last scout-only Apple compatibility definition
   by exposing `__has_extension(identifier)` as a builtin feature query. It is
   visible to `defined` and `#ifdef`, preserves the operand as a raw identifier,
@@ -10239,8 +10243,93 @@ and green post-publication CI.
   before reaching the known invalid `linux-x86_64` golden profile on the
   native ARM64/Mach-O compiler; focused native evidence is green and hosted CI
   supplies the target-correct full matrix. Implementation commit is
-  `1b7aaea6`. After this tranche lands, publish the complete pinned, symmetric,
-  provenance-certified Git 2.56.0 sole-C campaign on both native architectures.
+  `1b7aaea6`. Exact tested head
+  `2617c1c79b2d3fc851040f63f24366cf8582d60a` completed with 38 passing and
+  nine intentionally skipped checks, then merged green-only through PR #191
+  as `0a0cd8680ce3be7a5da82b6a2dc97fa08eeb803c`.
+- The active `s56.97-git-campaign` tranche starts from exact merged PR #191 and
+  publishes the official Git 2.56.0 release archive as the eighth
+  post-v0.1.0 large-FOSS rung. The descriptor pins archive SHA-256
+  `26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3`
+  and peeled tag commit `a018953688f1b10bddf91bff8747068f5f4746a4`.
+  Cgfried and the host compiler build independent GNU17/O2 trees with curl,
+  Expat, gettext, OpenSSL, Perl, Python, Rust, Tcl/Tk, and Apple Common Crypto
+  integrations disabled. The project closure stays in `libgit.a`; system
+  libc, zlib, pthread, linker, assembler, and archive tools remain outside the
+  sole-C claim.
+
+  Git's own make database pins the ordered archive prerequisite graph instead
+  of reconstructing duplicate members by basename. Both Linux architectures
+  have the same 563-object / 303-member topology, including distinct pairs of
+  `fsck.o` and `tree.o`, while Darwin retains its measured 565 / 305 profile.
+  Darwin's ten actual compiler-linked products are certified; dashed built-ins
+  that are hardlinks to `git` are not misreported as separate link operations.
+  Linux additionally enables Git's `LINK_FUZZ_PROGRAMS` platform policy, so
+  its nine retained `oss-fuzz/*` fuzzer binaries make 19 certified products.
+  Linux object, link, and archive topology SHA-256 values are respectively
+  `d9b0880c5429ae58bddd45d23657107d196d5695a5a80d49a803e8c819e8402a`,
+  `11f3fec574812a1cfebe2d9831afac47cf09585556724b95ce5d702534a89e7a`,
+  and `dd9aecc20b76c312262bd76c2b3883bf2ad5d3605fa7f683338eb6b10ad8ccf0`.
+  Darwin object and archive topology hashes are
+  `aacbf0461c958cdde7e1ff71a5d45778c78ea604fed98f06b92ffd9a316e143f`
+  and `ea88eaa097cd20fa972f62a5a05c770b53ea018694a93f94a73fcbb9354da7cc`;
+  its link topology is identical to Linux.
+
+  The complete native Apple-silicon campaign is green locally in both compiler
+  lanes: 261/261 C units, then 31,846 shell successes, zero failures, 361
+  declared upstream known breakages, and 33,203 total shell tests. A
+  deterministic init/commit/revision/log smoke matches the pristine host
+  build. The sole-C verifier accepts all 565 Darwin translations, all 305
+  ordered archive members, and all ten linked products. CI adds the same
+  offline-capable publication job on native x86-64 and ARM64 Linux and retains
+  results, receipts, closure inventories, parity output, summaries, and logs.
+
+  The first native x86-64 publication run then exposed `CAMP-GIT-004` at
+  `xdiff/xutils.c:302`: the ARM64 prerequisite tranche had admitted Git's
+  two-`+r` reassociation fence, but x86-64 still admitted only fixed-register
+  extras. The x86 selector now gives each additional general read-write output
+  the localized vreg of its exactly one matching input. That interval spans
+  the opaque asm, keeps the allocator's physical-register choice stable, and
+  feeds the immediate post-asm store; template emission resolves the output
+  through the same tied xuse. This retains the one-def MIR contract and leaves
+  allocator-chosen write-only `=r` extras as an explicit refusal.
+
+  The same run proved `CAMP-GIT-005` on native ARM64 Linux. Both compiler and
+  test execution completed with zero failures, but Linux runs 33,235 shell
+  tests rather than Darwin's 33,203: 32,180 succeed and 358 are declared
+  upstream known breakages. The campaign now selects those exact per-platform
+  totals (Darwin remains 31,846 / 361), rejects any drift in success, broken,
+  failure, or unexpectedly-fixed counts, and still requires the independent
+  host-compiler summary to match byte for byte.
+
+  The repaired native ARM64 retry then exposed `CAMP-GIT-006` after every
+  compiler and shell test passed: Git's Linux configuration links nine
+  `oss-fuzz/*` fuzzer binaries that Darwin deliberately leaves as object-only
+  build checks. Sole-C discovery correctly retained all 19 Linux products but
+  the campaign still compared them with Darwin's ten-product profile. The
+  platform contract now names every Linux fuzzer, pins its independently
+  measured 316-edge link topology, and keeps all of those inputs inside the
+  same provenance closure. The retained x86-64 and ARM64 artifacts agree
+  byte-for-byte on the normalized object, archive, program, and link
+  inventories.
+
+  The first direct Darwin validation rerun exposed `CAMP-GIT-007`: both full
+  shell-test lanes passed, but the final smoke reused its previous repository,
+  created a second commit, and correctly failed the one-commit assertion.
+  Validation now recreates only its bounded parity workspace before both
+  smokes, making the stage repeatable without weakening any retained-output or
+  closure check.
+
+  Focused lowering/selection/emission tests, the pre-existing fixed-output and
+  ARM64 controls, the full 1,040-unit suite (4,331,815 assertions), native
+  ARM64 execution at every optimization level, and x86-64 normal/spill-all
+  assembly are green locally. The stale torture-policy descriptions left by
+  the ARM64 half of this repair are narrowed at the same time; both targets
+  still reject GCC's write-only `inline-asm-1.c` shape, now under fingerprints
+  matching the live diagnostics. Editing that permanent GNU asm fixture
+  intentionally moves the 5,000-step deterministic frontend-fuzz digest to
+  `c1d8ab43ae2300f5`; native Apple ARM64 and hosted Linux x86-64 reproduce the
+  same value, and the 2,000-iteration smoke run has zero findings.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

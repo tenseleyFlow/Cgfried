@@ -182,7 +182,8 @@ typedef enum X64Op {
     /* Inline asm. `table` is the 1-based IrModule.asms index. The primary
      * register output is def; register operands and exact clobber sentinels
      * ride in xuses; the side table retains template spelling, immediates,
-     * memory operands and bounded fixed-register extra outputs. */
+     * memory operands, bounded fixed-register extra outputs, and the mapping
+     * from a bounded general read-write extra output to its tied xuse. */
     X64_OP_ASM,
     X64_OP_VASTART, /* a = va_list ptr: frame-finalize stores the
                        overflow_arg_area and reg_save_area pointers */

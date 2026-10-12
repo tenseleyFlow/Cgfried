@@ -425,11 +425,13 @@ unsupported:
 /* The shared MIR view still has one def, so each backend admits only an
  * extra-output shape it can model without inventing a second one.
  *
- * x86: every extra output names a FIXED physical register, and READREG
- * captures the new value immediately afterwards. A matching input reserves
- * that location before the asm; for a write-only output the backend creates
- * an otherwise-unused pre-asm reservation itself. This covers both glibc
- * <sys/io.h>'s =D/=c + 0/1 shape and zstd's =a/=c/=d cpuid shape.
+ * x86: a FIXED extra output is captured with READREG immediately afterwards.
+ * A matching input reserves that location before the asm; for a write-only
+ * output the backend creates an otherwise-unused pre-asm reservation itself.
+ * This covers both glibc <sys/io.h>'s =D/=c + 0/1 shape and zstd's
+ * =a/=c/=d cpuid shape. A general extra output instead needs exactly one
+ * matching input: the read-write pair shares one local vreg across the asm,
+ * just like the ARM64 case below.
  *
  * ARM64: every extra output has exactly one matching input. The backend gives
  * that read-write pair one local vreg, uses it at the asm point, and stores it
@@ -472,15 +474,17 @@ static bool validate_register_outputs(Lower *lo, const AstNode *s,
                       "register class and have exactly one matching input");
             return false;
         }
-        if (op->cls != ASM_CLS_FIXED || tied_input_count(ops, n, i) > 1) {
-            asm_error(lo, s->asm_ops[i].span,
-                      "an asm with more than one register output is not "
-                      "supported yet unless every extra output names one "
-                      "fixed x86 register and has at most one matching "
-                      "input; a general extra output would require another "
-                      "MIR def (docs/gnu-extensions.md)");
-            return false;
-        }
+        if ((op->cls == ASM_CLS_FIXED && tied_input_count(ops, n, i) <= 1) ||
+            (op->cls == ASM_CLS_REG && tied_input_count(ops, n, i) == 1))
+            continue;
+        asm_error(lo, s->asm_ops[i].span,
+                  "an asm with more than one register output is not "
+                  "supported yet unless every extra x86 output either names "
+                  "one fixed register with at most one matching input or "
+                  "uses the general register class with exactly one matching "
+                  "input; a write-only general extra output would require "
+                  "another MIR def (docs/gnu-extensions.md)");
+        return false;
     }
     return true;
 }

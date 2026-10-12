@@ -1,21 +1,22 @@
 // OPT_EQ: all
 // EXIT_CODE: 0
 /* Git's xdiff reassociation fence uses an empty asm with two `+r` outputs.
- * Change both values here so execution proves that the allocator preserves
- * two distinct chosen registers across the opaque instruction and stores
- * both results back. The shared x86 corpus intentionally keeps a no-op branch
- * because general extra allocator-chosen x86 outputs remain a separate gap. */
+ * Change both values here so execution proves that each backend preserves two
+ * distinct chosen registers across the opaque instruction and stores both
+ * results back. */
 static int two_read_write_outputs(void)
 {
-#if defined(__aarch64__)
     unsigned long a = 10;
     unsigned long b = 20;
 
+#if defined(__aarch64__)
     __asm__("add %0, %0, #1\n\tadd %1, %1, #2" : "+r"(a), "+r"(b));
-    return a == 11 && b == 22;
+#elif defined(__x86_64__)
+    __asm__("addq $1, %0\n\taddq $2, %1" : "+r"(a), "+r"(b));
 #else
-    return 1;
+#error unsupported test architecture
 #endif
+    return a == 11 && b == 22;
 }
 
 int main(void)
