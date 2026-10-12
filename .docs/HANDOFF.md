@@ -429,9 +429,12 @@ green-only as `da11692f4ec1322b3f4cc8b5db1e3fb7206b4abb`; its tested head is
 `57406722291eacd4c8b6dec272f39dc48c391387`. PR #190's ordered duplicate
 archive-member attestation tranche merged green-only as
 `2c98eb38f8e2d75fe7f41924758b983e9c521454`; its tested head is
-`e4b79af4392496cac736dbb5103fc5024b08ef53`. The active
-`s56.96-has-extension` branch starts from that exact merge and owns Git's last
-Apple scout-only preprocessor compatibility definition.
+`e4b79af4392496cac736dbb5103fc5024b08ef53`. PR #191's
+`__has_extension` tranche completed with 38 passing and nine intentionally
+skipped checks at tested head `2617c1c79b2d3fc851040f63f24366cf8582d60a`,
+then merged green-only as `0a0cd8680ce3be7a5da82b6a2dc97fa08eeb803c`.
+The active `s56.97-git-campaign` branch starts from that exact merge and owns
+the pinned symmetric Git 2.56.0 publication campaign.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -10211,7 +10214,7 @@ and green post-publication CI.
   `e4b79af4392496cac736dbb5103fc5024b08ef53` completed with 38 passing and
   nine intentionally skipped checks, then merged green-only through PR #190
   as `2c98eb38f8e2d75fe7f41924758b983e9c521454`.
-- The active `s56.96-has-extension` tranche starts from exact merged PR #190.
+- The `s56.96-has-extension` tranche starts from exact merged PR #190.
   `CAMP-GIT-003` removes Git's last scout-only Apple compatibility definition
   by exposing `__has_extension(identifier)` as a builtin feature query. It is
   visible to `defined` and `#ifdef`, preserves the operand as a raw identifier,
@@ -10239,8 +10242,44 @@ and green post-publication CI.
   before reaching the known invalid `linux-x86_64` golden profile on the
   native ARM64/Mach-O compiler; focused native evidence is green and hosted CI
   supplies the target-correct full matrix. Implementation commit is
-  `1b7aaea6`. After this tranche lands, publish the complete pinned, symmetric,
-  provenance-certified Git 2.56.0 sole-C campaign on both native architectures.
+  `1b7aaea6`. Exact tested head
+  `2617c1c79b2d3fc851040f63f24366cf8582d60a` completed with 38 passing and
+  nine intentionally skipped checks, then merged green-only through PR #191
+  as `0a0cd8680ce3be7a5da82b6a2dc97fa08eeb803c`.
+- The active `s56.97-git-campaign` tranche starts from exact merged PR #191 and
+  publishes the official Git 2.56.0 release archive as the eighth
+  post-v0.1.0 large-FOSS rung. The descriptor pins archive SHA-256
+  `26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3`
+  and peeled tag commit `a018953688f1b10bddf91bff8747068f5f4746a4`.
+  Cgfried and the host compiler build independent GNU17/O2 trees with curl,
+  Expat, gettext, OpenSSL, Perl, Python, Rust, Tcl/Tk, and Apple Common Crypto
+  integrations disabled. The project closure stays in `libgit.a`; system
+  libc, zlib, pthread, linker, assembler, and archive tools remain outside the
+  sole-C claim.
+
+  Git's own make database pins the ordered archive prerequisite graph instead
+  of reconstructing duplicate members by basename. Both Linux architectures
+  have the same 563-object / 303-member topology, including distinct pairs of
+  `fsck.o` and `tree.o`, while Darwin retains its measured 565 / 305 profile.
+  Ten actual compiler-linked products are certified; dashed built-ins that are
+  hardlinks to `git` are not misreported as separate link operations. Linux
+  object, link, and archive topology SHA-256 values are respectively
+  `d9b0880c5429ae58bddd45d23657107d196d5695a5a80d49a803e8c819e8402a`,
+  `63d4eea89da713655eea0f566411a80d948ca690ecf9c1159131197a45f29810`,
+  and `dd9aecc20b76c312262bd76c2b3883bf2ad5d3605fa7f683338eb6b10ad8ccf0`.
+  Darwin object and archive topology hashes are
+  `aacbf0461c958cdde7e1ff71a5d45778c78ea604fed98f06b92ffd9a316e143f`
+  and `ea88eaa097cd20fa972f62a5a05c770b53ea018694a93f94a73fcbb9354da7cc`;
+  its link topology is identical to Linux.
+
+  The complete native Apple-silicon campaign is green locally in both compiler
+  lanes: 261/261 C units, then 31,846 shell successes, zero failures, 361
+  declared upstream known breakages, and 33,203 total shell tests. A
+  deterministic init/commit/revision/log smoke matches the pristine host
+  build. The sole-C verifier accepts all 565 Darwin translations, all 305
+  ordered archive members, and all ten linked products. CI adds the same
+  offline-capable publication job on native x86-64 and ARM64 Linux and retains
+  results, receipts, closure inventories, parity output, summaries, and logs.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.

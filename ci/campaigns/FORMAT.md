@@ -76,6 +76,13 @@ project objects, 37 byte-checked archive members, seven linked products, and
 four deterministically bounded upstream tests. Libxml2 2.15.4 is the seventh
 certified closure and sixth large-FOSS rung: 52 project objects, 37
 byte-checked archive members, 13 linked products, and all 22 CTest cases.
+OpenSSL 3.5.9 is the eighth certified closure and seventh large-FOSS rung:
+1,682 Linux C translations, 1,351 byte-checked members across eight archives,
+343 linked programs, and all 347 recipe files / 4,043 Linux tests. Git 2.56.0
+is the ninth certified closure and eighth large-FOSS rung: 563 C translations,
+all 303 ordered `libgit.a` members (including duplicate `fsck.o` and `tree.o`
+basenames), ten linked products, 261 C unit tests, and the complete 33,203-test
+shell suite on each native Linux architecture.
 
 Run `scripts/campaign-lint.sh` to validate every installed descriptor and
 expected file plus `ladder.yml`.  Paths may be passed to lint a bounded
@@ -156,12 +163,12 @@ independently from its symmetric-only configuration, 25-suite self-test, 140
 generated suite runners, 57 normal C sample/test programs, and ten standalone
 one-file fuzz programs on the same two native Linux architectures. Libpng
 1.6.59 is the third such large-FOSS rung; libjpeg-turbo 3.2.0 is the fourth,
-zstd 1.5.7 is the fifth, and libxml2 2.15.4 is the sixth. These campaigns run
-complete static, sole-C closures plus pristine host-oracle builds and their
-upstream test suites on the same native architectures. Libxml2's official
+zstd 1.5.7 is the fifth, libxml2 2.15.4 is the sixth, OpenSSL 3.5.9 is the
+seventh, and Git 2.56.0 is the eighth. These campaigns run complete static,
+sole-C project closures plus pristine host-oracle builds and their upstream
+test suites on the same native architectures. Libxml2's official
 release archive omits two CMake test drivers present at its pinned tag; their
 exact contents are committed and hash-verified into both exported trees so all
-22 registered tests execute. Curl's
-network-dependent full suite and larger campaigns
-such as OpenSSL, PostgreSQL, and GCC remain post-v0.1.0; required bars must not
+22 registered tests execute. Curl's network-dependent full suite and larger
+campaigns such as PostgreSQL and GCC remain post-v0.1.0; required bars must not
 silently depend on them.

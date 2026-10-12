@@ -619,6 +619,64 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # Eighth post-v0.1.0 large-FOSS rung. Git's complete configured portable-C
+  # build is sole-C certified on both native Linux architectures. The 261-case
+  # C unit runner and all 33,203 shell tests must match a pristine host build;
+  # libgit.a's duplicate fsck.o and tree.o members remain ordered and distinct.
+  campaign-git:
+    name: campaign-git (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: cache the pinned Git archive
+        uses: actions/cache@v5
+        with:
+          path: build/campaigns/dl
+          key: campaign-git-2.56.0-26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3
+      - name: build the compiler and verify the campaign contract
+        run: |
+          make CC=gcc -j"$(nproc)" all
+          scripts/campaign-lint.sh
+          tests/scripts/campaign_contract_test.sh
+          tests/scripts/campaign_sole_c_test.sh
+      - name: populate the verified cache and run the offline campaign
+        run: |
+          make campaign-git-fetch
+          CGF_CAMPAIGN_OFFLINE=1 make git-expected
+      - name: retain Git campaign evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: large-foss-git-${{ matrix.arch }}
+          path: |
+            build/campaigns/git/results.txt
+            build/campaigns/git/provenance.txt
+            build/campaigns/git/sole-c/**
+            build/campaigns/git/sole-c-closure.tsv
+            build/campaigns/git/sole-c-report.txt
+            build/campaigns/git/object-closure.tsv
+            build/campaigns/git/link-closure.tsv
+            build/campaigns/git/archive-closure.tsv
+            build/campaigns/git/program-closure.txt
+            build/campaigns/git/*-shell-summary.txt
+            build/campaigns/git/parity/**
+            build/campaigns/git/logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
   # Sprint 49 DoD 7 / Sprint 48 DoD 6: arm64-linux on REAL arm64 hardware.
   # The compiler's own `cgf_target_host()` selects the arm64 backend -- there
   # is no --target flag until Sprint 51, so the compiler's architecture IS
