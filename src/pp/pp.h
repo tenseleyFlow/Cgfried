@@ -245,7 +245,8 @@ typedef enum {
     MACRO_BUILTIN_FILE,    /* __FILE__: presumed path (honors #line) */
     MACRO_BUILTIN_LINE,    /* __LINE__: presumed line of the invocation */
     MACRO_BUILTIN_COUNTER, /* __COUNTER__: per-TU counter from 0 (gcc ext) */
-    MACRO_BUILTIN_HAS_INCLUDE, /* __has_include: #if-only header probe */
+    MACRO_BUILTIN_HAS_INCLUDE,   /* __has_include: #if-only header probe */
+    MACRO_BUILTIN_HAS_EXTENSION, /* __has_extension: conservative query */
 } MacroBuiltinKind;
 
 typedef struct MacroDef {
@@ -654,10 +655,13 @@ PpToken *pp_macro_subst(Preprocessor *pp, const MacroDef *m, MacroArg *args,
 bool pp_macro_check_args(Preprocessor *pp, const MacroDef *m, u32 nargs,
                          SrcLoc loc);
 PpToken pp_builtin_token(Preprocessor *pp, const MacroDef *m, SrcLoc loc);
+void pp_builtin_function_token(Preprocessor *pp, const MacroDef *m,
+                               const MacroArg *args, u32 nargs, SrcLoc loc,
+                               PpToken *out);
 
 /* Registers predefined macros for the configured std/target: static ones
  * via the returned "<built-in>" pseudo-file (process before everything),
- * dynamic builtins (__FILE__/__LINE__/__COUNTER__) directly in the table.
+ * dynamic builtins and feature-query operators directly in the table.
  * __DATE__/__TIME__ freeze once (SOURCE_DATE_EPOCH honored). */
 SourceFile *pp_predefine_all(Preprocessor *pp);
 

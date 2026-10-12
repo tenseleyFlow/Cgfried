@@ -516,11 +516,39 @@ PpToken pp_builtin_token(Preprocessor *pp, const MacroDef *m, SrcLoc loc)
     case MACRO_BUILTIN_COUNTER:
         snprintf(buf, sizeof(buf), "%u", (unsigned)pp->counter++);
         return make_tok(pp, PPTOK_PPNUM, buf, loc, 0);
+    case MACRO_BUILTIN_HAS_EXTENSION:
+        /* This is a capability claim, not a spelling-recognition test.
+         * Cgfried advertises no Clang feature identifiers yet, so every
+         * well-formed query must conservatively answer false. */
+        return make_tok(pp, PPTOK_PPNUM, "0", loc, 0);
     case MACRO_BUILTIN_HAS_INCLUDE:
     case MACRO_BUILTIN_NONE:
         break;
     }
     CGF_ICE("pp_builtin_token: bad builtin kind %d", (int)m->builtin_kind);
+}
+
+void pp_builtin_function_token(Preprocessor *pp, const MacroDef *m,
+                               const MacroArg *args, u32 nargs, SrcLoc loc,
+                               PpToken *out)
+{
+    if (m->builtin_kind != MACRO_BUILTIN_HAS_EXTENSION)
+        CGF_ICE("pp_builtin_function_token: bad builtin kind %d",
+                (int)m->builtin_kind);
+    /* Keep a value in the token stream after a malformed invocation so the
+     * primary feature-query diagnostic does not trigger parser cascades. */
+    *out = pp_builtin_token(pp, m, loc);
+    if (!pp_macro_check_args(pp, m, nargs, loc))
+        return;
+    /* Clang feature-query operands are raw identifiers, not ordinary macro
+     * arguments. A macro that expands to several tokens is still one unknown
+     * feature name and must not become malformed during argument expansion. */
+    if (args[0].nraw != 1 || args[0].raw[0].kind != PPTOK_IDENT) {
+        pp_diag_at(pp, DIAG_ERROR, loc, (u32)strlen(m->name),
+                   "builtin feature query '%s' requires an identifier",
+                   m->name);
+        return;
+    }
 }
 
 /* # stringize: ORIGINAL spelling of the raw argument tokens; one space
@@ -1004,7 +1032,8 @@ u32 pp_expand_list(Preprocessor *pp, const PpToken *in, u32 n, PpToken **out)
             i++;
             continue;
         }
-        if (m->builtin_kind != MACRO_BUILTIN_NONE) {
+        if (m->builtin_kind != MACRO_BUILTIN_NONE &&
+            m->builtin_kind != MACRO_BUILTIN_HAS_EXTENSION) {
             PpToken b = pp_builtin_token(pp, m, t.loc);
             b.flags |= t.flags & (PPTOK_F_SPACE | PPTOK_F_BOL);
             PpTokVec_push(&res, b);
@@ -1033,7 +1062,19 @@ u32 pp_expand_list(Preprocessor *pp, const PpToken *in, u32 n, PpToken **out)
          * expansion never reads past the end — 6.10.3.1). */
         if (i + 1 >= work.len || work.data[i + 1].kind != PPTOK_PUNCT ||
             work.data[i + 1].punct != PUNCT_LPAREN) {
-            PpTokVec_push(&res, t);
+            if (m->builtin_kind == MACRO_BUILTIN_HAS_EXTENSION) {
+                PpToken b;
+
+                pp_diag_at(pp, DIAG_ERROR, t.loc, t.len,
+                           "builtin feature query '%s' requires '(' after "
+                           "its name",
+                           m->name);
+                b = pp_builtin_token(pp, m, t.loc);
+                b.flags |= t.flags & (PPTOK_F_SPACE | PPTOK_F_BOL);
+                PpTokVec_push(&res, b);
+            } else {
+                PpTokVec_push(&res, t);
+            }
             i++;
             continue;
         }
@@ -1044,6 +1085,20 @@ u32 pp_expand_list(Preprocessor *pp, const PpToken *in, u32 n, PpToken **out)
                                    &args, &nargs)) {
                 PpTokVec_push(&res, t);
                 i++;
+                continue;
+            }
+            if (m->builtin_kind == MACRO_BUILTIN_HAS_EXTENSION) {
+                PpToken b;
+                u32 tail = (u32)work.len - end - 1;
+                u32 span = end - i + 1;
+
+                pp_builtin_function_token(pp, m, args, nargs, t.loc, &b);
+                PpTokVec_reserve(&work, work.len - span + 1);
+                memmove(work.data + i + 1, work.data + end + 1,
+                        tail * sizeof(PpToken));
+                b.flags |= t.flags & (PPTOK_F_SPACE | PPTOK_F_BOL);
+                work.data[i] = b;
+                work.len = work.len - span + 1;
                 continue;
             }
             if (!pp_macro_check_args(pp, m, nargs, t.loc)) {
@@ -1153,8 +1208,8 @@ bool pp_tokens_would_merge(Preprocessor *pp, const PpToken *a, const PpToken *b)
 
 /* --- predefines --------------------------------------------------------- */
 
-static void register_dynamic(Preprocessor *pp, const char *name,
-                             MacroBuiltinKind kind)
+static MacroDef *register_dynamic(Preprocessor *pp, const char *name,
+                                  MacroBuiltinKind kind)
 {
     MacroDef *m = arena_alloc(pp->arena, sizeof(MacroDef), _Alignof(MacroDef));
 
@@ -1164,6 +1219,7 @@ static void register_dynamic(Preprocessor *pp, const char *name,
     m->is_builtin = true;
     m->builtin_kind = (u8)kind;
     strmap_put(&pp->macros, m->name, strlen(m->name), m);
+    return m;
 }
 
 /* Compiler identity is DIALECT-SCOPED. GNU modes advertise the GCC 8.3
@@ -1261,6 +1317,13 @@ SourceFile *pp_predefine_all(Preprocessor *pp)
     register_dynamic(pp, "__LINE__", MACRO_BUILTIN_LINE);
     register_dynamic(pp, "__COUNTER__", MACRO_BUILTIN_COUNTER);
     register_dynamic(pp, "__has_include", MACRO_BUILTIN_HAS_INCLUDE);
+    {
+        MacroDef *m = register_dynamic(pp, "__has_extension",
+                                       MACRO_BUILTIN_HAS_EXTENSION);
+
+        m->is_function = true;
+        m->nparams = 1;
+    }
     return sf;
 }
 

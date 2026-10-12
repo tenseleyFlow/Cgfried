@@ -322,7 +322,8 @@ bool pp_try_expand(Preprocessor *pp, const PpToken *t)
                    "preprocessing conditional");
         return false;
     }
-    if (m->builtin_kind != MACRO_BUILTIN_NONE) {
+    if (m->builtin_kind != MACRO_BUILTIN_NONE &&
+        m->builtin_kind != MACRO_BUILTIN_HAS_EXTENSION) {
         PpToken *one =
             arena_alloc(pp->arena, sizeof(PpToken), _Alignof(PpToken));
         *one = pp_builtin_token(pp, m, t->loc);
@@ -348,12 +349,26 @@ bool pp_try_expand(Preprocessor *pp, const PpToken *t)
     {
         PpToken nx;
         bool from_file;
+        bool have_next;
 
-        if (!raw_next(pp, &nx, &from_file))
-            return false; /* frame EOF: plain identifier */
-        if (nx.kind != PPTOK_PUNCT || nx.punct != PUNCT_LPAREN ||
+        have_next = raw_next(pp, &nx, &from_file);
+        if (!have_next || nx.kind != PPTOK_PUNCT || nx.punct != PUNCT_LPAREN ||
             (from_file && (nx.flags & PPTOK_F_BOL) && nx.punct == PUNCT_HASH)) {
-            unget_raw(pp, &nx, from_file);
+            if (have_next)
+                unget_raw(pp, &nx, from_file);
+            if (m->builtin_kind == MACRO_BUILTIN_HAS_EXTENSION) {
+                PpToken *one =
+                    arena_alloc(pp->arena, sizeof(PpToken), _Alignof(PpToken));
+
+                pp_diag_at(pp, DIAG_ERROR, t->loc, t->len,
+                           "builtin feature query '%s' requires '(' after "
+                           "its name",
+                           m->name);
+                *one = pp_builtin_token(pp, m, t->loc);
+                one->flags |= t->flags & (PPTOK_F_SPACE | PPTOK_F_BOL);
+                push_buf(pp, one, 1);
+                return true;
+            }
             return false;
         }
         {
@@ -364,6 +379,15 @@ bool pp_try_expand(Preprocessor *pp, const PpToken *t)
 
             if (!collect_args_stream(pp, m, t->loc, &args, &nargs, &rp_hs))
                 return true; /* diagnosed; invocation swallowed */
+            if (m->builtin_kind == MACRO_BUILTIN_HAS_EXTENSION) {
+                PpToken *one =
+                    arena_alloc(pp->arena, sizeof(PpToken), _Alignof(PpToken));
+
+                pp_builtin_function_token(pp, m, args, nargs, t->loc, one);
+                one->flags |= t->flags & (PPTOK_F_SPACE | PPTOK_F_BOL);
+                push_buf(pp, one, 1);
+                return true;
+            }
             if (!pp_macro_check_args(pp, m, nargs, t->loc))
                 return true;
             hs = pp_hs_intersect(pp->arena, t->hideset, rp_hs);

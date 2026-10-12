@@ -426,9 +426,12 @@ PR #187's OpenSSL 3.5.9 Apple-native prerequisite tranche merged green-only as
 campaign merged green-only as `f502fe74e85d9a9a693818c0f623a1cddbe10b4f`.
 PR #189's Git 2.56.0 Apple-silicon compiler prerequisite tranche merged
 green-only as `da11692f4ec1322b3f4cc8b5db1e3fb7206b4abb`; its tested head is
-`57406722291eacd4c8b6dec272f39dc48c391387`. The active
-`s56.95-sole-c-duplicate-members` branch starts from that exact merge and owns
-the archive-provenance prerequisite for Git's eventual sole-C campaign.
+`57406722291eacd4c8b6dec272f39dc48c391387`. PR #190's ordered duplicate
+archive-member attestation tranche merged green-only as
+`2c98eb38f8e2d75fe7f41924758b983e9c521454`; its tested head is
+`e4b79af4392496cac736dbb5103fc5024b08ef53`. The active
+`s56.96-has-extension` branch starts from that exact merge and owns Git's last
+Apple scout-only preprocessor compatibility definition.
 Sprint 56's campaign
 machine and triage map remain complete while Sprint 58
 continues its independent soak.
@@ -10187,7 +10190,7 @@ and green post-publication CI.
   `57406722291eacd4c8b6dec272f39dc48c391387` completed with 38 passing and
   nine intentionally skipped checks, then merged green-only through PR #189
   as `da11692f4ec1322b3f4cc8b5db1e3fb7206b4abb`.
-- The active `s56.95-sole-c-duplicate-members` tranche starts from exact merged
+- PR #190's `s56.95-sole-c-duplicate-members` tranche starts from exact merged
   PR #189. Git's 305-member `libgit.a` contains distinct `fsck.o` and `tree.o`
   basenames more than once. The reusable sole-C verifier formerly addressed
   each manifest row with portable `ar p archive member`; Darwin returns the
@@ -10204,10 +10207,40 @@ and green post-publication CI.
   rejects substitution of the first object for the second without relying on
   a nonportable ordinal-selection flag. Apple BSD and LLVM `ar` runs, campaign
   lint, the campaign contract meta-test, POSIX-shell parsing, bans, and diff
-  checks are green locally. After this prerequisite lands, remove Git's last
-  scout-only Apple compatibility define by implementing the truthful
-  zero-valued `__has_extension(...)` feature query, then publish the complete
-  Git campaign.
+  checks are green locally. Exact tested head
+  `e4b79af4392496cac736dbb5103fc5024b08ef53` completed with 38 passing and
+  nine intentionally skipped checks, then merged green-only through PR #190
+  as `2c98eb38f8e2d75fe7f41924758b983e9c521454`.
+- The active `s56.96-has-extension` tranche starts from exact merged PR #190.
+  `CAMP-GIT-003` removes Git's last scout-only Apple compatibility definition
+  by exposing `__has_extension(identifier)` as a builtin feature query. It is
+  visible to `defined` and `#ifdef`, preserves the operand as a raw identifier,
+  and conservatively returns zero for every Clang feature identifier Cgfried
+  does not advertise. Source redefinition and `#undef` retain the established
+  builtin-macro rules. Missing parentheses, empty arguments, non-identifiers,
+  and extra arguments each diagnose once; recovery leaves a zero token so the
+  primary error does not cascade through `#if` or the parser.
+
+  Four focused unit groups cover 21 assertions across ordinary-token and
+  conditional expansion, containing macros, raw operands, override/undef, and
+  malformed calls. All 52 preprocessor unit tests (541 assertions), the full
+  59-fixture native `arm64-macos` preprocessor profile, and the focused
+  ASan+UBSan units are green. Both frontend and preprocessor fuzz smokes pass
+  2,000 iterations with zero findings; the preprocessor differential is also
+  clean. Adding the permanent fixture intentionally repins the independently
+  reproduced 5,000-step frontend digest to `ff31bc7497394113`.
+
+  The real Apple `TargetConditionals.h` now selects its documented static
+  `TARGET_CPU_ARM64` fallback, and Git's `common-main.c` parses under the full
+  Apple scout flags with `-D'__has_extension(x)=0'` removed. Pinned formatting,
+  bans, preprocessor seams, fuzz-crash inventory, POSIX-shell parsing, and
+  whitespace checks are green. The local aggregate gate cleared all 1,038
+  units (4,331,788 assertions), audit lifecycle, runtime, and policy checks
+  before reaching the known invalid `linux-x86_64` golden profile on the
+  native ARM64/Mach-O compiler; focused native evidence is green and hosted CI
+  supplies the target-correct full matrix. Implementation commit is
+  `1b7aaea6`. After this tranche lands, publish the complete pinned, symmetric,
+  provenance-certified Git 2.56.0 sole-C campaign on both native architectures.
 - CI runs the complete x86 matrix on every PR and the native arm64 matrix on
   the scheduled runner.  Matrix publication and baseline refresh are atomic,
   target-complete, and provenance checked.
