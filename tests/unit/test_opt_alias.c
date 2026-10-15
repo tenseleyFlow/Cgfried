@@ -123,6 +123,75 @@ static bool pts_equal(PtsSet a, PtsSet b)
            memcmp(a.words, b.words, a.nwords * sizeof(u64)) == 0;
 }
 
+void test_alias_gnu_object_aliases_share_storage_identity(TestCtx *t)
+{
+    AliasFix f;
+    IrModule *m;
+    AliasCtx *c;
+    IrOperand target, local_alias, weak_alias, chain_alias;
+    IrOperand cycle_a, cycle_b, dangling;
+    MemLoc target_member, alias_member, adjacent, whole;
+
+    alias_fix_init(&f);
+    m = alias_parse(&f, "global @target size 12 align 4 external\n"
+                        "alias @local_alias = @target internal\n"
+                        "alias @weak_alias = @target external weak\n"
+                        "alias @chain_alias = @weak_alias external\n"
+                        "alias @cycle_a = @cycle_b external\n"
+                        "alias @cycle_b = @cycle_a external\n"
+                        "alias @dangling = @missing external\n"
+                        "func ptr @f() {\n"
+                        "entry():\n"
+                        "    ret ptr @chain_alias\n"
+                        "}\n");
+    T_ASSERT(t, m != NULL);
+    if (!m) {
+        arena_free_all(&f.arena);
+        return;
+    }
+    c = alias_ctx(m, false);
+    target = ir_op_symbol(IRT_PTR, ir_sym(m, "target"), 0);
+    local_alias = ir_op_symbol(IRT_PTR, ir_sym(m, "local_alias"), 0);
+    weak_alias = ir_op_symbol(IRT_PTR, ir_sym(m, "weak_alias"), 0);
+    chain_alias = ir_op_symbol(IRT_PTR, ir_sym(m, "chain_alias"), 0);
+    cycle_a = ir_op_symbol(IRT_PTR, ir_sym(m, "cycle_a"), 0);
+    cycle_b = ir_op_symbol(IRT_PTR, ir_sym(m, "cycle_b"), 0);
+    dangling = ir_op_symbol(IRT_PTR, ir_sym(m, "dangling"), 0);
+
+    T_ASSERT(t, pts_equal(alias_points_to(c, target),
+                          alias_points_to(c, local_alias)));
+    T_ASSERT(t, pts_equal(alias_points_to(c, target),
+                          alias_points_to(c, weak_alias)));
+    T_ASSERT(t, pts_equal(alias_points_to(c, target),
+                          alias_points_to(c, chain_alias)));
+
+    target_member = alias_memloc(c, target, 4, ETYPE_I32);
+    target_member.off_lo = target_member.off_hi = 4;
+    alias_member = alias_memloc(c, chain_alias, 4, ETYPE_I32);
+    alias_member.off_lo = alias_member.off_hi = 4;
+    adjacent = alias_member;
+    adjacent.off_lo = adjacent.off_hi = 8;
+    whole = alias_memloc(c, local_alias, 12, ETYPE_AGGREGATE);
+
+    T_ASSERT_EQ_INT(t, alias_query(c, target_member, alias_member), ALIAS_MUST);
+    T_ASSERT_EQ_INT(t, alias_query(c, alias_member, target_member), ALIAS_MUST);
+    T_ASSERT_EQ_INT(t, alias_query(c, target_member, adjacent), ALIAS_NO);
+    T_ASSERT(t, alias_covers(c, whole, target_member));
+    T_ASSERT(t, alias_covers(c, target_member, alias_member));
+    T_ASSERT(t, alias_covers(c, alias_member, target_member));
+
+    T_ASSERT_EQ_INT(t,
+                    alias_query(c, alias_memloc(c, cycle_a, 4, ETYPE_I32),
+                                alias_memloc(c, cycle_b, 4, ETYPE_I32)),
+                    ALIAS_MUST);
+    T_ASSERT_EQ_INT(t,
+                    alias_query(c, alias_memloc(c, dangling, 4, ETYPE_I32),
+                                alias_memloc(c, dangling, 4, ETYPE_I32)),
+                    ALIAS_MUST);
+    alias_free(c);
+    arena_free_all(&f.arena);
+}
+
 void test_alias_return_seeds_union_multiple_arguments(TestCtx *t)
 {
     AliasFix f;

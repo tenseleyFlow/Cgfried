@@ -41,7 +41,8 @@ struct AliasCtx {
     u64 *stored_pts; /* explicit store/out-param edges; excludes call poison */
     u64 *spts;       /* [module symbol][word] */
     u64 *unknown_pts;
-    u32 *sym_obj; /* module symbol id -> referenced object id, or zero */
+    u32 *sym_obj; /* canonical storage symbol -> object id, or zero */
+    u32 *sym_rep; /* module symbol id -> canonical storage symbol id */
     OffRange *voff;
     OffRange *moff;  /* pointer-content offset hull per abstract object */
     u32 *alloca_obj; /* value id -> object id + 1 */
@@ -445,10 +446,80 @@ static AllocSite *site_for_call(AliasCtx *c, const IrInst *call)
     return NULL;
 }
 
+static u32 find_symbol(const IrModule *m, const char *name)
+{
+    u32 i;
+
+    if (!name)
+        return UINT32_MAX;
+    for (i = 0; i < m->nsyms; i++)
+        if (m->syms[i] && (m->syms[i] == name || strcmp(m->syms[i], name) == 0))
+            return i;
+    return UINT32_MAX;
+}
+
+static u32 symbol_root(u32 *parents, u32 count, u32 sym)
+{
+    u32 root = sym;
+    u32 steps = 0;
+
+    if (sym >= count)
+        return sym;
+    while (parents[root] != root) {
+        if (parents[root] >= count || ++steps >= count)
+            return sym;
+        root = parents[root];
+    }
+    while (parents[sym] != sym) {
+        u32 next = parents[sym];
+
+        parents[sym] = root;
+        sym = next;
+    }
+    return root;
+}
+
+static void map_symbol_storage(AliasCtx *c)
+{
+    u32 i;
+
+    for (i = 0; i < c->m->nsyms; i++)
+        c->sym_rep[i] = i;
+
+    /* An IrAlias is storage identity, not a second allocation. Union the
+     * names before compact points-to objects are assigned so every client of
+     * this shared service observes that identity. Root-to-root links make
+     * alias chains order-independent and keep malformed cycles finite. A
+     * missing symbol is corrupt IR; ignoring that one edge is the safe guard
+     * here because no array index is invented from it. */
+    for (i = 0; i < c->m->naliases; i++) {
+        const IrAlias *alias = &c->m->aliases[i];
+        u32 name = find_symbol(c->m, alias->name);
+        u32 target = find_symbol(c->m, alias->target);
+        u32 name_root, target_root;
+
+        if (name == UINT32_MAX || target == UINT32_MAX)
+            continue;
+        name_root = symbol_root(c->sym_rep, c->m->nsyms, name);
+        target_root = symbol_root(c->sym_rep, c->m->nsyms, target);
+        if (name_root != target_root)
+            c->sym_rep[name_root] = target_root;
+    }
+    for (i = 0; i < c->m->nsyms; i++)
+        c->sym_rep[i] = symbol_root(c->sym_rep, c->m->nsyms, i);
+}
+
+static bool same_symbol_storage(const AliasCtx *c, IrOperand a, IrOperand b)
+{
+    return a.kind == IROP_SYMBOL && b.kind == IROP_SYMBOL &&
+           a.sym < c->m->nsyms && b.sym < c->m->nsyms &&
+           c->sym_rep[a.sym] == c->sym_rep[b.sym];
+}
+
 static void mark_symbol_operand(AliasCtx *c, IrOperand op)
 {
     if (op.kind == IROP_SYMBOL && op.type == IRT_PTR && op.sym < c->m->nsyms)
-        c->sym_obj[op.sym] = UINT32_MAX;
+        c->sym_obj[c->sym_rep[op.sym]] = UINT32_MAX;
 }
 
 static u32 map_referenced_symbols(AliasCtx *c)
@@ -514,8 +585,9 @@ static void init_roots(AliasCtx *c, const AliasConfig *cfg)
 
     bit_add(c->unknown_pts, c->unknown_obj);
     for (i = 0; i < c->m->nsyms; i++)
-        bit_add(srow(c, i),
-                c->sym_obj[i] ? c->sym_obj[i] : c->unreferenced_sym_obj);
+        bit_add(srow(c, i), c->sym_obj[c->sym_rep[i]]
+                                ? c->sym_obj[c->sym_rep[i]]
+                                : c->unreferenced_sym_obj);
     for (i = 0; i < c->f->nparams; i++) {
         ValueId v = c->f->param_vals[i];
 
@@ -882,6 +954,8 @@ AliasCtx *alias_build(IrModule *m, const AliasConfig *cfg)
     c->f = cfg->func;
     c->no_strict_aliasing = cfg->no_strict_aliasing;
     c->sym_obj = zalloc(m->nsyms, sizeof(u32));
+    c->sym_rep = zalloc(m->nsyms, sizeof(u32));
+    map_symbol_storage(c);
     nsyms = map_referenced_symbols(c);
     count_objects(c->f, &nalloca, &nrestrict);
     c->unknown_obj = 0;
@@ -963,6 +1037,7 @@ void alias_free(AliasCtx *c)
     free(c->voff);
     free(c->unknown_pts);
     free(c->spts);
+    free(c->sym_rep);
     free(c->sym_obj);
     free(c->stored_pts);
     free(c->mpts);
@@ -1197,13 +1272,14 @@ AliasResult alias_query(AliasCtx *c, MemLoc a, MemLoc b)
     OffRange bbase = operand_off(c, b.base);
     Footprint af = footprint(c, a);
     Footprint bf = footprint(c, b);
-    bool distinct_symbols = a.base.kind == IROP_SYMBOL &&
-                            b.base.kind == IROP_SYMBOL &&
-                            a.base.sym != b.base.sym;
+    bool same_symbol = same_symbol_storage(c, a.base, b.base);
+    bool distinct_symbols =
+        a.base.kind == IROP_SYMBOL && b.base.kind == IROP_SYMBOL &&
+        a.base.sym < c->m->nsyms && b.base.sym < c->m->nsyms && !same_symbol;
     bool same_object =
         ao != UINT32_MAX && ao == bo &&
         ((ao != c->unknown_obj && ao != c->unreferenced_sym_obj) ||
-         operand_equal(a.base, b.base));
+         operand_equal(a.base, b.base) || same_symbol);
     bool exact_locations = abase.set && bbase.set && abase.lo == abase.hi &&
                            bbase.lo == bbase.hi && a.off_lo == a.off_hi &&
                            b.off_lo == b.off_hi;
@@ -1251,12 +1327,14 @@ bool alias_covers(AliasCtx *c, MemLoc outer, MemLoc inner)
                            inner.off_lo == inner.off_hi;
 
     if (outer.base.kind == IROP_SYMBOL && inner.base.kind == IROP_SYMBOL &&
-        outer.base.sym != inner.base.sym)
+        outer.base.sym < c->m->nsyms && inner.base.sym < c->m->nsyms &&
+        !same_symbol_storage(c, outer.base, inner.base))
         return false;
     if (oo == UINT32_MAX || io == UINT32_MAX || oo != io)
         return false;
     if ((oo == c->unknown_obj || oo == c->unreferenced_sym_obj) &&
-        !operand_equal(outer.base, inner.base))
+        !operand_equal(outer.base, inner.base) &&
+        !same_symbol_storage(c, outer.base, inner.base))
         return false;
     /* OPT-H-04: containment of two path-dependent convex hulls does not mean
      * that the outer access covers the inner access on each concrete path. */
