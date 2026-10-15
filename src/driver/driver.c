@@ -1062,11 +1062,9 @@ static char *link_stage_pattern(Arena *arena, const char *final_out,
     char *path;
 
     if (strcmp(final_out, "/dev/null") == 0)
-        need = snprintf(NULL, 0, "/tmp/cgfried-link-%zu-XXXXXX",
-                        input_index);
+        need = snprintf(NULL, 0, "/tmp/cgfried-link-%zu-XXXXXX", input_index);
     else
-        need = snprintf(NULL, 0, "%s.cgf.%zu.o.XXXXXX", final_out,
-                        input_index);
+        need = snprintf(NULL, 0, "%s.cgf.%zu.o.XXXXXX", final_out, input_index);
     if (need < 0) {
         errno = EINVAL;
         return NULL;
