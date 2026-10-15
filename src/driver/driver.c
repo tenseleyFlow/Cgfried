@@ -261,6 +261,7 @@ typedef struct {
     const char *path; /* source path, or "-" for stdin */
     InputKind kind;
     const char *out;        /* product path (.s/.o) — NULL for stdout modes */
+    bool out_is_temporary;  /* driver exclusively created and may unlink it */
     Buf *pp_text;           /* non-NULL: -E token text lands here */
     bool pp_only;           /* preprocess only (mode -E or a .S first stage) */
     Buf *dep_text;          /* non-NULL: the -M depfile lands here */
@@ -996,40 +997,107 @@ static void report_assembler_signal(const ToolResult *res,
                 res->term_signal, source_path);
 }
 
-/* Most object builds stage assembler text beside the requested output so an
- * assembler rejection leaves a deterministic reproducer.  `/dev/null` is a
- * standard configure-probe output, however, and `/dev/null.cgf.s` is neither
- * writable nor meaningful.  Give that one sink a unique staging file; keep it
- * on failure under the same rule as an ordinary sidecar. */
-static FILE *open_asm_stage(const char *object_path, char *asm_path, size_t cap)
+/* W2-BD-H-01: stages are siblings of their requested output so tool failures
+ * leave a useful local reproducer, but their names must be exclusively ours. A
+ * deterministic <output>.cgf.s used to replace and later unlink an unrelated
+ * pre-existing file. /dev/null is the one output without a writable sibling,
+ * so configure probes retain the existing /tmp exception. */
+static bool asm_stage_pattern(const char *object_path, char *asm_path,
+                              size_t cap)
 {
     if (strcmp(object_path, "/dev/null") == 0) {
         static const char pattern[] = "/tmp/cgfried-asm-XXXXXX";
-        int fd;
-        FILE *f;
 
         if (sizeof(pattern) > cap) {
             errno = ENAMETOOLONG;
-            return NULL;
+            return false;
         }
         memcpy(asm_path, pattern, sizeof(pattern));
-        fd = mkstemp(asm_path);
-        if (fd < 0)
-            return NULL;
-        f = fdopen(fd, "wb");
-        if (!f) {
-            int saved = errno;
-
-            close(fd);
-            unlink(asm_path);
-            errno = saved;
-            return NULL;
-        }
-        return f;
+        return true;
     }
 
-    snprintf(asm_path, cap, "%s.cgf.s", object_path);
-    return fopen(asm_path, "wb");
+    {
+        int n = snprintf(asm_path, cap, "%s.cgf.s.XXXXXX", object_path);
+
+        if (n < 0 || (size_t)n >= cap) {
+            if (cap)
+                asm_path[0] = '\0';
+            errno = ENAMETOOLONG;
+            return false;
+        }
+    }
+    return true;
+}
+
+static FILE *open_asm_stage(const char *object_path, char *asm_path, size_t cap)
+{
+    int fd;
+    FILE *f;
+
+    if (!asm_stage_pattern(object_path, asm_path, cap))
+        return NULL;
+    fd = mkstemp(asm_path);
+    if (fd < 0)
+        return NULL;
+    f = fdopen(fd, "wb");
+    if (!f) {
+        int saved = errno;
+
+        close(fd);
+        unlink(asm_path);
+        errno = saved;
+        return NULL;
+    }
+    return f;
+}
+
+/* Link-mode objects are internal products, not user-designated outputs.
+ * Reserve each name with O_EXCL (through mkstemp) before handing it to an
+ * assembler, and put only successfully reserved names in the cleanup list.
+ * The dry-run form retains XXXXXX as an honest no-side-effect placeholder. */
+static char *link_stage_pattern(Arena *arena, const char *final_out,
+                                size_t input_index)
+{
+    int need;
+    char *path;
+
+    if (strcmp(final_out, "/dev/null") == 0)
+        need = snprintf(NULL, 0, "/tmp/cgfried-link-%zu-XXXXXX", input_index);
+    else
+        need = snprintf(NULL, 0, "%s.cgf.%zu.o.XXXXXX", final_out, input_index);
+    if (need < 0) {
+        errno = EINVAL;
+        return NULL;
+    }
+    path = arena_alloc(arena, (size_t)need + 1, 1);
+    if (strcmp(final_out, "/dev/null") == 0)
+        snprintf(path, (size_t)need + 1, "/tmp/cgfried-link-%zu-XXXXXX",
+                 input_index);
+    else
+        snprintf(path, (size_t)need + 1, "%s.cgf.%zu.o.XXXXXX", final_out,
+                 input_index);
+    return path;
+}
+
+static char *reserve_link_stage(Arena *arena, const char *final_out,
+                                size_t input_index)
+{
+    char *path = link_stage_pattern(arena, final_out, input_index);
+    int fd;
+
+    if (!path)
+        return NULL;
+    fd = mkstemp(path);
+    if (fd < 0)
+        return NULL;
+    if (close(fd) != 0) {
+        int saved = errno;
+
+        unlink(path);
+        errno = saved;
+        return NULL;
+    }
+    return path;
 }
 
 /* Full PIC may refer to a TLS object in an arbitrary DSO, so its ABI model is
@@ -1076,7 +1144,7 @@ static int run_emit_asm(Arena *arena, DiagCtx *dc, IrModule *m,
     u32 i;
     X64Func **xfuncs = NULL;
     A64Func **afuncs = NULL;
-    char s_path[528];
+    char s_path[4096];
     char comp_dir[4096];
     FILE *f;
     const char *dump_dir = job->plan_only ? NULL : phase_dump_dir();
@@ -1268,9 +1336,9 @@ emit_tail:
         buf_free(&b);
         return CGF_EXIT_OK;
     }
-    /* -c / link-mode object: write the .s beside the output
-     * (deterministic name; kept on failure so the ICE is reproducible),
-     * assemble, clean up. */
+    /* -c / link-mode object: write to an exclusively created sibling stage,
+     * keep it on failure so the diagnostic is reproducible, and remove it
+     * after successful assembly. */
     /* THE bundled-assembler gap for thread-local storage. The assembly we
      * produce is correct and gas assembles it; afs-as has neither local-exec
      * (`%fs:`/`@tpoff`) nor initial-exec (`@GOTTPOFF`/`:gottprel:`) TLS
@@ -1321,6 +1389,8 @@ emit_tail:
                     buf_free(&b);
                     return CGF_EXIT_COMPILE;
                 }
+                if (job->out_is_temporary)
+                    unlink(job->out);
                 CGF_ICE("assembler command died with signal %d while "
                         "assembling cgfried-generated assembly for '%s' "
                         "(kept at '%s')",
@@ -1363,6 +1433,8 @@ emit_tail:
                 buf_free(&b);
                 return CGF_EXIT_COMPILE;
             }
+            if (job->out_is_temporary)
+                unlink(job->out);
             CGF_ICE("the assembler rejected cgfried-generated assembly "
                     "(kept at '%s', line %u: \"%s\") — this is a cgf "
                     "emission bug",
@@ -2359,10 +2431,32 @@ int driver_main(int argc, char **argv)
                     product_path(in->path, 'o', out_buf, sizeof(out_buf));
                 job.out = out_buf;
             } else {
-                /* Link mode: a deterministic temp object per input. */
-                snprintf(out_buf, sizeof(out_buf), "%s.cgf.%zu.o", final_out,
-                         k);
-                job.out = out_buf;
+                char *stage;
+
+                /* Link mode: reserve an unpredictable sibling object before
+                 * any external tool sees the path. A dry run formats the
+                 * same template without creating it. */
+                if (a.dry_run)
+                    stage = link_stage_pattern(&arena, final_out, k);
+                else
+                    stage = reserve_link_stage(&arena, final_out, k);
+                if (!stage) {
+                    int saved = errno;
+
+                    fprintf(stderr,
+                            "cgfried: error: cannot create staging object "
+                            "for '%s' beside '%s': %s\n",
+                            in->path, final_out, strerror(saved));
+                    any_fail = true;
+                    if (status == CGF_EXIT_OK)
+                        status = CGF_EXIT_IO;
+                    continue;
+                }
+                job.out = stage;
+                if (!a.dry_run) {
+                    job.out_is_temporary = true;
+                    VecStr_push(&temp_objs, stage);
+                }
             }
 
             if (a.dry_run) {
@@ -2394,9 +2488,11 @@ int driver_main(int argc, char **argv)
                 } else if (a.emit_asm) {
                     echo_compile_step("-S", in->path, job.out);
                 } else {
-                    char s_tmp[528];
+                    char s_tmp[4096];
 
-                    snprintf(s_tmp, sizeof(s_tmp), "%s.cgf.s", job.out);
+                    if (!asm_stage_pattern(job.out, s_tmp, sizeof(s_tmp)))
+                        CGF_ICE("assembly stage path is too long for '%s'",
+                                job.out);
                     echo_compile_step("-S", in->path, s_tmp);
                     cgf_echo_as_plan(s_tmp, job.out);
                 }
@@ -2479,7 +2575,7 @@ int driver_main(int argc, char **argv)
                         fclose(sf);
                     }
                 } else if (rc == CGF_EXIT_OK && in->kind == IN_ASM_PP) {
-                    char s_tmp[528];
+                    char s_tmp[4096];
                     FILE *sf;
 
                     sf = open_asm_stage(job.out, s_tmp, sizeof(s_tmp));
@@ -2529,9 +2625,11 @@ int driver_main(int argc, char **argv)
                     if (a.emit_asm) {
                         echo_compile_step("-S", in->path, job.out);
                     } else {
-                        char s_tmp[528];
+                        char s_tmp[4096];
 
-                        snprintf(s_tmp, sizeof(s_tmp), "%s.cgf.s", job.out);
+                        if (!asm_stage_pattern(job.out, s_tmp, sizeof(s_tmp)))
+                            CGF_ICE("assembly stage path is too long for '%s'",
+                                    job.out);
                         echo_compile_step("-S", in->path, s_tmp);
                     }
                 }
@@ -2557,12 +2655,7 @@ int driver_main(int argc, char **argv)
 
             if (rc == CGF_EXIT_OK && a.link_exe && in->link_slot >= 0) {
                 /* The object claims its argv position in the link line. */
-                size_t n = strlen(job.out);
-                char *dup = arena_alloc(&arena, n + 1, 1);
-
-                memcpy(dup, job.out, n + 1);
-                a.link_inputs.data[in->link_slot].val = dup;
-                VecStr_push(&temp_objs, dup);
+                a.link_inputs.data[in->link_slot].val = job.out;
             }
             if (rc != CGF_EXIT_OK) {
                 any_fail = true;

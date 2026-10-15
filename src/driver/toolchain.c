@@ -488,16 +488,23 @@ ToolResult cgf_run_assembler(const char *s_path, const char *o_path,
             if (c == '\n' || npend + 1 >= sizeof(pending)) {
                 pending[npend] = '\0';
                 fprintf(stderr, "[as] %s\n", pending);
-                /* first "<file>:<line>:" wins */
+                /* First diagnostic for the exact staged input wins. Stage
+                 * names now end in a random suffix, so parsing a literal
+                 * ".s:" would silently lose the source line. */
                 if (!line_found && diag_line) {
-                    const char *p = strstr(pending, ".s:");
+                    const char *p = strstr(pending, s_path);
 
                     if (p) {
-                        unsigned long v = strtoul(p + 3, NULL, 10);
+                        char *end;
+                        unsigned long v;
 
-                        if (v > 0) {
-                            *diag_line = (u32)v;
-                            line_found = true;
+                        p += strlen(s_path);
+                        if (*p == ':') {
+                            v = strtoul(p + 1, &end, 10);
+                            if (end > p + 1 && *end == ':' && v > 0) {
+                                *diag_line = (u32)v;
+                                line_found = true;
+                            }
                         }
                     }
                 }

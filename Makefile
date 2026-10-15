@@ -152,7 +152,8 @@ DIRS := $(sort $(dir $(OBJ) $(RUNNER_OBJ) $(UNIT_OBJ) $(PPDIFF_OBJ) $(FUZZ_OBJ) 
         check-ub-division test-a64-asm-diff test-a64-mir test-a64-debug \
         test-a64-corpus test-audit-fixtures test-audit-sample \
         test-closeout-gate check-closeouts test-posix-sh \
-        test-release-contracts check-version test-version-gate \
+        test-release-contracts test-driver-staging check-version \
+        test-version-gate \
         check-man-coverage test-man-coverage test-release-metadata dist-name \
         check-release-report dist test-dist-repro dist-check \
         audit-opt-generated \
@@ -377,6 +378,7 @@ test: all $(BUILD)/unit_tests $(BUILD)/cgf-test
 	$(MAKE) BUILD=$(BUILD) CC='$(CC)' test-bootstrap
 	$(BUILD)/unit_tests
 	$(MAKE) BUILD=$(BUILD) test-release-contracts
+	$(MAKE) BUILD=$(BUILD) test-driver-staging
 	$(MAKE) BUILD=$(BUILD) test-release-metadata
 	sh scripts/check_unit_registry.sh $(BUILD)/gen/unit_registry.c
 	$(MAKE) BUILD=$(BUILD) test-audit-fixtures
@@ -622,6 +624,9 @@ check-closeouts: test-closeout-gate
 # selection. SOURCE_DATE_EPOCH makes the copyright year deterministic.
 test-release-contracts: $(BUILD)/cgfried
 	CGF_TEST_CC=$(BUILD)/cgfried sh tests/scripts/version_contract_test.sh
+
+test-driver-staging: $(BUILD)/cgfried
+	CGF_TEST_CC=$(BUILD)/cgfried sh tests/scripts/driver_staging_test.sh
 
 check-version:
 	sh ci/check-version.sh
