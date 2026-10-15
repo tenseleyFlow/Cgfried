@@ -8,22 +8,34 @@ export LC_ALL
 
 CGF=${1:-build/cgf}
 WORK=${CGF_ASFAULT_WORK:-build/asfault-work}
+TARGET=--target=x86_64-linux-gnu
 mkdir -p "$WORK"
 
 cat > "$WORK/fake-as.sh" << 'FAKE'
 #!/bin/sh
-# consume args; reject with a caret diagnostic naming line 3
+# Consume args; reject with a caret diagnostic naming line 3. The compiler's
+# exclusively owned assembly stage has a random suffix and need not end in .s.
+input=
+want_output=no
 for a in "$@"; do
-    case $a in
-    *.s) echo "$a:3:1: error: injected fault" >&2 ;;
+    if [ "$want_output" = yes ]; then
+        want_output=no
+        continue
+    fi
+    case "$a" in
+    -o) want_output=yes ;;
+    --*) ;;
+    *) input=$a ;;
     esac
 done
+[ -n "$input" ] && echo "$input:3:1: error: injected fault" >&2
 exit 1
 FAKE
 chmod +x "$WORK/fake-as.sh"
 
 printf 'int f(void) { return 42; }\n' > "$WORK/t.c"
-CGF_AS_PATH="$WORK/fake-as.sh" "$CGF" -c "$WORK/t.c" -o "$WORK/t.o" \
+CGF_AS_PATH="$WORK/fake-as.sh" "$CGF" "$TARGET" -c "$WORK/t.c" \
+    -o "$WORK/t.o" \
     > "$WORK/out.log" 2>&1
 rc=$?
 if [ "$rc" -ne 4 ]; then
@@ -59,7 +71,7 @@ for input in "$WORK/t.c" "$WORK/inline.c" "$WORK/user.s" "$WORK/user.S"; do
     "$WORK/t.c") want=4 ;;
     *) want=1 ;;
     esac
-    CGF_AS_PATH="$WORK/signal-as.sh" "$CGF" -c "$input" \
+    CGF_AS_PATH="$WORK/signal-as.sh" "$CGF" "$TARGET" -c "$input" \
         -o "$WORK/signal.o" > "$WORK/signal.log" 2>&1
     rc=$?
     if [ "$rc" -ne "$want" ]; then

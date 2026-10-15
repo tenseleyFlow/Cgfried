@@ -90,7 +90,8 @@ norm_dep() {
 # input-order tokens (objects and -l in position). gcc prints its
 # subcommand lines space-indented and mostly unquoted; cgf prints every
 # arg quoted — strip quotes and classify by the first token's basename.
-# Temp objects (gcc's $TMPDIR/cc*.o, cgf's *.cgf.N.o) normalize to <obj>.
+# Temp objects (gcc's $TMPDIR/cc*.o, cgf's exclusively reserved
+# *.cgf.N.o.<random>) normalize to <obj>.
 # GCC respects TMPDIR, so using its configured root keeps this comparison
 # stable when the test scratch space is moved off /tmp.
 norm_plan() {
@@ -109,9 +110,10 @@ norm_plan() {
                 tok = f[i]
                 n2 = split(tok, p2, "/")
                 b2 = p2[n2]
-                if (b2 ~ /\.o$/ && b2 !~ /crt/) {
+                cgf_tmp = b2 ~ /\.cgf\.[0-9]+\.o\.[A-Za-z0-9]+$/
+                if ((b2 ~ /\.o$/ || cgf_tmp) && b2 !~ /crt/) {
                     if (b2 ~ /^cc.*\.o$/ && index(tok, tmp_prefix) == 1) b2 = "<obj>"
-                    if (b2 ~ /\.cgf\.[0-9]+\.o$/) b2 = "<obj>"
+                    if (cgf_tmp) b2 = "<obj>"
                     printf " %s", b2
                 } else if (tok ~ /^-l/ && tok != "-lc" &&
                            tok !~ /^-lgcc/ && tok !~ /^-latomic/) {
