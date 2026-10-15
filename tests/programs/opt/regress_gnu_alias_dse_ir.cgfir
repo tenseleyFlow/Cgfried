@@ -1,0 +1,21 @@
+// FLAGS: -O2
+// ENV: CGF_VERIFY_AFTER_EACH=1
+// IR_CHECK: func i8 @probe()
+// IR_CHECK: store i32 21, @target
+// IR_CHECK: load i8, @alias_name
+// IR_CHECK: store i32 22, @target
+// The character load cannot be forwarded from the differently sized i32
+// store. It therefore remains as a DSE barrier across the alias spelling.
+
+sym @alias_name
+sym @target
+alias @alias_name = @target external
+global @target size 4 align 4 external
+
+func i8 @probe() {
+entry():
+    store i32 21, @target, align 4, etype i32
+    %observed = load i8, @alias_name, align 1, etype char
+    store i32 22, @target, align 4, etype i32
+    ret i8 %observed
+}

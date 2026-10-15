@@ -26,6 +26,8 @@
  *   Equal-width signed and unsigned integer accesses share one EffTypeId.
  * - Disabling strict aliasing removes only effective-type NoAlias results;
  *   distinct-object and disjoint-byte-range proofs remain valid.
+ * - IrModule aliases and their targets have one canonical storage identity;
+ *   this applies to direct symbols, derived pointers, and alias chains.
  * - Queries are pure.  Any CFG or instruction mutation invalidates AliasCtx;
  *   a mutating pass must free and rebuild it.
  *
